@@ -231,6 +231,14 @@ export const demoApi = {
       persist();
       return clone(project);
     },
+    importUrl: async (id: string, _url: string) => {
+      const project = getProjectOrThrow(id);
+      project.status = "uploaded";
+      project.source_key = "local/remote-video";
+      project.updated_at = nowIso();
+      persist();
+      return clone(project);
+    },
     remove: async (id: string) => {
       const st = loadState();
       st.projects = st.projects.filter((p) => p.id !== id);

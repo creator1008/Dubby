@@ -31,6 +31,19 @@ function absoluteAssetUrl(path: string) {
   return new URL(path, LOCAL_PIPELINE_ORIGIN).toString();
 }
 
+function normalizeStep12Result(result: LocalStep12Result): LocalStep12Result {
+  return {
+    ...result,
+    source_url: absoluteAssetUrl(result.source_url),
+    audio_url: absoluteAssetUrl(result.audio_url),
+    asr_audio_url: absoluteAssetUrl(result.asr_audio_url),
+    segments: result.segments.map((segment) => ({
+      ...segment,
+      audio_url: absoluteAssetUrl(segment.audio_url),
+    })),
+  };
+}
+
 export async function checkLocalPipeline(): Promise<boolean> {
   try {
     const response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/health`, {
@@ -80,16 +93,46 @@ export async function extractLocalStep12(
   }
 
   const result = (await response.json()) as LocalStep12Result;
-  return {
-    ...result,
-    source_url: absoluteAssetUrl(result.source_url),
-    audio_url: absoluteAssetUrl(result.audio_url),
-    asr_audio_url: absoluteAssetUrl(result.asr_audio_url),
-    segments: result.segments.map((segment) => ({
-      ...segment,
-      audio_url: absoluteAssetUrl(segment.audio_url),
-    })),
-  };
+  return normalizeStep12Result(result);
+}
+
+export async function extractLocalStep12FromUrl(
+  url: string,
+  sourceLang: LangCode,
+  targetLang: LangCode,
+  diarizationEnabled = false,
+): Promise<LocalStep12Result> {
+  let response: Response;
+  try {
+    response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/step12/url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        source_lang: sourceLang,
+        target_lang: targetLang,
+        diarization_enabled: diarizationEnabled,
+      }),
+    });
+  } catch {
+    throw new Error(
+      "영상 링크 처리 서버에 연결할 수 없습니다. api 폴더에서 " +
+        "`uvicorn app.local_step12:app --reload --port 8002`를 실행해 주세요.",
+    );
+  }
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      detail?: string | { message?: string };
+    } | null;
+    const detail =
+      typeof body?.detail === "string"
+        ? body.detail
+        : body?.detail?.message;
+    throw new Error(detail ?? `영상 링크 처리 실패 (${response.status})`);
+  }
+  return normalizeStep12Result(
+    (await response.json()) as LocalStep12Result,
+  );
 }
 
 export async function generateLocalDubVoice(

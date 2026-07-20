@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import UUID
 
 from fastapi import APIRouter, status
@@ -9,8 +11,15 @@ from fastapi import APIRouter, status
 from ..auth import CurrentUser
 from ..config import get_settings
 from ..deps import Repo, Storage
-from ..errors import NotFoundError
-from ..schemas import DownloadUrlResponse, ProjectCreate, ProjectOut, ProjectUpdate
+from ..errors import BadRequestError, NotFoundError
+from ..remote_media import RemoteMediaError, download_remote_media
+from ..schemas import (
+    DownloadUrlResponse,
+    ProjectCreate,
+    ProjectImportUrlRequest,
+    ProjectOut,
+    ProjectUpdate,
+)
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
@@ -106,3 +115,40 @@ async def get_output_url(
         download_filename=f"{row.get('title') or 'dubby-output'}-dubbed.mp4",
     )
     return DownloadUrlResponse(url=url, expires_in=expires_in)
+
+
+@router.post("/{project_id}/import-url", response_model=ProjectOut)
+async def import_project_url(
+    project_id: UUID,
+    body: ProjectImportUrlRequest,
+    user: CurrentUser,
+    repo: Repo,
+    storage: Storage,
+) -> ProjectOut:
+    project = await repo.get_project(user.id, project_id)
+    if project is None:
+        raise NotFoundError("Project not found")
+    settings = get_settings()
+    try:
+        with TemporaryDirectory(prefix="dubby-url-") as temp_dir:
+            media = await download_remote_media(
+                body.url,
+                Path(temp_dir),
+                max_bytes=settings.max_source_bytes,
+            )
+            key = storage.source_key(user.id, project_id, media.filename)
+            await storage.upload_file(
+                str(media.path),
+                key,
+                media.content_type,
+            )
+    except RemoteMediaError as exc:
+        raise BadRequestError(str(exc)) from exc
+    updated = await repo.update_project(
+        user.id,
+        project_id,
+        {"source_key": key, "status": "uploaded"},
+    )
+    if updated is None:
+        raise NotFoundError("Project not found")
+    return ProjectOut.model_validate(updated)

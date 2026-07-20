@@ -1091,6 +1091,29 @@ body {
   }
 }
 
+.source-mode-tabs {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+
+.source-mode-tabs button {
+  flex: 1;
+}
+
+.video-url-field {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.video-url-field input {
+  width: 100%;
+}
+
+.video-url-field .muted {
+  font-size: 0.82rem;
+}
+
 .dropzone {
   border: 1.5px dashed rgba(15, 156, 138, 0.45);
   border-radius: 1rem;

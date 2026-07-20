@@ -10,6 +10,7 @@ import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
 import {
   extractLocalStep12,
+  extractLocalStep12FromUrl,
   generateLocalDubVoice,
   renderLocalDubVideo,
 } from "@/lib/local-step12";
@@ -31,7 +32,9 @@ export default function NewDubPage() {
   const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("target");
   const [toneStyle, setToneStyle] = useState<ToneStyle>("neutral");
   const [diarizationEnabled, setDiarizationEnabled] = useState(true);
+  const [sourceMode, setSourceMode] = useState<"upload" | "url">("upload");
   const [file, setFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState("");
   const [uploadPct, setUploadPct] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [localStage, setLocalStage] = useState<string | null>(null);
@@ -84,8 +87,13 @@ export default function NewDubPage() {
   // Step 1 — 파일선택 및 자막추출
   const onExtract = async (e: FormEvent) => {
     e.preventDefault();
-    if (!file) {
-      setError("영상 파일을 선택해 주세요.");
+    const remoteUrl = videoUrl.trim();
+    if (sourceMode === "upload" && !file) {
+      setError(text.selectVideoFile);
+      return;
+    }
+    if (sourceMode === "url" && !remoteUrl) {
+      setError(text.enterVideoUrl);
       return;
     }
     if (!voiceConsent.accepted) {
@@ -100,29 +108,59 @@ export default function NewDubPage() {
     setUploadPct(0);
     setError(null);
     try {
+      let sourceTitle = file?.name ?? text.linkVideo;
+      if (sourceMode === "url") {
+        try {
+          const parsed = new URL(remoteUrl);
+          sourceTitle = decodeURIComponent(
+            parsed.pathname.split("/").filter(Boolean).at(-1) || parsed.hostname,
+          );
+        } catch {
+          setError(text.invalidVideoUrl);
+          return;
+        }
+      }
       const created = await api.projects.create({
-        title: title.trim() || file.name,
+        title: title.trim() || sourceTitle,
         source_lang: sourceLang,
         target_lang: targetLang,
         subtitle_mode: subtitleMode,
         tone_style: toneStyle,
         diarization_enabled: diarizationEnabled,
       });
-      await uploadSourceFile(created.id, file, setUploadPct);
       if (isDemoMode) {
         setLocalStage("2/2 실제 음성 인식 및 단어 타임스탬프 추출 중");
-        const result = await extractLocalStep12(
-          file,
-          sourceLang,
-          targetLang,
-          diarizationEnabled,
-        );
+        const result = sourceMode === "upload"
+          ? await (async () => {
+              await uploadSourceFile(created.id, file!, setUploadPct);
+              return extractLocalStep12(
+                file!,
+                sourceLang,
+                targetLang,
+                diarizationEnabled,
+              );
+            })()
+          : await extractLocalStep12FromUrl(
+              remoteUrl,
+              sourceLang,
+              targetLang,
+              diarizationEnabled,
+            ).then((result) => {
+              setUploadPct(100);
+              return result;
+            });
         const extracted = await demoApi.applyStep12(created.id, result);
         setSegments(extracted);
         setLocalRunId(result.run_id);
         setExtractedAudioUrl(result.audio_url);
         setLocalStage(null);
       } else {
+        if (sourceMode === "upload") {
+          await uploadSourceFile(created.id, file!, setUploadPct);
+        } else {
+          await api.projects.importUrl(created.id, remoteUrl);
+          setUploadPct(100);
+        }
         await api.jobs.create(created.id, "transcribe");
       }
       const [nextProject, nextJobs] = await Promise.all([
@@ -365,7 +403,40 @@ export default function NewDubPage() {
             </label>
           </div>
 
-          <FileUploader file={file} onFile={setFile} disabled={uploading} />
+          <div className="source-mode-tabs" role="group" aria-label={text.videoSourceMethod}>
+            <button
+              type="button"
+              className={sourceMode === "upload" ? "btn-primary" : "btn-ghost"}
+              disabled={uploading}
+              onClick={() => setSourceMode("upload")}
+            >
+              {text.uploadVideo}
+            </button>
+            <button
+              type="button"
+              className={sourceMode === "url" ? "btn-primary" : "btn-ghost"}
+              disabled={uploading}
+              onClick={() => setSourceMode("url")}
+            >
+              {text.videoLink}
+            </button>
+          </div>
+
+          {sourceMode === "upload" ? (
+            <FileUploader file={file} onFile={setFile} disabled={uploading} />
+          ) : (
+            <label className="video-url-field">
+              {text.videoLink}
+              <input
+                type="url"
+                value={videoUrl}
+                disabled={uploading}
+                placeholder="https://cdn.example.com/video.mp4"
+                onChange={(event) => setVideoUrl(event.target.value)}
+              />
+              <span className="muted">{text.directVideoUrlHint}</span>
+            </label>
+          )}
 
           <label className="consent-row">
             <input
@@ -382,7 +453,9 @@ export default function NewDubPage() {
           {uploading && (
             <div className="upload-progress-wrap">
               <div className="upload-progress-head">
-                <strong>{text.fileUpload}</strong>
+                <strong>
+                  {sourceMode === "upload" ? text.fileUpload : text.linkImport}
+                </strong>
                 <span>{uploadPct}%</span>
               </div>
               <div className="progress-bar" role="progressbar" aria-valuenow={uploadPct}>
@@ -394,9 +467,17 @@ export default function NewDubPage() {
           <button
             className="btn-primary"
             type="submit"
-            disabled={uploading || !file || !voiceConsent.accepted}
+            disabled={
+              uploading
+              || (sourceMode === "upload" ? !file : !videoUrl.trim())
+              || !voiceConsent.accepted
+            }
           >
-            {uploading ? text.uploading : text.uploadAndExtract}
+            {uploading
+              ? text.uploading
+              : sourceMode === "upload"
+                ? text.uploadAndExtract
+                : text.importAndExtract}
           </button>
         </form>
       )}

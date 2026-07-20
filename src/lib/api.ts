@@ -58,6 +58,11 @@ const realApi = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+    importUrl: (id: string, url: string) =>
+      request<Project>(`/v1/projects/${id}/import-url`, {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
     remove: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
     download: (id: string) =>
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/output-url`),

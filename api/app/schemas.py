@@ -51,6 +51,10 @@ class ProjectUpdate(BaseModel):
     diarization_enabled: bool | None = None
 
 
+class ProjectImportUrlRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+
+
 class ProjectOut(BaseModel):
     id: UUID
     title: str

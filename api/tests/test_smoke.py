@@ -48,6 +48,7 @@ def test_expected_routes_registered() -> None:
         "/v1/projects/{project_id}/segments",
         "/v1/projects/{project_id}/jobs",
         "/v1/projects/{project_id}/output-url",
+        "/v1/projects/{project_id}/import-url",
         "/v1/jobs/{job_id}",
         "/v1/jobs/{job_id}/cancel",
         "/v1/credits",

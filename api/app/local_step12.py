@@ -34,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from .remote_media import RemoteMediaError, download_remote_media
 
 from .worker.elevenlabs_client import tts_model_for_language
 
@@ -96,6 +97,13 @@ class RenderDubRequest(BaseModel):
     run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     segments: list[RenderSegment] = Field(min_length=1, max_length=500)
     subtitle_mode: str = Field(default="none", pattern="^(none|source|target)$")
+
+
+class RemoteStep12Request(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+    source_lang: str = Field(default="ko", pattern="^(ko|en|vi)$")
+    target_lang: str = Field(default="en", pattern="^(ko|en|vi)$")
+    diarization_enabled: bool = False
 
 
 def _ffmpeg_executable() -> str:
@@ -1559,6 +1567,41 @@ async def create_step12(
     except Exception as exc:
         # Keep successful intermediate audio when ASR fails so step 1 can still
         # be inspected; the response points developers to the run directory.
+        raise HTTPException(
+            500,
+            {
+                "message": str(exc),
+                "run_id": run_id,
+                "work_dir": str(work_dir),
+            },
+        ) from exc
+
+
+@app.post("/v1/local/step12/url")
+async def create_step12_from_url(body: RemoteStep12Request) -> dict:
+    run_id = uuid4().hex
+    work_dir = DATA_ROOT / run_id
+    work_dir.mkdir(parents=True, exist_ok=False)
+    try:
+        media = await download_remote_media(
+            body.url,
+            work_dir,
+            max_bytes=MAX_SOURCE_BYTES,
+        )
+        source = work_dir / f"source{media.path.suffix.lower() or '.mp4'}"
+        media.path.replace(source)
+        return await asyncio.to_thread(
+            _process,
+            source,
+            work_dir,
+            body.source_lang,
+            body.target_lang,
+            body.diarization_enabled,
+        )
+    except RemoteMediaError as exc:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
         raise HTTPException(
             500,
             {
