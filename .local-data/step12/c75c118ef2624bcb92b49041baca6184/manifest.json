@@ -1,0 +1,57 @@
+{
+  "run_id": "c75c118ef2624bcb92b49041baca6184",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 4640,
+      "text": "도자기는 뒤에 후작업으로 깎고 다듬고 건조",
+      "target_text": "The pottery is carved, refined, and dried in the post-processing.",
+      "audio_path": "speech/0001_0_4640.wav",
+      "audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/speech/0001_0_4640.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 4640,
+      "end_ms": 8180,
+      "text": "후에 초벌 재벌 가마에 총 두 번 구워야 돼요",
+      "target_text": "After that, it needs to be fired twice in a bisque kiln.",
+      "audio_path": "speech/0002_4640_8180.wav",
+      "audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/speech/0002_4640_8180.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 8460,
+      "end_ms": 9580,
+      "text": "그래서 한 달이 걸려요.",
+      "target_text": "So it takes a month.",
+      "audio_path": "speech/0003_8460_9580.wav",
+      "audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/speech/0003_8460_9580.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 9820,
+      "end_ms": 11920,
+      "text": "저희가 사실 수업료가 되게 싸요.",
+      "target_text": "Actually, our tuition is very cheap.",
+      "audio_path": "speech/0004_9820_11920.wav",
+      "audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/speech/0004_9820_11920.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 12300,
+      "end_ms": 14700,
+      "text": "1인당 수업 다섯 번 하시는데.",
+      "target_text": "Each person takes five classes.",
+      "audio_path": "speech/0005_12300_14700.wav",
+      "audio_url": "/v1/local/step12/c75c118ef2624bcb92b49041baca6184/speech/0005_12300_14700.wav"
+    }
+  ]
+}

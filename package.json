@@ -1,19 +1,38 @@
 {
-  "name": "dubby-tmp",
+  "name": "dubby",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:step12": "cd api && uvicorn app.local_step12:app --reload --port 8002",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "test": "vitest run",
+    "start": "wrangler pages dev out",
+    "lint": "eslint",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:add:android": "cap add android",
+    "mobile:add:ios": "cap add ios",
+    "mobile:open:android": "cap open android",
+    "mobile:open:ios": "cap open ios",
+    "mobile:run:android": "npm run mobile:sync && cap run android",
+    "mobile:run:ios": "npm run mobile:sync && cap run ios",
+    "pages:dev": "npm run build && wrangler pages dev out",
+    "pages:deploy": "npm run build && wrangler pages deploy out"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/ios": "^8.4.2",
+    "@capacitor/share": "^8.0.1",
+    "@revenuecat/purchases-capacitor": "^13.2.3",
+    "@supabase/supabase-js": "^2.110.7",
     "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -21,6 +40,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.111.0"
   }
 }

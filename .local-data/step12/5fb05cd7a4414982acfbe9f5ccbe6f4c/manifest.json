@@ -1,0 +1,430 @@
+{
+  "run_id": "5fb05cd7a4414982acfbe9f5ccbe6f4c",
+  "language": "en",
+  "target_language": "ko",
+  "asr_provider": "openai",
+  "diarization_enabled": true,
+  "source_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/asr_audio.wav",
+  "speech_ranges": [
+    {
+      "start_ms": 230,
+      "end_ms": 1050
+    },
+    {
+      "start_ms": 16050,
+      "end_ms": 17270
+    },
+    {
+      "start_ms": 19610,
+      "end_ms": 21510
+    },
+    {
+      "start_ms": 22470,
+      "end_ms": 22670
+    },
+    {
+      "start_ms": 22850,
+      "end_ms": 24270
+    },
+    {
+      "start_ms": 32910,
+      "end_ms": 33070
+    },
+    {
+      "start_ms": 33920,
+      "end_ms": 34240
+    },
+    {
+      "start_ms": 34730,
+      "end_ms": 36630
+    },
+    {
+      "start_ms": 38250,
+      "end_ms": 38930
+    },
+    {
+      "start_ms": 39450,
+      "end_ms": 39630
+    },
+    {
+      "start_ms": 40130,
+      "end_ms": 40810
+    },
+    {
+      "start_ms": 42930,
+      "end_ms": 43250
+    },
+    {
+      "start_ms": 43840,
+      "end_ms": 45060
+    },
+    {
+      "start_ms": 45430,
+      "end_ms": 45870
+    },
+    {
+      "start_ms": 46310,
+      "end_ms": 46990
+    },
+    {
+      "start_ms": 48190,
+      "end_ms": 48970
+    },
+    {
+      "start_ms": 60840,
+      "end_ms": 61420
+    },
+    {
+      "start_ms": 61750,
+      "end_ms": 62130
+    },
+    {
+      "start_ms": 64310,
+      "end_ms": 67550
+    },
+    {
+      "start_ms": 67810,
+      "end_ms": 68030
+    },
+    {
+      "start_ms": 69930,
+      "end_ms": 71190
+    },
+    {
+      "start_ms": 76110,
+      "end_ms": 76410
+    },
+    {
+      "start_ms": 77020,
+      "end_ms": 77200
+    },
+    {
+      "start_ms": 77430,
+      "end_ms": 78910
+    },
+    {
+      "start_ms": 79690,
+      "end_ms": 81050
+    },
+    {
+      "start_ms": 81500,
+      "end_ms": 82520
+    },
+    {
+      "start_ms": 82900,
+      "end_ms": 84140
+    },
+    {
+      "start_ms": 88460,
+      "end_ms": 89860
+    },
+    {
+      "start_ms": 90160,
+      "end_ms": 90940
+    },
+    {
+      "start_ms": 93070,
+      "end_ms": 93350
+    },
+    {
+      "start_ms": 93630,
+      "end_ms": 93870
+    }
+  ],
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 100,
+      "end_ms": 750,
+      "text": "I didn't.",
+      "target_text": "안 했어.",
+      "speaker_id": "A",
+      "audio_path": "speech/0001_100_750.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0001_100_750.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 9000,
+      "end_ms": 9400,
+      "text": "sorry.",
+      "target_text": "미안해.",
+      "speaker_id": "A",
+      "audio_path": "speech/0002_9000_9400.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0002_9000_9400.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 14950,
+      "end_ms": 16850,
+      "text": "It's fine, and you're welcome anytime.",
+      "target_text": "괜찮아, 언제든지 환영이야.",
+      "speaker_id": "B",
+      "audio_path": "speech/0003_14950_16850.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0003_14950_16850.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 18850,
+      "end_ms": 21350,
+      "text": "So you really don't consider giving me a chance?",
+      "target_text": "정말 나에게 기회를 주는 걸 고려하지 않는 거야?",
+      "speaker_id": "B",
+      "audio_path": "speech/0004_18850_21350.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0004_18850_21350.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 22150,
+      "end_ms": 24100,
+      "text": "Damn, you look so sexy.",
+      "target_text": "와, 정말 섹시해 보인다.",
+      "speaker_id": "A",
+      "audio_path": "speech/0005_22150_24100.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0005_22150_24100.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 31732,
+      "end_ms": 32132,
+      "text": "Anyway,",
+      "target_text": "어쨌든,",
+      "speaker_id": "C",
+      "audio_path": "speech/0006_31732_32132.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0006_31732_32132.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 32432,
+      "end_ms": 32932,
+      "text": "I'll never,",
+      "target_text": "절대,",
+      "speaker_id": "C",
+      "audio_path": "speech/0007_32432_32932.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0007_32432_32932.wav"
+    },
+    {
+      "idx": 7,
+      "start_ms": 33382,
+      "end_ms": 36532,
+      "text": "ever consider my ex-boyfriend's father as my lover.",
+      "target_text": "내 전 남자친구의 아버지를 내 연인으로 고려하지 않을 거야.",
+      "speaker_id": "C",
+      "audio_path": "speech/0008_33382_36532.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0008_33382_36532.wav"
+    },
+    {
+      "idx": 8,
+      "start_ms": 37732,
+      "end_ms": 38782,
+      "text": "You can drive now.",
+      "target_text": "이제 운전해도 돼.",
+      "speaker_id": "C",
+      "audio_path": "speech/0009_37732_38782.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0009_37732_38782.wav"
+    },
+    {
+      "idx": 9,
+      "start_ms": 39182,
+      "end_ms": 39482,
+      "text": "Hey!",
+      "target_text": "이봐!",
+      "speaker_id": "C",
+      "audio_path": "speech/0010_39182_39482.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0010_39182_39482.wav"
+    },
+    {
+      "idx": 10,
+      "start_ms": 39732,
+      "end_ms": 40732,
+      "text": "What are you doing?",
+      "target_text": "뭐 하고 있어?",
+      "speaker_id": "C",
+      "audio_path": "speech/0011_39732_40732.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0011_39732_40732.wav"
+    },
+    {
+      "idx": 11,
+      "start_ms": 42532,
+      "end_ms": 44982,
+      "text": "Keep it. Call me if you change your mind,",
+      "target_text": "그거 가져. 마음이 바뀌면 나한테 전화해,",
+      "speaker_id": "B",
+      "audio_path": "speech/0012_42532_44982.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0012_42532_44982.wav"
+    },
+    {
+      "idx": 12,
+      "start_ms": 45332,
+      "end_ms": 45832,
+      "text": "need help,",
+      "target_text": "도움이 필요하면,",
+      "speaker_id": "B",
+      "audio_path": "speech/0013_45332_45832.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0013_45332_45832.wav"
+    },
+    {
+      "idx": 13,
+      "start_ms": 46182,
+      "end_ms": 46882,
+      "text": "or just get bored.",
+      "target_text": "아니면 그냥 지루해지면.",
+      "speaker_id": "B",
+      "audio_path": "speech/0014_46182_46882.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0014_46182_46882.wav"
+    },
+    {
+      "idx": 14,
+      "start_ms": 47682,
+      "end_ms": 48832,
+      "text": "It'll never happen.",
+      "target_text": "절대 그런 일은 일어나지 않을 거야.",
+      "speaker_id": "C",
+      "audio_path": "speech/0015_47682_48832.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0015_47682_48832.wav"
+    },
+    {
+      "idx": 15,
+      "start_ms": 60082,
+      "end_ms": 61332,
+      "text": "I heard the new shareholders.",
+      "target_text": "새로운 주주들에 대해 들었어.",
+      "speaker_id": "C",
+      "audio_path": "speech/0016_60082_61332.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0016_60082_61332.wav"
+    },
+    {
+      "idx": 16,
+      "start_ms": 64052,
+      "end_ms": 67452,
+      "text": "After we slaved away all afternoon preparing this, they'll just show up and have fun?",
+      "target_text": "우리가 오후 내내 이걸 준비하느라 고생했는데, 그들은 그냥 나타나서 즐길 거야?",
+      "speaker_id": "C",
+      "audio_path": "speech/0017_64052_67452.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0017_64052_67452.wav"
+    },
+    {
+      "idx": 17,
+      "start_ms": 67452,
+      "end_ms": 68652,
+      "text": "Shh, keep your voice down.",
+      "target_text": "쉿, 목소리 낮춰.",
+      "speaker_id": "A",
+      "audio_path": "speech/0018_67452_68652.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0018_67452_68652.wav"
+    },
+    {
+      "idx": 18,
+      "start_ms": 69452,
+      "end_ms": 71452,
+      "text": "I heard the new shareholder is a bigwig.",
+      "target_text": "새로운 주주가 큰손이라고 들었어.",
+      "speaker_id": "C",
+      "audio_path": "speech/0019_69452_71452.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0019_69452_71452.wav"
+    },
+    {
+      "idx": 19,
+      "start_ms": 71652,
+      "end_ms": 72852,
+      "text": "We can't afford to offend them.",
+      "target_text": "우리는 그들을 불쾌하게 할 여유가 없어.",
+      "speaker_id": "C",
+      "audio_path": "speech/0020_71652_72852.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0020_71652_72852.wav"
+    },
+    {
+      "idx": 20,
+      "start_ms": 75702,
+      "end_ms": 76802,
+      "text": "All right, everyone!",
+      "target_text": "자, 모두!",
+      "speaker_id": "C",
+      "audio_path": "speech/0021_75702_76802.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0021_75702_76802.wav"
+    },
+    {
+      "idx": 21,
+      "start_ms": 77302,
+      "end_ms": 78852,
+      "text": "Movie night is about to start!",
+      "target_text": "영화의 밤이 곧 시작해!",
+      "speaker_id": "C",
+      "audio_path": "speech/0022_77302_78852.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0022_77302_78852.wav"
+    },
+    {
+      "idx": 22,
+      "start_ms": 79252,
+      "end_ms": 80952,
+      "text": "Who brought something good to watch?",
+      "target_text": "누가 볼 만한 걸 가져왔어?",
+      "speaker_id": "C",
+      "audio_path": "speech/0023_79252_80952.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0023_79252_80952.wav"
+    },
+    {
+      "idx": 23,
+      "start_ms": 81402,
+      "end_ms": 82402,
+      "text": "Oh, look, it's starting.",
+      "target_text": "오, 봐, 시작해.",
+      "speaker_id": "C",
+      "audio_path": "speech/0024_81402_82402.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0024_81402_82402.wav"
+    },
+    {
+      "idx": 24,
+      "start_ms": 82602,
+      "end_ms": 84102,
+      "text": "I wonder what movie they're showing.",
+      "target_text": "어떤 영화를 상영할지 궁금해.",
+      "speaker_id": "C",
+      "audio_path": "speech/0025_82602_84102.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0025_82602_84102.wav"
+    },
+    {
+      "idx": 25,
+      "start_ms": 88552,
+      "end_ms": 89202,
+      "text": "Oh, my God!",
+      "target_text": "오, 세상에!",
+      "speaker_id": "C",
+      "audio_path": "speech/0026_88552_89202.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0026_88552_89202.wav"
+    },
+    {
+      "idx": 26,
+      "start_ms": 89402,
+      "end_ms": 89802,
+      "text": "Wait,",
+      "target_text": "잠깐,",
+      "speaker_id": "C",
+      "audio_path": "speech/0027_89402_89802.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0027_89402_89802.wav"
+    },
+    {
+      "idx": 27,
+      "start_ms": 90152,
+      "end_ms": 90852,
+      "text": "is that Jennifer?",
+      "target_text": "저게 제니퍼야?",
+      "speaker_id": "C",
+      "audio_path": "speech/0028_90152_90852.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0028_90152_90852.wav"
+    },
+    {
+      "idx": 28,
+      "start_ms": 92724,
+      "end_ms": 93774,
+      "text": "Wow, that's...",
+      "target_text": "와, 그건...",
+      "speaker_id": "B",
+      "audio_path": "speech/0029_92724_93774.wav",
+      "audio_url": "/v1/local/step12/5fb05cd7a4414982acfbe9f5ccbe6f4c/speech/0029_92724_93774.wav"
+    }
+  ]
+}

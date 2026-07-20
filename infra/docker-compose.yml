@@ -1,0 +1,79 @@
+# Dubby production stack for a single Lightsail instance.
+#
+#   cd infra
+#   cp ../api/.env.example .env   # fill in real values (never commit)
+#   docker compose up -d --build
+#
+# Caddy terminates TLS for the API domain and proxies to the api container.
+# Set DUBBY_API_DOMAIN (and an email for ACME) in the same .env file.
+
+name: dubby
+
+services:
+  api:
+    build:
+      context: ../api
+      target: api
+    image: dubby-api:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+    expose:
+      - "8000"
+    # Uncomment to reach the API directly without Caddy:
+    # ports:
+    #   - "8000:8000"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  worker:
+    build:
+      context: ../api
+      target: worker
+    image: dubby-worker:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+    volumes:
+      # Demucs/torch model weights survive container recreation.
+      - demucs-models:/srv/dubby/models
+      # Scratch space for ffmpeg intermediates.
+      - worker-scratch:/tmp
+    # Keep the pipeline from starving the API on a small instance.
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-6g}
+    stop_grace_period: 5m # let an in-flight job drain on deploy
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DUBBY_API_DOMAIN: ${DUBBY_API_DOMAIN:?set DUBBY_API_DOMAIN in infra/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in infra/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  demucs-models:
+  worker-scratch:
+  caddy-data:
+  caddy-config:

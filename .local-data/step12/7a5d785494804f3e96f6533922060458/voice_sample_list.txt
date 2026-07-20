@@ -1,0 +1,5 @@
+file 'D:/Coding/Dubby/.local-data/step12/7a5d785494804f3e96f6533922060458/speech/0001_0_4640.wav'
+file 'D:/Coding/Dubby/.local-data/step12/7a5d785494804f3e96f6533922060458/speech/0002_4640_8180.wav'
+file 'D:/Coding/Dubby/.local-data/step12/7a5d785494804f3e96f6533922060458/speech/0003_8460_9580.wav'
+file 'D:/Coding/Dubby/.local-data/step12/7a5d785494804f3e96f6533922060458/speech/0004_9820_11920.wav'
+file 'D:/Coding/Dubby/.local-data/step12/7a5d785494804f3e96f6533922060458/speech/0005_12300_14700.wav'

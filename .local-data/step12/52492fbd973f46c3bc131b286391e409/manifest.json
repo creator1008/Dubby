@@ -1,0 +1,89 @@
+{
+  "run_id": "52492fbd973f46c3bc131b286391e409",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "source_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/asr_audio.wav",
+  "speech_ranges": [
+    {"start_ms": 3970, "end_ms": 6150},
+    {"start_ms": 8390, "end_ms": 9730},
+    {"start_ms": 11590, "end_ms": 13070},
+    {"start_ms": 13960, "end_ms": 14820},
+    {"start_ms": 17090, "end_ms": 18690},
+    {"start_ms": 21400, "end_ms": 22360},
+    {"start_ms": 23960, "end_ms": 26560},
+    {"start_ms": 27460, "end_ms": 28520},
+    {"start_ms": 30810, "end_ms": 32310},
+    {"start_ms": 32700, "end_ms": 33240},
+    {"start_ms": 34710, "end_ms": 37070}
+  ],
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 3060,
+      "end_ms": 8480,
+      "text": "난 우리 혜리를 아주 많이 아끼고 사랑해 그",
+      "target_text": "I care for and love our Hyeri very much.",
+      "audio_path": "speech/0001_3060_8480.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0001_3060_8480.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 8480,
+      "end_ms": 13940,
+      "text": "어떤 잘못을 하더라도 다 덮어주고 싶을만큼 사실",
+      "target_text": "No matter what mistakes she makes, I want to cover for her.",
+      "audio_path": "speech/0002_8480_13940.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0002_8480_13940.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 13940,
+      "end_ms": 18780,
+      "text": "따지고 보면 딱히 큰 잘못도 아니잖아",
+      "target_text": "If you think about it, it's not really a big mistake.",
+      "audio_path": "speech/0003_13940_18780.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0003_13940_18780.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 18780,
+      "end_ms": 23940,
+      "text": "그래서 난 이렇게 정리할거야 어떤",
+      "target_text": "So I will organize it like this.",
+      "audio_path": "speech/0004_18780_23940.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0004_18780_23940.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 23940,
+      "end_ms": 28580,
+      "text": "깡패가 김민지라는 여고생을 납치해서 함께 실종된 사건",
+      "target_text": "A gangster kidnapped a high school girl named Kim Min-ji, and they both went missing.",
+      "audio_path": "speech/0005_23940_28580.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0005_23940_28580.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 30180,
+      "end_ms": 35160,
+      "text": "깡패는 실종됐으니 그럼 이제 김민지",
+      "target_text": "The gangster is missing, so now Kim Min-ji.",
+      "audio_path": "speech/0006_30180_35160.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0006_30180_35160.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 35160,
+      "end_ms": 36940,
+      "text": "학생만 세상에서 사라지면 되겠네",
+      "target_text": "Only the student needs to disappear from the world.",
+      "audio_path": "speech/0007_35160_36940.wav",
+      "audio_url": "/v1/local/step12/52492fbd973f46c3bc131b286391e409/speech/0007_35160_36940.wav"
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "run_id": "c85cf52a4db84215963cbbc1b4c3eb73",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "source_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/asr_audio.wav",
+  "speech_ranges": [
+    {
+      "start_ms": 30,
+      "end_ms": 2710
+    },
+    {
+      "start_ms": 2850,
+      "end_ms": 5350
+    },
+    {
+      "start_ms": 5570,
+      "end_ms": 8170
+    },
+    {
+      "start_ms": 8370,
+      "end_ms": 11290
+    },
+    {
+      "start_ms": 11690,
+      "end_ms": 12950
+    },
+    {
+      "start_ms": 13150,
+      "end_ms": 15490
+    },
+    {
+      "start_ms": 15670,
+      "end_ms": 22190
+    },
+    {
+      "start_ms": 22410,
+      "end_ms": 31610
+    }
+  ],
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 2740,
+      "text": "야유는 서둘러 방으로 들어간다.",
+      "target_text": "Yayu hurriedly entered the room.",
+      "audio_path": "speech/0001_0_2740.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0001_0_2740.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 2820,
+      "end_ms": 5300,
+      "text": "고등학교 시절 사진을 꺼내 하나씩 확인했다.",
+      "target_text": "He took out photos from high school and checked them one by one.",
+      "audio_path": "speech/0002_2820_5300.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0002_2820_5300.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 5580,
+      "end_ms": 8140,
+      "text": "한 대가 옛 동창 시우라는 사실을 알아챘다.",
+      "target_text": "He realized that one of them was his old classmate Siwoo.",
+      "audio_path": "speech/0003_5580_8140.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0003_5580_8140.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 8380,
+      "end_ms": 11260,
+      "text": "반가운 마음에 잠시 들렀다 가라고 권하려 했다.",
+      "target_text": "Feeling delighted, he tried to suggest that Siwoo stop by for a moment.",
+      "audio_path": "speech/0004_8380_11260.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0004_8380_11260.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 11720,
+      "end_ms": 12880,
+      "text": "하지만 시우는 말했다.",
+      "target_text": "But Siwoo said.",
+      "audio_path": "speech/0005_11720_12880.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0005_11720_12880.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 13020,
+      "end_ms": 15400,
+      "text": "다른 주문도 배달하러 가야 한다고 했다.",
+      "target_text": "He said he had to deliver another order.",
+      "audio_path": "speech/0006_13020_15400.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0006_13020_15400.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 15700,
+      "end_ms": 19740,
+      "text": "괜히 시간을 뺏고 싶지 않았기에 두 사람은 가볍게 인사만 나눴다.",
+      "target_text": "Not wanting to waste time, the two just exchanged light greetings.",
+      "audio_path": "speech/0007_15700_19740.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0007_15700_19740.wav"
+    },
+    {
+      "idx": 7,
+      "start_ms": 19860,
+      "end_ms": 22140,
+      "text": "그리고 시우는 급히 자리를 떠났다.",
+      "target_text": "And then Siwoo quickly left.",
+      "audio_path": "speech/0008_19860_22140.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0008_19860_22140.wav"
+    },
+    {
+      "idx": 8,
+      "start_ms": 22380,
+      "end_ms": 26320,
+      "text": "방으로 돌아온 야유는 생각할수록 아쉬움이 더욱 커져만 갔다.",
+      "target_text": "Returning to the room, Yayu felt more and more regret as he thought about it.",
+      "audio_path": "speech/0009_22380_26320.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0009_22380_26320.wav"
+    },
+    {
+      "idx": 9,
+      "start_ms": 26320,
+      "end_ms": 31540,
+      "text": "어느덧 서른을 앞둔 나이가 되었지만 외모는 학창시절과 크게 달라지지 않았다.",
+      "target_text": "Now approaching thirty, his appearance had not changed much since his school days.",
+      "audio_path": "speech/0010_26320_31540.wav",
+      "audio_url": "/v1/local/step12/c85cf52a4db84215963cbbc1b4c3eb73/speech/0010_26320_31540.wav"
+    }
+  ]
+}

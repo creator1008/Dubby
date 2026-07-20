@@ -1,0 +1,90 @@
+{
+  "run_id": "0c40a7b2968645be811493633fa94b34",
+  "language": "ko",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 2720,
+      "text": "야유는 서둘러 방으로 들어간다.",
+      "audio_path": "speech/0001_0_2720.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0001_0_2720.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 2880,
+      "end_ms": 5380,
+      "text": "고등학교 시절 사진을 꺼내 하나씩 확인했다.",
+      "audio_path": "speech/0002_2880_5380.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0002_2880_5380.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 5580,
+      "end_ms": 8180,
+      "text": "한 대가 옛동창 시우라는 사실을 알아챘다.",
+      "audio_path": "speech/0003_5580_8180.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0003_5580_8180.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 8380,
+      "end_ms": 11480,
+      "text": "반가운 마음에 잠시 들렀다 가라고 권하려 했다.",
+      "audio_path": "speech/0004_8380_11480.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0004_8380_11480.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 11700,
+      "end_ms": 12960,
+      "text": "하지만 시우는 말했다.",
+      "audio_path": "speech/0005_11700_12960.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0005_11700_12960.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 13160,
+      "end_ms": 15500,
+      "text": "다른 주문도 배달하러 가야 한다고 했다.",
+      "audio_path": "speech/0006_13160_15500.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0006_13160_15500.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 15680,
+      "end_ms": 19780,
+      "text": "괜히 시간을 뺏고 싶지 않았기에 그 사람은 가볍게 인사만 나눴다.",
+      "audio_path": "speech/0007_15680_19780.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0007_15680_19780.wav"
+    },
+    {
+      "idx": 7,
+      "start_ms": 19920,
+      "end_ms": 22200,
+      "text": "그리고 시우는 급히 자리를 떠났다.",
+      "audio_path": "speech/0008_19920_22200.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0008_19920_22200.wav"
+    },
+    {
+      "idx": 8,
+      "start_ms": 22400,
+      "end_ms": 26400,
+      "text": "방으로 돌아온 야유는 생각할수록 아쉬움이 더욱 커져만 갔다.",
+      "audio_path": "speech/0009_22400_26400.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0009_22400_26400.wav"
+    },
+    {
+      "idx": 9,
+      "start_ms": 26400,
+      "end_ms": 31600,
+      "text": "어느덧 서른을 앞둔 나이가 되었지만 외모는 합창시절과 크게 달라지지 않았다.",
+      "audio_path": "speech/0010_26400_31600.wav",
+      "audio_url": "/v1/local/step12/0c40a7b2968645be811493633fa94b34/speech/0010_26400_31600.wav"
+    }
+  ]
+}

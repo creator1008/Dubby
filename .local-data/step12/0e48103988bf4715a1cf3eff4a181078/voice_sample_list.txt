@@ -1,0 +1,8 @@
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0001_660_5300.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0002_5580_10360.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0003_10360_11280.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0004_11720_15400.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0005_15700_19740.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0006_19860_24400.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0007_24400_26320.wav'
+file 'D:/Coding/Dubby/.local-data/step12/0e48103988bf4715a1cf3eff4a181078/speech/0008_26320_31540.wav'

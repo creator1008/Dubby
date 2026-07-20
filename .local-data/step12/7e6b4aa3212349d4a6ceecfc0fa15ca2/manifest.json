@@ -1,0 +1,278 @@
+{
+  "run_id": "7e6b4aa3212349d4a6ceecfc0fa15ca2",
+  "language": "ko",
+  "target_language": "vi",
+  "asr_provider": "openai",
+  "diarization_enabled": false,
+  "source_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/asr_audio.wav",
+  "speech_ranges": [
+    {
+      "start_ms": 670,
+      "end_ms": 1730
+    },
+    {
+      "start_ms": 4040,
+      "end_ms": 5180
+    },
+    {
+      "start_ms": 7280,
+      "end_ms": 9020
+    },
+    {
+      "start_ms": 10550,
+      "end_ms": 15730
+    },
+    {
+      "start_ms": 16030,
+      "end_ms": 16550
+    },
+    {
+      "start_ms": 17470,
+      "end_ms": 17870
+    },
+    {
+      "start_ms": 18450,
+      "end_ms": 20370
+    },
+    {
+      "start_ms": 21270,
+      "end_ms": 24810
+    },
+    {
+      "start_ms": 25000,
+      "end_ms": 27720
+    },
+    {
+      "start_ms": 28200,
+      "end_ms": 30300
+    },
+    {
+      "start_ms": 31090,
+      "end_ms": 32830
+    },
+    {
+      "start_ms": 33030,
+      "end_ms": 34530
+    },
+    {
+      "start_ms": 35250,
+      "end_ms": 36170
+    },
+    {
+      "start_ms": 36720,
+      "end_ms": 41100
+    },
+    {
+      "start_ms": 41650,
+      "end_ms": 43730
+    },
+    {
+      "start_ms": 44270,
+      "end_ms": 47530
+    },
+    {
+      "start_ms": 47790,
+      "end_ms": 49330
+    },
+    {
+      "start_ms": 49610,
+      "end_ms": 50470
+    },
+    {
+      "start_ms": 50890,
+      "end_ms": 52070
+    },
+    {
+      "start_ms": 52610,
+      "end_ms": 53790
+    },
+    {
+      "start_ms": 54150,
+      "end_ms": 55890
+    },
+    {
+      "start_ms": 56030,
+      "end_ms": 56750
+    },
+    {
+      "start_ms": 57330,
+      "end_ms": 59710
+    }
+  ],
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 4560,
+      "text": "이게 이제 여러분 흔히 얘기하는",
+      "target_text": "Đây là điều mà mọi người thường nói,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0001_0_4560.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0001_0_4560.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 4560,
+      "end_ms": 4880,
+      "text": "루트",
+      "target_text": "căn,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0002_4560_4880.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0002_4560_4880.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 7160,
+      "end_ms": 9060,
+      "text": "요거서부터 많이 포기하죠",
+      "target_text": "từ đây thì nhiều người bắt đầu từ bỏ,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0003_7160_9060.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0003_7160_9060.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 10460,
+      "end_ms": 16300,
+      "text": "그러니까 수학을 포기하는 학생의 가장 첫 번째가 요 루트에요. 계기가",
+      "target_text": "vì vậy, học sinh đầu tiên từ bỏ toán học chính là căn này. Đó là lý do,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0004_10460_16300.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0004_10460_16300.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 16300,
+      "end_ms": 22740,
+      "text": "돼요. 그래서 여러분 그 예능 프로그램 보면 예능 프로그램 보면 뭐 언제",
+      "target_text": "Vì vậy, khi các bạn xem chương trình giải trí, có những câu hỏi như là khi nào,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0005_16300_22740.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0005_16300_22740.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 22740,
+      "end_ms": 26180,
+      "text": "수학을 포기했냐 뭐 이런 얘기를 하는 거 보면 루트 나올 때부터 포기",
+      "target_text": "bạn đã từ bỏ toán học, thì thấy rằng từ khi có căn,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0006_22740_26180.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0006_22740_26180.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 26180,
+      "end_ms": 29960,
+      "text": "했어 이런 사람들이 되게 많아요 . 그러니까 루트부터 무서운 거에요",
+      "target_text": "nhiều người đã nói như vậy. Vì vậy, căn là điều đáng sợ,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0007_26180_29960.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0007_26180_29960.wav"
+    },
+    {
+      "idx": 7,
+      "start_ms": 29960,
+      "end_ms": 33880,
+      "text": ". 이게 처음으로 공부하는 뭐기 때문에 그러냐면 이게 무리수라서",
+      "target_text": "Đây là điều đầu tiên mà chúng ta học, lý do là vì nó là số vô tỉ,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0008_29960_33880.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0008_29960_33880.wav"
+    },
+    {
+      "idx": 8,
+      "start_ms": 33880,
+      "end_ms": 34700,
+      "text": "그래요 무리수",
+      "target_text": "Đúng vậy, số vô tỉ,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0009_33880_34700.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0009_33880_34700.wav"
+    },
+    {
+      "idx": 9,
+      "start_ms": 35240,
+      "end_ms": 39160,
+      "text": "이 기호에 대해서 좀 익숙치 못해서 그래요 지금부터",
+      "target_text": "vì chưa quen với ký hiệu này, từ bây giờ,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0010_35240_39160.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0010_35240_39160.wav"
+    },
+    {
+      "idx": 10,
+      "start_ms": 39160,
+      "end_ms": 43120,
+      "text": "루트를 내가 설명을 한번 해볼 테니까 제가 허심탄회하게 한번 설명을",
+      "target_text": "tôi sẽ cố gắng giải thích về căn, tôi sẽ giải thích một cách chân thành,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0011_39160_43120.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0011_39160_43120.wav"
+    },
+    {
+      "idx": 11,
+      "start_ms": 43120,
+      "end_ms": 47260,
+      "text": "해보겠습니다. 저도 지금 마음을 좀 다 비우고 설명을 해볼 테니까",
+      "target_text": "Tôi cũng sẽ cố gắng để tâm trí mình thoải mái khi giải thích,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0012_43120_47260.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0012_43120_47260.wav"
+    },
+    {
+      "idx": 12,
+      "start_ms": 47520,
+      "end_ms": 51640,
+      "text": "최선을 다해서 한번 들어보도록 하세요. 루트가 뭐냐면 이 루트라는",
+      "target_text": "Hãy cố gắng lắng nghe hết sức có thể. Căn là gì? Căn này,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0013_47520_51640.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0013_47520_51640.wav"
+    },
+    {
+      "idx": 13,
+      "start_ms": 51640,
+      "end_ms": 53740,
+      "text": "게 루트",
+      "target_text": "là căn,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0014_51640_53740.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0014_51640_53740.wav"
+    },
+    {
+      "idx": 14,
+      "start_ms": 54280,
+      "end_ms": 56700,
+      "text": "영어로 얘기하면 이거에요 뿌리근이죠",
+      "target_text": "nếu nói bằng tiếng Anh thì là root,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0015_54280_56700.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0015_54280_56700.wav"
+    },
+    {
+      "idx": 15,
+      "start_ms": 57400,
+      "end_ms": 58000,
+      "text": "그래서 이걸 한자",
+      "target_text": "Vì vậy, trong tiếng Hán,",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0016_57400_58000.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0016_57400_58000.wav"
+    },
+    {
+      "idx": 16,
+      "start_ms": 58000,
+      "end_ms": 59720,
+      "text": "로 근호라 그럽니다 근호",
+      "target_text": "người ta gọi là căn hào.",
+      "speaker_id": "speaker_0",
+      "audio_path": "speech/0017_58000_59720.wav",
+      "audio_url": "/v1/local/step12/7e6b4aa3212349d4a6ceecfc0fa15ca2/speech/0017_58000_59720.wav"
+    }
+  ]
+}

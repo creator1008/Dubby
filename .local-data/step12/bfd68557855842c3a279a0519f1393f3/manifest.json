@@ -1,0 +1,121 @@
+{
+  "run_id": "bfd68557855842c3a279a0519f1393f3",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "source_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 4820,
+      "end_ms": 9320,
+      "text": "뭔가 저기 위로 올라가면은 좀 괜찮을 것 같거든요",
+      "target_text": "I think it would be better if we go up there.",
+      "audio_path": "speech/0001_4820_9320.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0001_4820_9320.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 9580,
+      "end_ms": 10360,
+      "text": "위로 올라가보시죠",
+      "target_text": "Let's go up.",
+      "audio_path": "speech/0002_9580_10360.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0002_9580_10360.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 20480,
+      "end_ms": 24200,
+      "text": "여러분 명당을 찾았어요.",
+      "target_text": "Everyone, I found a great spot.",
+      "audio_path": "speech/0003_20480_24200.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0003_20480_24200.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 24200,
+      "end_ms": 28200,
+      "text": "저기가 입구거든요? 입구에서 이렇게 들어오면은",
+      "target_text": "That's the entrance, right? If you come in like this,",
+      "audio_path": "speech/0004_24200_28200.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0004_24200_28200.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 29140,
+      "end_ms": 32200,
+      "text": "여기 내려가는 길이 하나 더 있어요. 여기 내려오면은",
+      "target_text": "there's another way down here. If you come down here,",
+      "audio_path": "speech/0005_29140_32200.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0005_29140_32200.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 33120,
+      "end_ms": 34400,
+      "text": "여기가 진짜 좋은 것 같아요.",
+      "target_text": "I think this place is really nice.",
+      "audio_path": "speech/0006_33120_34400.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0006_33120_34400.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 35120,
+      "end_ms": 38500,
+      "text": "흔들도 그렇게 많지 않고 물고기 진짜 많다.",
+      "target_text": "There aren't many people and there are really a lot of fish.",
+      "audio_path": "speech/0007_35120_38500.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0007_35120_38500.wav"
+    },
+    {
+      "idx": 7,
+      "start_ms": 39240,
+      "end_ms": 41360,
+      "text": "우와 여기다 여기.",
+      "target_text": "Wow, it's right here.",
+      "audio_path": "speech/0008_39240_41360.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0008_39240_41360.wav"
+    },
+    {
+      "idx": 8,
+      "start_ms": 42040,
+      "end_ms": 43340,
+      "text": "여러분 이렇게 생겼어요.",
+      "target_text": "Everyone, it looks like this.",
+      "audio_path": "speech/0009_42040_43340.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0009_42040_43340.wav"
+    },
+    {
+      "idx": 9,
+      "start_ms": 48480,
+      "end_ms": 49240,
+      "text": "찾았다",
+      "target_text": "Found it.",
+      "audio_path": "speech/0010_48480_49240.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0010_48480_49240.wav"
+    },
+    {
+      "idx": 10,
+      "start_ms": 50480,
+      "end_ms": 51160,
+      "text": "다슬기도 있다",
+      "target_text": "There are also freshwater snails.",
+      "audio_path": "speech/0011_50480_51160.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0011_50480_51160.wav"
+    },
+    {
+      "idx": 11,
+      "start_ms": 52860,
+      "end_ms": 54420,
+      "text": "와우 요 다슬기 크다 크다.",
+      "target_text": "Wow, these freshwater snails are big.",
+      "audio_path": "speech/0012_52860_54420.wav",
+      "audio_url": "/v1/local/step12/bfd68557855842c3a279a0519f1393f3/speech/0012_52860_54420.wav"
+    }
+  ]
+}

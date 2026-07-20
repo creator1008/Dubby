@@ -1,0 +1,207 @@
+{
+  "segments": [
+    {
+      "idx": 0,
+      "speaker_id": "A",
+      "source_level_db": -14.4,
+      "tts_level_db": -25.4,
+      "gain_db": 6.0
+    },
+    {
+      "idx": 1,
+      "speaker_id": "A",
+      "source_level_db": -19.5,
+      "tts_level_db": -18.6,
+      "gain_db": -0.9
+    },
+    {
+      "idx": 2,
+      "speaker_id": "B",
+      "source_level_db": -18.1,
+      "tts_level_db": -9.8,
+      "gain_db": -8.0
+    },
+    {
+      "idx": 3,
+      "speaker_id": "B",
+      "source_level_db": -13.1,
+      "tts_level_db": -9.8,
+      "gain_db": -3.3
+    },
+    {
+      "idx": 4,
+      "speaker_id": "A",
+      "source_level_db": -15.89,
+      "tts_level_db": -14.0,
+      "gain_db": -1.89
+    },
+    {
+      "idx": 5,
+      "speaker_id": "C",
+      "source_level_db": -10.9,
+      "tts_level_db": -38.6,
+      "gain_db": 6.0
+    },
+    {
+      "idx": 6,
+      "speaker_id": "C",
+      "source_level_db": -14.8,
+      "tts_level_db": -11.3,
+      "gain_db": -3.5
+    },
+    {
+      "idx": 7,
+      "speaker_id": "C",
+      "source_level_db": -14.61,
+      "tts_level_db": -9.1,
+      "gain_db": -5.51
+    },
+    {
+      "idx": 8,
+      "speaker_id": "C",
+      "source_level_db": -13.9,
+      "tts_level_db": -9.7,
+      "gain_db": -4.2
+    },
+    {
+      "idx": 9,
+      "speaker_id": "C",
+      "source_level_db": -16.1,
+      "tts_level_db": -9.0,
+      "gain_db": -7.1
+    },
+    {
+      "idx": 10,
+      "speaker_id": "C",
+      "source_level_db": -13.2,
+      "tts_level_db": -11.7,
+      "gain_db": -1.5
+    },
+    {
+      "idx": 11,
+      "speaker_id": "B",
+      "source_level_db": -13.74,
+      "tts_level_db": -12.2,
+      "gain_db": -1.54
+    },
+    {
+      "idx": 12,
+      "speaker_id": "B",
+      "source_level_db": -12.8,
+      "tts_level_db": -12.1,
+      "gain_db": -0.7
+    },
+    {
+      "idx": 13,
+      "speaker_id": "B",
+      "source_level_db": -16.8,
+      "tts_level_db": -12.9,
+      "gain_db": -3.9
+    },
+    {
+      "idx": 14,
+      "speaker_id": "C",
+      "source_level_db": -13.7,
+      "tts_level_db": -16.7,
+      "gain_db": 3.0
+    },
+    {
+      "idx": 15,
+      "speaker_id": "C",
+      "source_level_db": -12.8,
+      "tts_level_db": -12.9,
+      "gain_db": 0.1
+    },
+    {
+      "idx": 16,
+      "speaker_id": "C",
+      "source_level_db": -14.4,
+      "tts_level_db": -8.4,
+      "gain_db": -6.0
+    },
+    {
+      "idx": 17,
+      "speaker_id": "A",
+      "source_level_db": -22.69,
+      "tts_level_db": -13.6,
+      "gain_db": -8.0
+    },
+    {
+      "idx": 18,
+      "speaker_id": "C",
+      "source_level_db": -15.9,
+      "tts_level_db": -11.3,
+      "gain_db": -4.6
+    },
+    {
+      "idx": 19,
+      "speaker_id": "C",
+      "source_level_db": -23.8,
+      "tts_level_db": -10.6,
+      "gain_db": -8.0
+    },
+    {
+      "idx": 20,
+      "speaker_id": "C",
+      "source_level_db": -15.9,
+      "tts_level_db": -11.1,
+      "gain_db": -4.8
+    },
+    {
+      "idx": 21,
+      "speaker_id": "C",
+      "source_level_db": -14.4,
+      "tts_level_db": -10.8,
+      "gain_db": -3.6
+    },
+    {
+      "idx": 22,
+      "speaker_id": "C",
+      "source_level_db": -14.4,
+      "tts_level_db": -9.1,
+      "gain_db": -5.3
+    },
+    {
+      "idx": 23,
+      "speaker_id": "C",
+      "source_level_db": -13.6,
+      "tts_level_db": -14.1,
+      "gain_db": 0.5
+    },
+    {
+      "idx": 24,
+      "speaker_id": "C",
+      "source_level_db": -13.7,
+      "tts_level_db": -17.1,
+      "gain_db": 3.4
+    },
+    {
+      "idx": 25,
+      "speaker_id": "C",
+      "source_level_db": -13.5,
+      "tts_level_db": -9.4,
+      "gain_db": -4.1
+    },
+    {
+      "idx": 26,
+      "speaker_id": "C",
+      "source_level_db": -14.2,
+      "tts_level_db": -7.8,
+      "gain_db": -6.4
+    },
+    {
+      "idx": 27,
+      "speaker_id": "C",
+      "source_level_db": -13.3,
+      "tts_level_db": -8.7,
+      "gain_db": -4.6
+    },
+    {
+      "idx": 28,
+      "speaker_id": "B",
+      "source_level_db": -17.6,
+      "tts_level_db": -12.7,
+      "gain_db": -4.9
+    }
+  ]
+}

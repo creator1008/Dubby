@@ -1,0 +1,34 @@
+{
+  "segments": [
+    {
+      "idx": 0,
+      "speaker_id": "A",
+      "gain_db": 2.5
+    },
+    {
+      "idx": 1,
+      "speaker_id": "A",
+      "gain_db": 0.4
+    },
+    {
+      "idx": 3,
+      "speaker_id": "A",
+      "gain_db": -0.4
+    },
+    {
+      "idx": 4,
+      "speaker_id": "A",
+      "gain_db": -3.9
+    },
+    {
+      "idx": 5,
+      "speaker_id": "A",
+      "gain_db": 1.2
+    },
+    {
+      "idx": 6,
+      "speaker_id": "A",
+      "gain_db": -3.3
+    }
+  ]
+}

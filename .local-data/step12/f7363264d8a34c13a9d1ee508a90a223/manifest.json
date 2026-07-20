@@ -1,0 +1,122 @@
+{
+  "run_id": "f7363264d8a34c13a9d1ee508a90a223",
+  "language": "ko",
+  "target_language": "vi",
+  "asr_provider": "openai",
+  "diarization_enabled": true,
+  "source_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/asr_audio.wav",
+  "speech_ranges": [
+    {
+      "start_ms": 260,
+      "end_ms": 2200
+    },
+    {
+      "start_ms": 2940,
+      "end_ms": 5140
+    },
+    {
+      "start_ms": 6230,
+      "end_ms": 9390
+    },
+    {
+      "start_ms": 9970,
+      "end_ms": 12950
+    },
+    {
+      "start_ms": 14270,
+      "end_ms": 15550
+    },
+    {
+      "start_ms": 17600,
+      "end_ms": 19260
+    },
+    {
+      "start_ms": 21120,
+      "end_ms": 22100
+    },
+    {
+      "start_ms": 23290,
+      "end_ms": 24430
+    },
+    {
+      "start_ms": 26380,
+      "end_ms": 26680
+    }
+  ],
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 4700,
+      "text": "아직 상황 파악이 잘 안 되나 본데 난 너희 부녀를 위해서 호의를",
+      "target_text": "Có vẻ như vẫn chưa nắm rõ tình hình, nhưng tôi sẽ dành sự ưu ái cho hai cha con các bạn.",
+      "speaker_id": "A",
+      "audio_path": "speech/0001_0_4700.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0001_0_4700.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 4700,
+      "end_ms": 9220,
+      "text": "베푸는 거야 지금 당장 전화한 통화로 애초에 없었던 일로 만들 수도",
+      "target_text": "Bây giờ, chỉ với một cuộc gọi, tôi có thể biến mọi chuyện thành không có.",
+      "speaker_id": "A",
+      "audio_path": "speech/0002_4700_9220.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0002_4700_9220.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 9220,
+      "end_ms": 9580,
+      "text": "있고",
+      "target_text": ".",
+      "speaker_id": "A",
+      "audio_path": "speech/0003_9220_9580.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0003_9220_9580.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 9580,
+      "end_ms": 15480,
+      "text": "니놈 딸을 다시는 못 보게 만들 수도 있다고 여기까지 오는 동안",
+      "target_text": "Tôi có thể khiến ngươi không bao giờ gặp lại con gái ngươi nữa, trong suốt quãng đường đến đây.",
+      "speaker_id": "A",
+      "audio_path": "speech/0004_9580_15480.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0004_9580_15480.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 16920,
+      "end_ms": 22380,
+      "text": "넌 어떻게 해야 할지 고민했어 이제 확실해졌다",
+      "target_text": "Ngươi đã suy nghĩ về việc phải làm gì, giờ thì đã rõ ràng.",
+      "speaker_id": "A",
+      "audio_path": "speech/0005_16920_22380.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0005_16920_22380.wav"
+    },
+    {
+      "idx": 5,
+      "start_ms": 23080,
+      "end_ms": 24520,
+      "text": "민지를 위해서",
+      "target_text": "Vì Minji.",
+      "speaker_id": "A",
+      "audio_path": "speech/0006_23080_24520.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0006_23080_24520.wav"
+    },
+    {
+      "idx": 6,
+      "start_ms": 26100,
+      "end_ms": 28820,
+      "text": "너를 체포한다",
+      "target_text": "Tôi sẽ bắt giữ ngươi.",
+      "speaker_id": "A",
+      "audio_path": "speech/0007_26100_28820.wav",
+      "audio_url": "/v1/local/step12/f7363264d8a34c13a9d1ee508a90a223/speech/0007_26100_28820.wav"
+    }
+  ]
+}

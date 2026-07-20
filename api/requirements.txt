@@ -1,0 +1,10 @@
+# Dubby API runtime dependencies
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic>=2.9,<3
+pydantic-settings>=2.5,<3
+httpx>=0.27,<1
+PyJWT[crypto]>=2.9,<3
+asyncpg>=0.30,<1
+boto3>=1.34,<2
+stripe>=15.3,<16

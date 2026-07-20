@@ -1,0 +1,20 @@
+[Script Info]
+Title: Dubby subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:04.64,Default,,0,0,0,,The pottery is carved, refined, and dried in the post-processing.
+Dialogue: 0,0:00:04.64,0:00:08.18,Default,,0,0,0,,After that, it needs to be fired twice in the bisque kiln.
+Dialogue: 0,0:00:08.46,0:00:09.58,Default,,0,0,0,,So it takes a month.
+Dialogue: 0,0:00:09.82,0:00:11.92,Default,,0,0,0,,Actually, our tuition is very cheap.
+Dialogue: 0,0:00:12.30,0:00:14.70,Default,,0,0,0,,Each person takes five classes.

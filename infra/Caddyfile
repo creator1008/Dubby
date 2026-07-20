@@ -1,0 +1,17 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DUBBY_API_DOMAIN} {
+	encode gzip
+
+	# Uploads go straight to R2 via presigned URLs, so bodies here stay small.
+	request_body {
+		max_size 10MB
+	}
+
+	reverse_proxy api:8000 {
+		health_uri /healthz
+		health_interval 30s
+	}
+}

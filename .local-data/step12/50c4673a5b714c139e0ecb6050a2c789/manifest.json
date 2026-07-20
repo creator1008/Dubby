@@ -1,0 +1,58 @@
+{
+  "run_id": "50c4673a5b714c139e0ecb6050a2c789",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "source_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 4680,
+      "text": "제가 아까 운전하면서",
+      "target_text": "I was driving earlier,",
+      "audio_path": "speech/0001_0_4680.wav",
+      "audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/speech/0001_0_4680.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 4680,
+      "end_ms": 8060,
+      "text": "벨트를 안매가지고 영상을 노래하면서 막 찍었다면",
+      "target_text": "and if I hadn't worn my seatbelt and filmed while singing,",
+      "audio_path": "speech/0002_4680_8060.wav",
+      "audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/speech/0002_4680_8060.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 8060,
+      "end_ms": 13460,
+      "text": "아 올렸다가 빨리 지웠어요 또 정지당하면 안되니까요",
+      "target_text": "I quickly uploaded it and deleted it because I can't get stopped again.",
+      "audio_path": "speech/0003_8060_13460.wav",
+      "audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/speech/0003_8060_13460.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 13460,
+      "end_ms": 16780,
+      "text": "저도 오늘 또 새로운 만남을 위해서 가고 있습니다",
+      "target_text": "I'm also going for a new meeting today,",
+      "audio_path": "speech/0004_13460_16780.wav",
+      "audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/speech/0004_13460_16780.wav"
+    },
+    {
+      "idx": 4,
+      "start_ms": 16780,
+      "end_ms": 18440,
+      "text": "새로운 일을 좀 해보려고",
+      "target_text": "trying to do something new.",
+      "audio_path": "speech/0005_16780_18440.wav",
+      "audio_url": "/v1/local/step12/50c4673a5b714c139e0ecb6050a2c789/speech/0005_16780_18440.wav"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "run_id": "1b5f72b5806d40439ceb35827e311c24",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/1b5f72b5806d40439ceb35827e311c24/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/1b5f72b5806d40439ceb35827e311c24/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 660,
+      "end_ms": 10000,
+      "text": "야유는 서둘러 방으로 들어간다 고등학교 시절 사진을 꺼내 하나씩 확인했다 상대가 옛동창 시우라는 사실을 알아챘다 반가운 마음에 잠시 들렀다",
+      "target_text": "Yayu hurriedly entered the room and took out photos from high school, checking them one by one. He realized that the person was his old classmate, Siwoo.",
+      "audio_path": "speech/0001_660_10000.wav",
+      "audio_url": "/v1/local/step12/1b5f72b5806d40439ceb35827e311c24/speech/0001_660_10000.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 10000,
+      "end_ms": 19200,
+      "text": "가라고 권하려 했다 하지만 시우는 말했다 다른 주문도 배달하러 가야 한다고 했다 괜히 시간을 뺏고 싶지 않았기에 두 사람은 가볍게 인사만",
+      "target_text": "He tried to suggest that Siwoo leave, but Siwoo said he had to deliver another order.",
+      "audio_path": "speech/0002_10000_19200.wav",
+      "audio_url": "/v1/local/step12/1b5f72b5806d40439ceb35827e311c24/speech/0002_10000_19200.wav"
+    },
+    {
+      "idx": 2,
+      "start_ms": 19200,
+      "end_ms": 28620,
+      "text": "나눴다 그리고 시우는 급히 자리를 떠났다 방으로 돌아온 야유는 생각할수록 아쉬움이 더욱 커져만 갔다 어느덧 서른을 앞둔 나이가 되었지만",
+      "target_text": "Not wanting to waste time unnecessarily, the two just exchanged light greetings.",
+      "audio_path": "speech/0003_19200_28620.wav",
+      "audio_url": "/v1/local/step12/1b5f72b5806d40439ceb35827e311c24/speech/0003_19200_28620.wav"
+    },
+    {
+      "idx": 3,
+      "start_ms": 28620,
+      "end_ms": 31540,
+      "text": "외모는 학창시절과 크게 달라지지 않았다",
+      "target_text": "Then Siwoo quickly left.",
+      "audio_path": "speech/0004_28620_31540.wav",
+      "audio_url": "/v1/local/step12/1b5f72b5806d40439ceb35827e311c24/speech/0004_28620_31540.wav"
+    }
+  ]
+}

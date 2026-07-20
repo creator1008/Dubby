@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dubby-api"
+version = "0.1.0"
+description = "Dubby dubbing platform API (FastAPI + Supabase + Cloudflare R2)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    "httpx>=0.27,<1",
+    "PyJWT[crypto]>=2.9,<3",
+    "asyncpg>=0.30,<1",
+    "boto3>=1.34,<2",
+    "stripe>=15.3,<16",
+]
+
+[project.optional-dependencies]
+local = [
+    "faster-whisper>=1.2,<2",
+    "imageio-ffmpeg>=0.6,<1",
+]
+worker = [
+    "torch>=2.2,<3",
+    "torchaudio>=2.2,<3",
+    "demucs==4.0.1",
+    "pyannote.audio>=3.3,<4",
+]
+dev = [
+    "pytest>=8,<9",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

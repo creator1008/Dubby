@@ -1,0 +1,31 @@
+{
+  "run_id": "6b178ec6362248c2858ec6c9c8fbbd01",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "source_url": "/v1/local/step12/6b178ec6362248c2858ec6c9c8fbbd01/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/6b178ec6362248c2858ec6c9c8fbbd01/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/6b178ec6362248c2858ec6c9c8fbbd01/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 0,
+      "end_ms": 5600,
+      "text": "띄어쓰기, 문장 부호를 정확히 표기합니다.",
+      "target_text": "Punctuation and spacing are marked accurately.",
+      "audio_path": "speech/0001_0_5600.wav",
+      "audio_url": "/v1/local/step12/6b178ec6362248c2858ec6c9c8fbbd01/speech/0001_0_5600.wav"
+    },
+    {
+      "idx": 1,
+      "start_ms": 32940,
+      "end_ms": 34320,
+      "text": "띄어쓰기, 문장 부호를 정확히 표기합니다.",
+      "target_text": "Punctuation and spacing are marked accurately.",
+      "audio_path": "speech/0002_32940_34320.wav",
+      "audio_url": "/v1/local/step12/6b178ec6362248c2858ec6c9c8fbbd01/speech/0002_32940_34320.wav"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "run_id": "822c5b06b84848f1be28c117c726a851",
+  "language": "ko",
+  "target_language": "en",
+  "asr_provider": "openai",
+  "source_url": "/v1/local/step12/822c5b06b84848f1be28c117c726a851/source.mp4",
+  "audio_path": "original_audio.wav",
+  "audio_url": "/v1/local/step12/822c5b06b84848f1be28c117c726a851/original_audio.wav",
+  "asr_audio_path": "asr_audio.wav",
+  "asr_audio_url": "/v1/local/step12/822c5b06b84848f1be28c117c726a851/asr_audio.wav",
+  "segments": [
+    {
+      "idx": 0,
+      "start_ms": 2840,
+      "end_ms": 3000,
+      "text": "위로 올라가면 더 좋을 것 같아요.",
+      "target_text": "I think it would be better if we go up.",
+      "audio_path": "speech/0001_2840_3000.wav",
+      "audio_url": "/v1/local/step12/822c5b06b84848f1be28c117c726a851/speech/0001_2840_3000.wav"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[Script Info]
+Title: Dubby subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,60,60,160,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:04.56,Default,,0,0,0,,Đây là điều mà mọi người thường nói,
+Dialogue: 0,0:00:04.56,0:00:04.88,Default,,0,0,0,,căn,
+Dialogue: 0,0:00:07.16,0:00:09.06,Default,,0,0,0,,từ đây thì nhiều người bắt đầu từ bỏ,
+Dialogue: 0,0:00:10.46,0:00:16.30,Default,,0,0,0,,vì vậy, học sinh đầu tiên từ bỏ toán học chính là căn này. Đó là lý do,
+Dialogue: 0,0:00:16.30,0:00:22.74,Default,,0,0,0,,Vì vậy, khi các bạn xem chương trình giải trí, có những câu hỏi như là khi nào,
+Dialogue: 0,0:00:22.74,0:00:26.18,Default,,0,0,0,,bạn đã từ bỏ toán học, thì thấy rằng từ khi có căn,
+Dialogue: 0,0:00:26.18,0:00:29.96,Default,,0,0,0,,nhiều người đã nói như vậy. Vì vậy, căn là điều đáng sợ,
+Dialogue: 0,0:00:29.96,0:00:33.88,Default,,0,0,0,,Đây là điều đầu tiên mà chúng ta học, lý do là vì nó là số vô tỉ,
+Dialogue: 0,0:00:33.88,0:00:34.70,Default,,0,0,0,,Đúng vậy, số vô tỉ,
+Dialogue: 0,0:00:35.24,0:00:39.16,Default,,0,0,0,,vì chưa quen với ký hiệu này, từ bây giờ,
+Dialogue: 0,0:00:39.16,0:00:43.12,Default,,0,0,0,,tôi sẽ cố gắng giải thích về căn, tôi sẽ giải thích một cách chân thành,
+Dialogue: 0,0:00:43.12,0:00:47.26,Default,,0,0,0,,Tôi cũng sẽ cố gắng để tâm trí mình thoải mái khi giải thích,
+Dialogue: 0,0:00:47.52,0:00:51.64,Default,,0,0,0,,Hãy cố gắng lắng nghe hết sức có thể. Căn là gì? Căn này,
+Dialogue: 0,0:00:51.64,0:00:53.74,Default,,0,0,0,,là căn,
+Dialogue: 0,0:00:54.28,0:00:56.70,Default,,0,0,0,,nếu nói bằng tiếng Anh thì là root,
+Dialogue: 0,0:00:57.40,0:00:58.00,Default,,0,0,0,,Vì vậy, trong tiếng Hán,
+Dialogue: 0,0:00:58.00,0:00:59.72,Default,,0,0,0,,người ta gọi là căn hào.

@@ -1,0 +1,22 @@
+[Script Info]
+Title: Dubby subtitles
+ScriptType: v4.00+
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Noto Sans,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:03.06,0:00:08.48,Default,,0,0,0,,Tôi rất yêu quý và thương Hye-ri.
+Dialogue: 0,0:00:08.48,0:00:13.94,Default,,0,0,0,,Dù có làm sai điều gì, tôi cũng muốn che chở cho cô ấy.
+Dialogue: 0,0:00:13.94,0:00:18.78,Default,,0,0,0,,Thực ra, nếu xét cho cùng, cũng không phải là lỗi lớn.
+Dialogue: 0,0:00:18.78,0:00:23.94,Default,,0,0,0,,Vì vậy, tôi sẽ sắp xếp mọi thứ như thế này.
+Dialogue: 0,0:00:23.94,0:00:28.58,Default,,0,0,0,,Có một vụ việc mà một tên côn đồ đã bắt cóc một nữ sinh tên Kim Min-ji.
+Dialogue: 0,0:00:30.18,0:00:35.16,Default,,0,0,0,,Tên côn đồ đã biến mất, vậy giờ chỉ cần Kim Min-ji.
+Dialogue: 0,0:00:35.16,0:00:36.94,Default,,0,0,0,,Cô ấy sẽ biến mất khỏi thế giới này.
