@@ -34,6 +34,9 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: "true"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_ORIGIN: ${{ secrets.NEXT_PUBLIC_API_ORIGIN }}
 
       - name: Add .nojekyll
         run: touch out/.nojekyll

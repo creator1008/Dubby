@@ -113,7 +113,9 @@ Kakao를 활성화하고 각 공급자 개발자 콘솔의 callback URL에
 `https://<project-ref>.supabase.co/auth/v1/callback`을 등록합니다.
 Supabase URL Configuration의 허용 redirect URL에는 로컬 개발용
 `http://localhost:3000/auth/callback/`과 운영 도메인의 `/auth/callback/`을
-추가합니다.
+추가합니다. GitHub Pages를 쓰는 경우 다음도 추가합니다.
+
+`https://creator1008.github.io/Dubby/auth/callback/`
 
 관리자 API는 사용자가 임의로 수정할 수 없는 Supabase
 `app_metadata.role = "admin"` claim만 신뢰합니다. 첫 관리자는 Supabase
