@@ -34,14 +34,35 @@ export async function forceDownload(url: string, filename: string): Promise<void
     throw new Error(`다운로드 실패 (${response.status})`);
   }
   const blob = await response.blob();
+  const safeName =
+    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
+  const file = new File([blob], safeName, {
+    type: blob.type || "video/mp4",
+  });
+
+  // iOS Safari often ignores <a download>; prefer the system share sheet.
+  const nav = navigator as Navigator & {
+    canShare?: (data?: ShareData) => boolean;
+  };
+  if (typeof nav.share === "function" && nav.canShare?.({ files: [file] })) {
+    await nav.share({
+      files: [file],
+      title: "Dubby",
+      text: safeName,
+    });
+    return;
+  }
+
   const objectUrl = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
-  anchor.download = filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
+  anchor.download = safeName;
+  anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(objectUrl);
+  // Keep the object URL briefly so mobile browsers can start the download.
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
 }
 
 export const isDemoMode =

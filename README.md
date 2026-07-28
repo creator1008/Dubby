@@ -90,6 +90,14 @@ python -m app.worker.runner
    수동 실행합니다.
 3. 배포 URL: `https://creator1008.github.io/Dubby/`
 
+### 스마트폰에서 실행
+
+휴대폰 브라우저에서 위 URL을 열면 됩니다. 홈 화면에 추가하면 앱처럼
+전체 화면으로 실행됩니다.
+
+- **iPhone (Safari):** 공유 → 홈 화면에 추가
+- **Android (Chrome):** 메뉴 → 앱 설치 / 홈 화면에 추가
+
 GitHub Pages는 프런트엔드(정적 export)만 호스팅합니다. 실제 더빙 API는
 별도 서버가 필요하며, API origin이 없으면 브라우저 데모 모드로 UI를
 확인할 수 있습니다.

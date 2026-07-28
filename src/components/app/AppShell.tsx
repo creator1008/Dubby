@@ -41,13 +41,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
           <LanguageSwitcher />
           <Link href="/app/new" className="btn-primary header-new-dub">
-            {text.newDub}
+            <span className="nav-label-full">{text.newDub}</span>
+            <span className="nav-label-short" aria-hidden="true">
+              +
+            </span>
           </Link>
           <Link
             href="/app"
-            className={`btn-ghost header-history${pathname === "/app" ? " active" : ""}`}
+            className={`btn-ghost header-history${pathname === "/app" || pathname === "/app/" ? " active" : ""}`}
           >
-            {text.history}
+            <span className="nav-label-full">{text.history}</span>
+            <span className="nav-label-short" aria-hidden="true">
+              ≡
+            </span>
           </Link>
           {session && (
             <details className="account-menu">

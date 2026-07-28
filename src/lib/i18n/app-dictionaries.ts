@@ -97,8 +97,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     invalidMedia: "영상 또는 오디오 파일만 업로드할 수 있습니다.",
     fileTooLarge: "파일이 너무 큽니다.",
     selectAnotherFile: "다른 파일 선택",
-    dropFile: "파일을 끌어다 놓거나 클릭하여 선택",
-    fileHint: "MP4 권장 · 최대 500 MB · 약 10분 이하 권장",
+    dropFile: "탭하여 영상·오디오 선택",
+    fileHint: "갤러리 또는 파일 · MP4 권장 · 모바일은 짧은 클립 권장",
     newDubDescription:
       "실제 오디오 추출과 화자·시간 간격 기반 음성 타임스탬프를 검증합니다.",
     fileAndSubtitle: "1. 파일 선택 및 자막 추출",
@@ -290,8 +290,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     invalidMedia: "Only video or audio files can be uploaded.",
     fileTooLarge: "The file is too large.",
     selectAnotherFile: "Choose another file",
-    dropFile: "Drop a file here or click to choose",
-    fileHint: "MP4 recommended · max 500 MB · about 10 minutes or less",
+    dropFile: "Tap to choose video or audio",
+    fileHint: "Gallery or files · MP4 recommended · shorter clips work better on mobile",
     newDubDescription:
       "Verify real audio extraction and speaker/time-interval speech timestamps.",
     fileAndSubtitle: "1. Select file and extract subtitles",
@@ -482,8 +482,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     invalidMedia: "Chỉ có thể tải lên tệp video hoặc âm thanh.",
     fileTooLarge: "Tệp quá lớn.",
     selectAnotherFile: "Chọn tệp khác",
-    dropFile: "Kéo thả tệp vào đây hoặc nhấp để chọn",
-    fileHint: "Khuyên dùng MP4 · tối đa 500 MB · khoảng 10 phút trở xuống",
+    dropFile: "Chạm để chọn video hoặc âm thanh",
+    fileHint: "Thư viện hoặc tệp · khuyến nghị MP4 · clip ngắn hơn trên mobile",
     newDubDescription:
       "Kiểm tra trích xuất âm thanh và mốc thời gian theo người nói/khoảng thời gian.",
     fileAndSubtitle: "1. Chọn tệp và trích xuất phụ đề",

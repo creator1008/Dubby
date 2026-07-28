@@ -19,11 +19,27 @@ export const metadata: Metadata = {
   title: "Dubby — AI 영상 다국어 더빙",
   description:
     "유튜브·인강·홍보 영상을 영어·한국어·베트남어로 현지화하는 AI 더빙 서비스",
+  applicationName: "Dubby",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Dubby",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 5,
   viewportFit: "cover",
   themeColor: "#f3f7f9",
 };

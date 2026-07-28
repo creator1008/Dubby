@@ -23,7 +23,11 @@ export function FileUploader({ file, onFile, disabled }: Props) {
   const [localError, setLocalError] = useState<string | null>(null);
 
   const validate = useCallback((f: File) => {
-    if (!f.type.startsWith("video/") && !f.type.startsWith("audio/")) {
+    const looksLikeMedia =
+      f.type.startsWith("video/") ||
+      f.type.startsWith("audio/") ||
+      /\.(mp4|mov|m4v|webm|m4a|mp3|wav|aac)$/i.test(f.name);
+    if (!looksLikeMedia) {
       return text.invalidMedia;
     }
     if (f.size > MAX_BYTES) {
@@ -83,7 +87,7 @@ export function FileUploader({ file, onFile, disabled }: Props) {
         <input
           ref={inputRef}
           type="file"
-          accept="video/*,audio/*"
+          accept="video/*,audio/*,.mp4,.mov,.m4a,.mp3,.webm"
           hidden
           disabled={disabled}
           onChange={(e) => pick(e.target.files?.[0] ?? null)}
