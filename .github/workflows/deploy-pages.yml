@@ -37,6 +37,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_API_ORIGIN: ${{ secrets.NEXT_PUBLIC_API_ORIGIN }}
+          NEXT_PUBLIC_LOCAL_PIPELINE: ${{ secrets.NEXT_PUBLIC_LOCAL_PIPELINE }}
+          NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN: ${{ secrets.NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN }}
 
       - name: Add .nojekyll
         run: touch out/.nojekyll

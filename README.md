@@ -99,6 +99,24 @@ python -m app.worker.runner
 - **iPhone (Safari):** 공유 → 홈 화면에 추가
 - **Android (Chrome):** 메뉴 → 앱 설치 / 홈 화면에 추가
 
+휴대폰에서 **실제 자막 추출**을 쓰려면 PC의 `local_step12` API가 공개 HTTPS로
+노출되어야 합니다. GitHub Pages(HTTPS)는 `localhost`나 LAN HTTP로 요청할 수
+없습니다.
+
+```bash
+# PC 터미널 1
+cd api
+uvicorn app.local_step12:app --host 0.0.0.0 --port 8002 --reload
+
+# PC 터미널 2 (예시: Cloudflare quick tunnel)
+cloudflared tunnel --url http://127.0.0.1:8002
+```
+
+나온 `https://….trycloudflare.com` 주소를 GitHub Actions secrets의
+`NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN`에 넣고, `NEXT_PUBLIC_LOCAL_PIPELINE=true`로
+설정한 뒤 Pages를 다시 배포하세요. PC의 API·터널이 켜져 있어야 휴대폰에서
+동작합니다.
+
 GitHub Pages는 프런트엔드(정적 export)만 호스팅합니다. 실제 더빙 API는
 별도 서버가 필요하며, API origin이 없으면 브라우저 데모 모드로 UI를
 확인할 수 있습니다.

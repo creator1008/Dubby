@@ -2,9 +2,27 @@
 
 import type { LangCode } from "@/lib/ui-types";
 
-const LOCAL_PIPELINE_ORIGIN =
-  process.env.NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN ?? "http://localhost:8002";
+const LOCAL_PIPELINE_ORIGIN = (
+  process.env.NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN ?? "http://localhost:8002"
+).replace(/\/$/, "");
 
+function pipelineUnreachableMessage(): string {
+  const isLocalOrigin = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
+    LOCAL_PIPELINE_ORIGIN.replace(/\/$/, ""),
+  );
+  if (isLocalOrigin) {
+    return (
+      "자막 추출 서버(localhost:8002)에 연결할 수 없습니다. " +
+      "PC에서는 `api` 폴더에서 `uvicorn app.local_step12:app --reload --port 8002`를 실행하세요. " +
+      "휴대폰/GitHub Pages에서는 공개 HTTPS 주소(예: Cloudflare Tunnel)를 " +
+      "NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN에 넣고 다시 배포해야 합니다."
+    );
+  }
+  return (
+    `자막 추출 서버(${LOCAL_PIPELINE_ORIGIN})에 연결할 수 없습니다. ` +
+    "서버가 실행 중인지, CORS에 GitHub Pages origin이 허용되는지 확인하세요."
+  );
+}
 export type LocalSpeechPair = {
   idx: number;
   start_ms: number;
@@ -62,10 +80,7 @@ export async function extractLocalStep12(
       },
     );
   } catch {
-    throw new Error(
-      "실제 자막 추출 서버에 연결할 수 없습니다. api 폴더에서 " +
-        "`uvicorn app.local_step12:app --reload --port 8002`를 실행해 주세요.",
-    );
+    throw new Error(pipelineUnreachableMessage());
   }
 
   if (!response.ok) {
@@ -109,10 +124,7 @@ export async function extractLocalStep12FromUrl(
       },
     );
   } catch {
-    throw new Error(
-      "실제 자막 추출 서버에 연결할 수 없습니다. api 폴더에서 " +
-        "`uvicorn app.local_step12:app --reload --port 8002`를 실행해 주세요.",
-    );
+    throw new Error(pipelineUnreachableMessage());
   }
 
   if (!response.ok) {
@@ -161,10 +173,7 @@ export async function retranslateLocalSegments(
       }),
     });
   } catch {
-    throw new Error(
-      "실제 자막 추출 서버에 연결할 수 없습니다. api 폴더에서 " +
-        "`uvicorn app.local_step12:app --reload --port 8002`를 실행해 주세요.",
-    );
+    throw new Error(pipelineUnreachableMessage());
   }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {

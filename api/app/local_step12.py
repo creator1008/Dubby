@@ -2487,7 +2487,11 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
 app = FastAPI(title="Dubby local step 1-2 verifier")
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=(
+        r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+        r"|https://([\w-]+\.)?github\.io"
+        r"|https://([\w-]+\.)?pages\.dev"
+    ),
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Filename"],
