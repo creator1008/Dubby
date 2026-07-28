@@ -86,6 +86,7 @@ python -m app.worker.runner
 
 1. 저장소 **Settings → Pages → Build and deployment → Source** 를
    **GitHub Actions** 로 설정합니다.
+   (`Deploy from a branch`로 바꾸면 `/login`, `/app` 등이 404가 납니다.)
 2. `main`에 push하거나 Actions에서 **Deploy GitHub Pages** 워크플로를
    수동 실행합니다.
 3. 배포 URL: `https://creator1008.github.io/Dubby/`
