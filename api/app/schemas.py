@@ -13,7 +13,24 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-LangCode = Literal["ko", "en", "vi"]
+LangCode = Literal[
+    "en",
+    "zh",
+    "ja",
+    "es",
+    "fr",
+    "pt",
+    "de",
+    "ru",
+    "ar",
+    "ur",
+    "id",
+    "ms",
+    "tr",
+    "ta",
+    "ko",
+    "vi",
+]
 SubtitleMode = Literal["none", "source", "target"]
 ToneStyle = Literal["neutral", "warm", "energetic", "serious"]
 ProjectStatus = Literal[
@@ -49,10 +66,6 @@ class ProjectUpdate(BaseModel):
     subtitle_mode: SubtitleMode | None = None
     tone_style: ToneStyle | None = None
     diarization_enabled: bool | None = None
-
-
-class ProjectImportUrlRequest(BaseModel):
-    url: str = Field(min_length=8, max_length=2048)
 
 
 class ProjectOut(BaseModel):
@@ -205,6 +218,10 @@ class MultipartAbortRequest(BaseModel):
 class DownloadUrlResponse(BaseModel):
     url: str
     expires_in: int
+
+
+class SourceFromUrlRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
 
 
 # --- Misc --------------------------------------------------------------------

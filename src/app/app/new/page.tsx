@@ -1,20 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { FileUploader } from "@/components/app/FileUploader";
 import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode, uploadSourceFile } from "@/lib/api";
 import { useVoiceConsent } from "@/lib/consent";
-import { demoApi } from "@/lib/demo-api";
+import { demoApi, forceDownload } from "@/lib/demo-api";
 import {
   extractLocalStep12,
   extractLocalStep12FromUrl,
   generateLocalDubVoice,
   renderLocalDubVideo,
+  retranslateLocalSegments,
 } from "@/lib/local-step12";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { LANG_CODES, LANG_LABELS, isDubLangCode } from "@/lib/languages";
 import type {
   Job,
   LangCode,
@@ -24,6 +26,10 @@ import type {
   ToneStyle,
 } from "@/lib/ui-types";
 
+function snapshotSourceTexts(rows: Segment[]) {
+  return Object.fromEntries(rows.map((row) => [row.id, row.source_text]));
+}
+
 export default function NewDubPage() {
   const text = useAppDictionary();
   const [title, setTitle] = useState("");
@@ -32,26 +38,24 @@ export default function NewDubPage() {
   const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("target");
   const [toneStyle, setToneStyle] = useState<ToneStyle>("neutral");
   const [diarizationEnabled, setDiarizationEnabled] = useState(true);
-  const [sourceMode, setSourceMode] = useState<"upload" | "url">("upload");
   const [file, setFile] = useState<File | null>(null);
-  const [videoUrl, setVideoUrl] = useState("");
+  const [inputMode, setInputMode] = useState<"file" | "url">("file");
+  const [mediaUrl, setMediaUrl] = useState("");
   const [uploadPct, setUploadPct] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [localStage, setLocalStage] = useState<string | null>(null);
   const [localRunId, setLocalRunId] = useState<string | null>(null);
-  const [extractedAudioUrl, setExtractedAudioUrl] = useState<string | null>(null);
-  const [dubbedAudioByIdx, setDubbedAudioByIdx] = useState<Record<number, string>>({});
 
   const [project, setProject] = useState<Project | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [voiceRemovedUrl, setVoiceRemovedUrl] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retranslating, setRetranslating] = useState(false);
+  const baselineSourceRef = useRef<Record<string, string>>({});
   const voiceConsent = useVoiceConsent();
 
   const activeJob = jobs.find(
@@ -67,7 +71,11 @@ export default function NewDubPage() {
     setProject(nextProject);
     setJobs(nextJobs);
     if (nextProject.status === "ready_for_edit" || nextProject.status === "completed") {
-      setSegments(await api.segments.list(project.id));
+      const nextSegments = await api.segments.list(project.id);
+      setSegments(nextSegments);
+      if (Object.keys(baselineSourceRef.current).length === 0) {
+        baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+      }
     }
     if (nextProject.status === "completed" && !outputUrl) {
       const { url } = await api.projects.download(project.id);
@@ -85,103 +93,214 @@ export default function NewDubPage() {
   }, [activeJob, refresh]);
 
   // Step 1 — 파일선택 및 자막추출
-  const onExtract = async (e: FormEvent) => {
-    e.preventDefault();
-    const remoteUrl = videoUrl.trim();
-    if (sourceMode === "upload" && !file) {
+  const validateExtractInput = () => {
+    const trimmedUrl = mediaUrl.trim();
+    if (inputMode === "file" && !file) {
       setError(text.selectVideoFile);
-      return;
+      return null;
     }
-    if (sourceMode === "url" && !remoteUrl) {
+    if (inputMode === "url" && !trimmedUrl) {
       setError(text.enterVideoUrl);
-      return;
+      return null;
     }
     if (!voiceConsent.accepted) {
-      setError("음성 처리 권한과 동의를 확인해 주세요.");
-      return;
+      setError(text.acceptConsent);
+      return null;
     }
     if (sourceLang === targetLang) {
-      setError("원어와 더빙 언어가 같습니다.");
-      return;
+      setError(text.sameLanguages);
+      return null;
     }
-    setUploading(true);
-    setUploadPct(0);
-    setError(null);
-    try {
-      let sourceTitle = file?.name ?? text.linkVideo;
-      if (sourceMode === "url") {
-        try {
-          const parsed = new URL(remoteUrl);
-          sourceTitle = decodeURIComponent(
-            parsed.pathname.split("/").filter(Boolean).at(-1) || parsed.hostname,
-          );
-        } catch {
-          setError(text.invalidVideoUrl);
-          return;
-        }
-      }
-      const created = await api.projects.create({
-        title: title.trim() || sourceTitle,
-        source_lang: sourceLang,
-        target_lang: targetLang,
-        subtitle_mode: subtitleMode,
-        tone_style: toneStyle,
-        diarization_enabled: diarizationEnabled,
-      });
-      if (isDemoMode) {
-        setLocalStage("2/2 실제 음성 인식 및 단어 타임스탬프 추출 중");
-        const result = sourceMode === "upload"
-          ? await (async () => {
-              await uploadSourceFile(created.id, file!, setUploadPct);
-              return extractLocalStep12(
-                file!,
-                sourceLang,
-                targetLang,
-                diarizationEnabled,
-              );
-            })()
-          : await extractLocalStep12FromUrl(
-              remoteUrl,
+    return trimmedUrl;
+  };
+
+  const runExtract = async (trimmedUrl: string) => {
+    const projectTitle =
+      title.trim() ||
+      (inputMode === "file" && file
+        ? file.name
+        : trimmedUrl.slice(0, 80) || text.newDub);
+    const created = await api.projects.create({
+      title: projectTitle,
+      source_lang: sourceLang,
+      target_lang: targetLang,
+      subtitle_mode: subtitleMode,
+      tone_style: toneStyle,
+      diarization_enabled: diarizationEnabled,
+    });
+    if (inputMode === "file" && file) {
+      await uploadSourceFile(created.id, file, setUploadPct);
+    } else {
+      setUploadPct(20);
+      await api.projects.sourceFromUrl(created.id, trimmedUrl);
+      setUploadPct(60);
+    }
+
+    let nextSegments: Segment[] = [];
+    let nextRunId: string | null = null;
+    let nextSourceUrl: string | null = null;
+
+    if (isDemoMode) {
+      setLocalStage(text.localExtractStage);
+      const result =
+        inputMode === "url"
+          ? await extractLocalStep12FromUrl(
+              trimmedUrl,
               sourceLang,
               targetLang,
               diarizationEnabled,
-            ).then((result) => {
-              setUploadPct(100);
-              return result;
-            });
-        const extracted = await demoApi.applyStep12(created.id, result);
-        setSegments(extracted);
-        setLocalRunId(result.run_id);
-        setExtractedAudioUrl(result.audio_url);
-        setLocalStage(null);
-      } else {
-        if (sourceMode === "upload") {
-          await uploadSourceFile(created.id, file!, setUploadPct);
-        } else {
-          await api.projects.importUrl(created.id, remoteUrl);
-          setUploadPct(100);
-        }
-        await api.jobs.create(created.id, "transcribe");
-      }
-      const [nextProject, nextJobs] = await Promise.all([
-        api.projects.get(created.id),
-        api.jobs.list(created.id),
-      ]);
-      setProject(nextProject);
-      setJobs(nextJobs);
+            )
+          : await extractLocalStep12(
+              file!,
+              sourceLang,
+              targetLang,
+              diarizationEnabled,
+            );
+      nextSegments = await demoApi.applyStep12(created.id, result);
+      baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+      nextRunId = result.run_id;
+      nextSourceUrl = result.source_url;
+      setSegments(nextSegments);
+      setLocalRunId(nextRunId);
+      setSourceUrl(nextSourceUrl);
+      setLocalStage(null);
+    } else {
+      await api.jobs.create(created.id, "transcribe");
+    }
+
+    const [nextProject, nextJobs] = await Promise.all([
+      api.projects.get(created.id),
+      api.jobs.list(created.id),
+    ]);
+    setProject(nextProject);
+    setJobs(nextJobs);
+    if (!nextSourceUrl) {
       void api.projects
         .sourceUrl(created.id)
         .then(({ url }) => setSourceUrl(url))
         .catch(() => undefined);
+    }
+    return {
+      project: nextProject,
+      segments: nextSegments,
+      localRunId: nextRunId,
+      sourceUrl: nextSourceUrl,
+    };
+  };
+
+  const onExtract = async (e: FormEvent) => {
+    e.preventDefault();
+    const trimmedUrl = validateExtractInput();
+    if (trimmedUrl === null) return;
+    setUploading(true);
+    setUploadPct(0);
+    setError(null);
+    try {
+      await runExtract(trimmedUrl);
     } catch (err) {
       setLocalStage(null);
-      setError(err instanceof Error ? err.message : "업로드하지 못했습니다.");
+      setError(err instanceof Error ? err.message : text.uploadFailed);
     } finally {
       setUploading(false);
     }
   };
 
-  // Step 2 — 자막 에디터
+  const runLocalDubVoice = async (
+    currentProject: Project,
+    rows: Segment[],
+    runId: string,
+  ) => {
+    const speakable = rows
+      .filter((segment) => segment.target_text.trim())
+      .map((segment) => ({
+        idx: segment.idx,
+        target_text: segment.target_text.trim(),
+      }));
+    if (!speakable.length) {
+      throw new Error("더빙할 번역 텍스트가 없습니다.");
+    }
+    await demoApi.assertDubCredits(currentProject.id);
+    setLocalStage(
+      "Demucs 보이스 분리 → 깨끗한 보이스 샘플로 클론 → ElevenLabs 더빙 음성 생성 중",
+    );
+    const outputs = await generateLocalDubVoice(runId, speakable, toneStyle);
+    const nextSegments = await demoApi.applyDubVoice(currentProject.id, outputs);
+    setSegments(nextSegments);
+    window.dispatchEvent(new Event("credits-changed"));
+    return nextSegments;
+  };
+
+  const runLocalRender = async (
+    currentProject: Project,
+    rows: Segment[],
+    runId: string,
+  ) => {
+    setLocalStage(
+      "언어 인식 구간만 보이스 제거 → 0.2초 보정 → 비언어·배경음 보존 → 영상 합성 중",
+    );
+    const result = await renderLocalDubVideo(
+      runId,
+      rows.map(({ idx, start_ms, end_ms, source_text, target_text }) => ({
+        idx,
+        start_ms,
+        end_ms,
+        source_text,
+        target_text,
+      })),
+      currentProject.subtitle_mode,
+    );
+    setSourceUrl(result.source_url);
+    setOutputUrl(`${result.output_url.split("?")[0]}?t=${Date.now()}`);
+    const nextProject = await demoApi.applyRender(currentProject.id, result);
+    setProject(nextProject);
+    return { project: nextProject, result };
+  };
+
+  const onBatchCreate = async () => {
+    const trimmedUrl = validateExtractInput();
+    if (trimmedUrl === null) return;
+    if (!isDemoMode) {
+      setError(text.batchCreateDemoOnly);
+      return;
+    }
+    setUploading(true);
+    setUploadPct(0);
+    setError(null);
+    setMessage(null);
+    setOutputUrl(null);
+    try {
+      const extracted = await runExtract(trimmedUrl);
+      if (!extracted.localRunId) {
+        throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
+      }
+      if (!extracted.segments.length) {
+        throw new Error(text.noSubtitlesYet);
+      }
+      const dubbed = await runLocalDubVoice(
+        extracted.project,
+        extracted.segments,
+        extracted.localRunId,
+      );
+      const { result } = await runLocalRender(
+        extracted.project,
+        dubbed,
+        extracted.localRunId,
+      );
+      setMessage(
+        result.warnings.length
+          ? `${text.batchCreateDone} ${result.warnings.join(" ")}`
+          : text.batchCreateDone,
+      );
+    } catch (err) {
+      setLocalStage(null);
+      setError(err instanceof Error ? err.message : text.uploadFailed);
+    } finally {
+      setUploading(false);
+      setLocalStage(null);
+    }
+  };
+
+  // Step 2 — 자막 검증·수정 (최종 영상 생성 후에도 수정·재생성 가능)
   const onSegmentChange = (
     segmentId: string,
     field: "source_text" | "target_text",
@@ -193,31 +312,84 @@ export default function NewDubPage() {
       ),
     );
     setMessage(null);
+    // Subtitle edits invalidate the previous final video until voice+render rerun.
+    if (outputUrl) setOutputUrl(null);
   };
 
   const saveSegments = async () => {
+    if (!project) return segments;
+    const next = await api.segments.update(
+      project.id,
+      segments.map(({ id, source_text, target_text }) => ({
+        id,
+        source_text,
+        target_text,
+      })),
+    );
+    setSegments(next);
+    setMessage("자막을 저장했습니다.");
+    return next;
+  };
+
+  const onRetranslate = async () => {
     if (!project) return;
-    setBusy(true);
+    setError(null);
+    setMessage(null);
+    const changed = segments.filter(
+      (segment) =>
+        (baselineSourceRef.current[segment.id] ?? segment.source_text) !==
+        segment.source_text,
+    );
+    if (!changed.length) {
+      setMessage(text.noSourceTextEdits);
+      return;
+    }
+    setRetranslating(true);
     try {
-      setSegments(
-        await api.segments.update(
-          project.id,
-          segments.map(({ id, source_text, target_text }) => ({
-            id,
-            source_text,
-            target_text,
-          })),
-        ),
+      if (!isDubLangCode(project.source_lang) || !isDubLangCode(project.target_lang)) {
+        throw new Error("지원하지 않는 언어 코드입니다.");
+      }
+      const translations = await retranslateLocalSegments(
+        project.source_lang,
+        project.target_lang,
+        changed.map(({ idx, start_ms, end_ms, source_text }) => ({
+          idx,
+          start_ms,
+          end_ms,
+          source_text,
+        })),
       );
-      setMessage("자막을 저장했습니다.");
+      const byIdx = new Map(
+        translations.map((row) => [row.idx, row.target_text]),
+      );
+      const next = segments.map((segment) => {
+        const target = byIdx.get(segment.idx);
+        return target === undefined
+          ? segment
+          : { ...segment, target_text: target };
+      });
+      const saved = await api.segments.update(
+        project.id,
+        next.map(({ id, source_text, target_text }) => ({
+          id,
+          source_text,
+          target_text,
+        })),
+      );
+      setSegments(saved);
+      baselineSourceRef.current = snapshotSourceTexts(saved);
+      if (outputUrl) setOutputUrl(null);
+      setMessage(text.retranslateDone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.retranslate);
     } finally {
-      setBusy(false);
+      setRetranslating(false);
     }
   };
 
-  // 자막언어 선택 — 더빙 출력에 들어갈 자막
   const onSubtitleModeChange = async (mode: SubtitleMode) => {
     setSubtitleMode(mode);
+    if (outputUrl) setOutputUrl(null);
     if (!project) return;
     try {
       setProject(await api.projects.update(project.id, { subtitle_mode: mode }));
@@ -226,40 +398,22 @@ export default function NewDubPage() {
     }
   };
 
-  // Step 3 — 더빙 파일 생성
   const onCreateDub = async () => {
     if (!project) return;
     setError(null);
     setOutputUrl(null);
     try {
-      await saveSegments();
+      const saved = await saveSegments();
+      const rows = saved ?? segments;
       if (isDemoMode) {
         if (!localRunId) {
           throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
         }
-        const speakable = segments
-          .filter((segment) => segment.target_text.trim())
-          .map((segment) => ({
-            idx: segment.idx,
-            target_text: segment.target_text.trim(),
-          }));
-        if (!speakable.length) {
-          throw new Error("더빙할 번역 텍스트가 없습니다.");
-        }
-        setLocalStage(
-          "Demucs 보이스 분리 → 깨끗한 보이스 샘플로 클론 → ElevenLabs 더빙 음성 생성 중",
-        );
-        const outputs = await generateLocalDubVoice(
-          localRunId,
-          speakable,
-          toneStyle,
-        );
-        setSegments(await demoApi.applyDubVoice(project.id, outputs));
-        setDubbedAudioByIdx(
-          Object.fromEntries(outputs.map((output) => [output.idx, output.audio_url])),
-        );
+        await runLocalDubVoice(project, rows, localRunId);
         setLocalStage(null);
-        setMessage("더빙 음성을 생성했습니다. 각 구간에서 결과를 들어보세요.");
+        setMessage(
+          "더빙 음성을 생성했습니다. 구간을 확인한 뒤 필요하면 자막을 수정하고 다시 생성하거나, 최종 영상을 만드세요.",
+        );
         return;
       }
       await api.jobs.create(project.id, "dub");
@@ -274,30 +428,14 @@ export default function NewDubPage() {
   const onRenderDub = async () => {
     if (!project || !localRunId) return;
     setError(null);
-    setLocalStage(
-      "언어 인식 구간만 보이스 제거 → 0.2초 보정 → 비언어·배경음 보존 → 영상 합성 중",
-    );
     try {
-      const result = await renderLocalDubVideo(
-        localRunId,
-        segments.map(
-          ({ idx, start_ms, end_ms, source_text, target_text }) => ({
-            idx,
-            start_ms,
-            end_ms,
-            source_text,
-            target_text,
-          }),
-        ),
-        project.subtitle_mode,
-      );
-      setVoiceRemovedUrl(result.voice_removed_url);
-      setOutputUrl(result.output_url);
-      setProject(await demoApi.applyRender(project.id, result));
+      const saved = await saveSegments();
+      const rows = saved ?? segments;
+      const { result } = await runLocalRender(project, rows, localRunId);
       setMessage(
         result.warnings.length
           ? `최종 영상을 생성했습니다. ${result.warnings.join(" ")}`
-          : "보이스 제거 영상에 목표 언어 음성을 합성했습니다.",
+          : "최종 더빙 영상을 생성했습니다.",
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "최종 영상을 생성하지 못했습니다.");
@@ -307,8 +445,12 @@ export default function NewDubPage() {
   };
 
   const editorLocked =
-    busy || uploading || Boolean(activeJob) || Boolean(localStage);
+    uploading || Boolean(activeJob) || Boolean(localStage);
   const canEdit = segments.length > 0;
+  const hasDubVoice =
+    isDemoMode &&
+    segments.some((segment) => Boolean(segment.dubbed_audio_url));
+  const canRegenerateDub = hasDubVoice || Boolean(outputUrl);
 
   return (
     <>
@@ -348,9 +490,11 @@ export default function NewDubPage() {
                 disabled={uploading}
                 onChange={(e) => setSourceLang(e.target.value as LangCode)}
               >
-                <option value="ko">한국어</option>
-                <option value="en">English</option>
-                <option value="vi">Tiếng Việt</option>
+                {LANG_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {LANG_LABELS[code]}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -360,9 +504,11 @@ export default function NewDubPage() {
                 disabled={uploading}
                 onChange={(e) => setTargetLang(e.target.value as LangCode)}
               >
-                <option value="en">English</option>
-                <option value="ko">한국어</option>
-                <option value="vi">Tiếng Việt</option>
+                {LANG_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {LANG_LABELS[code]}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -403,38 +549,39 @@ export default function NewDubPage() {
             </label>
           </div>
 
-          <div className="source-mode-tabs" role="group" aria-label={text.videoSourceMethod}>
+          <div className="input-mode-toggle" role="group" aria-label={text.inputMode}>
             <button
               type="button"
-              className={sourceMode === "upload" ? "btn-primary" : "btn-ghost"}
+              className={inputMode === "file" ? "is-active" : undefined}
               disabled={uploading}
-              onClick={() => setSourceMode("upload")}
+              onClick={() => setInputMode("file")}
             >
-              {text.uploadVideo}
+              {text.inputModeFile}
             </button>
             <button
               type="button"
-              className={sourceMode === "url" ? "btn-primary" : "btn-ghost"}
+              className={inputMode === "url" ? "is-active" : undefined}
               disabled={uploading}
-              onClick={() => setSourceMode("url")}
+              onClick={() => setInputMode("url")}
             >
-              {text.videoLink}
+              {text.inputModeUrl}
             </button>
           </div>
 
-          {sourceMode === "upload" ? (
+          {inputMode === "file" ? (
             <FileUploader file={file} onFile={setFile} disabled={uploading} />
           ) : (
-            <label className="video-url-field">
+            <label>
               {text.videoLink}
               <input
                 type="url"
-                value={videoUrl}
+                value={mediaUrl}
+                onChange={(e) => setMediaUrl(e.target.value)}
+                placeholder={text.videoLinkPlaceholder}
                 disabled={uploading}
-                placeholder="https://cdn.example.com/video.mp4"
-                onChange={(event) => setVideoUrl(event.target.value)}
+                autoComplete="off"
               />
-              <span className="muted">{text.directVideoUrlHint}</span>
+              <span className="field-hint">{text.videoLinkHint}</span>
             </label>
           )}
 
@@ -453,9 +600,7 @@ export default function NewDubPage() {
           {uploading && (
             <div className="upload-progress-wrap">
               <div className="upload-progress-head">
-                <strong>
-                  {sourceMode === "upload" ? text.fileUpload : text.linkImport}
-                </strong>
+                <strong>{inputMode === "url" ? text.fetchingLink : text.fileUpload}</strong>
                 <span>{uploadPct}%</span>
               </div>
               <div className="progress-bar" role="progressbar" aria-valuenow={uploadPct}>
@@ -464,21 +609,36 @@ export default function NewDubPage() {
             </div>
           )}
 
-          <button
-            className="btn-primary"
-            type="submit"
-            disabled={
-              uploading
-              || (sourceMode === "upload" ? !file : !videoUrl.trim())
-              || !voiceConsent.accepted
-            }
-          >
-            {uploading
-              ? text.uploading
-              : sourceMode === "upload"
-                ? text.uploadAndExtract
-                : text.importAndExtract}
-          </button>
+          <div className="action-row editor-actions">
+            <button
+              className="btn-primary"
+              type="submit"
+              disabled={
+                uploading ||
+                !voiceConsent.accepted ||
+                (inputMode === "file" ? !file : !mediaUrl.trim())
+              }
+            >
+              {uploading
+                ? text.uploading
+                : inputMode === "url"
+                  ? text.linkAndExtract
+                  : text.uploadAndExtract}
+            </button>
+            <button
+              className="btn-primary"
+              type="button"
+              title={text.batchCreateDubHelp}
+              disabled={
+                uploading ||
+                !voiceConsent.accepted ||
+                (inputMode === "file" ? !file : !mediaUrl.trim())
+              }
+              onClick={() => void onBatchCreate()}
+            >
+              {uploading ? text.batchCreating : text.batchCreateDub}
+            </button>
+          </div>
         </form>
       )}
 
@@ -497,105 +657,99 @@ export default function NewDubPage() {
 
       {project && (
         <div className="editor-stack">
-          {/* 2. timestamp + speech clip + text verification */}
-          <div className="app-panel editor-panel">
-            <div className="editor-panel-head">
-              <h2>{text.verifySegments}</h2>
-              <p className="muted">
-                {text.verifySegmentsHelp}
-              </p>
-            </div>
-
-            {extractedAudioUrl && (
-              <div className="step-audio-result">
-                <strong>{text.extractedAudio}</strong>
-                <audio controls preload="metadata" src={extractedAudioUrl} />
+          {/* 2. 자막 검증·더빙 (최종 영상 후에도 수정·음성 재생성 가능) */}
+          {canEdit && (
+            <div className="app-panel editor-panel">
+              <div className="editor-panel-head">
+                <h2>{text.verifySegments}</h2>
+                <p className="muted">{text.verifySegmentsHelp}</p>
               </div>
-            )}
 
-            {!canEdit && (
+              <div className="row">
+                <label>
+                  {text.subtitleForOutput}
+                  <select
+                    value={project.subtitle_mode}
+                    disabled={editorLocked}
+                    onChange={(e) => void onSubtitleModeChange(e.target.value as SubtitleMode)}
+                  >
+                    <option value="none">{text.noSubtitles}</option>
+                    <option value="source">{text.sourceSubtitles}</option>
+                    <option value="target">{text.targetSubtitles}</option>
+                  </select>
+                </label>
+              </div>
+
+              <SubtitleEditor
+                segments={segments}
+                sourceLang={project.source_lang}
+                targetLang={project.target_lang}
+                disabled={editorLocked}
+                onChange={onSegmentChange}
+              />
+
+              <div className="action-row editor-actions">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={editorLocked}
+                  onClick={() => void saveSegments().catch((err: Error) => setError(err.message))}
+                >
+                  {text.saveSubtitles}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={editorLocked || retranslating || segments.length === 0}
+                  onClick={() => void onRetranslate()}
+                >
+                  {retranslating ? text.retranslating : text.retranslate}
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-dub"
+                  disabled={editorLocked || segments.length === 0}
+                  onClick={onCreateDub}
+                >
+                  {isDemoMode
+                    ? canRegenerateDub
+                      ? text.regenerateDubVoice
+                      : text.createDubVoice
+                    : project.status === "dubbing"
+                      ? text.creatingDub
+                      : text.createDubFile}
+                </button>
+                {hasDubVoice && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={editorLocked}
+                    onClick={onRenderDub}
+                  >
+                    {outputUrl ? text.rerenderFinalVideo : text.renderFinalVideo}
+                  </button>
+                )}
+              </div>
+              {message && <p className="form-msg ok">{message}</p>}
+            </div>
+          )}
+
+          {!canEdit && project && (
+            <div className="app-panel editor-panel">
               <p className="muted">
                 {activeJob ? text.extractingSubtitles : text.noSubtitlesYet}
               </p>
-            )}
-
-            {canEdit && (
-              <>
-                <div className="row">
-                  <label>
-                    {text.subtitleForOutput}
-                    <select
-                      value={project.subtitle_mode}
-                      disabled={editorLocked}
-                      onChange={(e) => void onSubtitleModeChange(e.target.value as SubtitleMode)}
-                    >
-                      <option value="none">{text.noSubtitles}</option>
-                      <option value="source">{text.sourceSubtitles}</option>
-                      <option value="target">{text.targetSubtitles}</option>
-                    </select>
-                  </label>
-                </div>
-
-                <SubtitleEditor
-                  segments={segments.map((segment) => ({
-                    ...segment,
-                    dubbed_audio_url: dubbedAudioByIdx[segment.idx],
-                  }))}
-                  sourceLang={project.source_lang}
-                  targetLang={project.target_lang}
-                  disabled={editorLocked}
-                  onChange={onSegmentChange}
-                />
-
-                <div className="action-row editor-actions">
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    disabled={editorLocked}
-                    onClick={() => void saveSegments().catch((err: Error) => setError(err.message))}
-                  >
-                    {text.saveSubtitles}
-                  </button>
-                  {isDemoMode && Object.keys(dubbedAudioByIdx).length > 0 && (
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      disabled={editorLocked}
-                      onClick={onRenderDub}
-                    >
-                      {text.renderFinalVideo}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn-primary btn-dub"
-                    disabled={editorLocked || segments.length === 0}
-                    onClick={onCreateDub}
-                  >
-                    {isDemoMode
-                      ? text.createDubVoice
-                      : project.status === "dubbing"
-                        ? text.creatingDub
-                        : text.createDubFile}
-                  </button>
-                </div>
-                {message && <p className="form-msg ok">{message}</p>}
-              </>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* 3. Before / After */}
           <div className="app-panel">
             <h2 className="panel-inline-title">{text.beforeAfter}</h2>
             {sourceUrl ? (
               <BeforeAfterPlayer
-                beforeSrc={voiceRemovedUrl ?? sourceUrl}
+                beforeSrc={sourceUrl}
                 afterSrc={outputUrl ?? ""}
-                beforeLabel={
-                  voiceRemovedUrl
-                    ? text.beforeVoiceRemoved
-                    : text.beforeOriginal
-                }
+                beforeLabel={text.beforeOriginal}
                 afterLabel={text.afterDubbed}
                 segments={segments}
                 subtitleMode={project.subtitle_mode}
@@ -605,18 +759,25 @@ export default function NewDubPage() {
             )}
             {!outputUrl && (
               <p className="muted" style={{ marginTop: "0.75rem" }}>
-                {text.afterPending}
+                {project.status === "completed" && hasDubVoice
+                  ? text.afterPendingAfterEdit
+                  : text.afterPending}
               </p>
             )}
             {outputUrl && (
               <div className="action-row">
-                <a
-                  href={`${outputUrl}${outputUrl.includes("?") ? "&" : "?"}download=${encodeURIComponent(`${project.title}-dubbed.mp4`)}`}
+                <button
+                  type="button"
                   className="btn-primary"
-                  download={`${project.title}-dubbed.mp4`}
+                  onClick={() =>
+                    void forceDownload(
+                      outputUrl,
+                      `${project.title}-dubbed.mp4`,
+                    ).catch((err: Error) => setError(err.message))
+                  }
                 >
                   {text.downloadFinal}
-                </a>
+                </button>
               </div>
             )}
           </div>

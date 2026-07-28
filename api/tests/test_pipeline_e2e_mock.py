@@ -73,6 +73,10 @@ class FakeStorage:
         prefix = source_key.rsplit("/source/", 1)[0]
         return f"{prefix}/outputs/{filename}"
 
+    def meta_key_for_source(self, source_key: str, filename: str) -> str:
+        prefix = source_key.rsplit("/source/", 1)[0]
+        return f"{prefix}/meta/{filename}"
+
     async def head_object(self, key: str) -> dict | None:
         p = self._path(key)
         if not p.exists():

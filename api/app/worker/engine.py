@@ -21,7 +21,7 @@ from . import errors, media, stems
 from .elevenlabs_client import ElevenLabsClient
 from .errors import PipelineError
 from .media import HeartbeatFn, MediaInfo
-from .openai_client import OpenAIClient, SegmentDraft
+from .openai_client import OpenAIClient, SegmentDraft, TranscribeResult
 
 logger = logging.getLogger("dubby.worker.engine")
 
@@ -44,7 +44,7 @@ class Engine(ABC):
     @abstractmethod
     async def transcribe(
         self, asr_audio_path: str, language: str
-    ) -> list[SegmentDraft]: ...
+    ) -> TranscribeResult: ...
 
     @abstractmethod
     async def translate_batch(
@@ -81,6 +81,7 @@ class Engine(ABC):
         out_path: str,
         tone_style: str = "neutral",
         language: str = "",
+        speed: float = 1.0,
     ) -> None: ...
 
     @abstractmethod
@@ -96,6 +97,14 @@ class Engine(ABC):
         max_seconds: float | None = None,
         gain_db: float = 0.0,
     ) -> None: ...
+
+    @abstractmethod
+    async def measure_clip_loudness(
+        self,
+        clip_path: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> float: ...
 
     @abstractmethod
     async def measure_segment_loudness(
@@ -194,7 +203,7 @@ class RealEngine(Engine):
 
     async def transcribe(
         self, asr_audio_path: str, language: str
-    ) -> list[SegmentDraft]:
+    ) -> TranscribeResult:
         return await self.openai.transcribe(asr_audio_path, language)
 
     async def translate_batch(
@@ -251,9 +260,10 @@ class RealEngine(Engine):
         out_path: str,
         tone_style: str = "neutral",
         language: str = "",
+        speed: float = 1.0,
     ) -> None:
         await self.elevenlabs.tts_to_file(
-            text, voice_id, out_path, tone_style, language
+            text, voice_id, out_path, tone_style, language, speed=speed
         )
 
     async def clip_duration_seconds(self, path: str) -> float:
@@ -283,6 +293,20 @@ class RealEngine(Engine):
                 gain_db=gain_db,
             ),
             errors.FFMPEG_FAILED,
+        )
+
+    async def measure_clip_loudness(
+        self,
+        clip_path: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> float:
+        return await asyncio.to_thread(
+            media.measure_audio_loudness_db,
+            clip_path,
+            start_ms,
+            end_ms,
+            ffmpeg_path=self._settings.ffmpeg_path,
         )
 
     async def measure_segment_loudness(
@@ -397,11 +421,11 @@ class MockEngine(Engine):
 
     async def transcribe(
         self, asr_audio_path: str, language: str
-    ) -> list[SegmentDraft]:
+    ) -> TranscribeResult:
         duration_ms = int(_wav_duration(asr_audio_path) * 1000) or 8000
         count = 3 if duration_ms >= 3000 else 1
         step = duration_ms // count
-        return [
+        drafts = [
             SegmentDraft(
                 start_ms=i * step,
                 end_ms=(i + 1) * step,
@@ -409,6 +433,10 @@ class MockEngine(Engine):
             )
             for i in range(count)
         ]
+        return TranscribeResult(
+            drafts=drafts,
+            speech_ranges=[(d.start_ms, d.end_ms) for d in drafts],
+        )
 
     async def translate_batch(
         self, items: list[tuple[int, str, float]], source_lang: str, target_lang: str
@@ -452,8 +480,9 @@ class MockEngine(Engine):
         out_path: str,
         tone_style: str = "neutral",
         language: str = "",
+        speed: float = 1.0,
     ) -> None:
-        del voice_id, tone_style, language
+        del voice_id, tone_style, language, speed
         seconds = max(0.2, len(text) * _MOCK_SECONDS_PER_CHAR)
         _write_wav(out_path, seconds)
 
@@ -474,6 +503,15 @@ class MockEngine(Engine):
         if max_seconds is not None:
             duration = min(duration, max_seconds)
         _write_wav(wav_out, duration)
+
+    async def measure_clip_loudness(
+        self,
+        clip_path: str,
+        start_ms: int,
+        end_ms: int,
+    ) -> float:
+        del clip_path, start_ms, end_ms
+        return -18.0
 
     async def measure_segment_loudness(
         self,

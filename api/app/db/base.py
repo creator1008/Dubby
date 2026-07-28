@@ -169,12 +169,20 @@ class Repository(ABC):
 
     # --- administrator -------------------------------------------------------
 
+    async def is_user_active(self, user_id: UUID) -> bool:
+        raise NotImplementedError
+
     async def admin_list_users(
         self, query: str | None = None, limit: int = 100
     ) -> list[Row]:
         raise NotImplementedError
 
     async def admin_get_user_usage(self, user_id: UUID) -> Row | None:
+        raise NotImplementedError
+
+    async def admin_set_user_active(
+        self, user_id: UUID, *, is_active: bool
+    ) -> Row | None:
         raise NotImplementedError
 
     async def admin_list_access_logs(self, limit: int = 200) -> list[Row]:

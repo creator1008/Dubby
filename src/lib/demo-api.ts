@@ -9,26 +9,66 @@
  */
 
 import type { Credits, Job, LangCode, Project, Segment } from "@/lib/ui-types";
-import type { LocalStep12Result } from "@/lib/local-step12";
+import {
+  deleteLocalRun,
+  gcOrphanLocalRuns,
+  type LocalStep12Result,
+} from "@/lib/local-step12";
+import { getSupabase } from "@/lib/supabase";
+
+/** Append local API download hint; never mutate signed cloud object URLs. */
+export function withDownloadAttachment(url: string, filename: string): string {
+  // Presigned S3/R2 query params are part of the signature — do not append.
+  if (/[?&](X-Amz-Signature|Signature)=/i.test(url)) {
+    return url;
+  }
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}download=${encodeURIComponent(filename)}`;
+}
+
+/** Force a file save even when the URL redirects cross-origin. */
+export async function forceDownload(url: string, filename: string): Promise<void> {
+  const downloadUrl = withDownloadAttachment(url, filename);
+  const response = await fetch(downloadUrl, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(`다운로드 실패 (${response.status})`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
 
 export const isDemoMode =
   (process.env.NEXT_PUBLIC_LOCAL_PIPELINE ?? "").trim() === "true" ||
   !(process.env.NEXT_PUBLIC_API_ORIGIN ?? "").trim();
 
-const STORE_KEY = "dubby.demo-state.v1";
+const STORE_KEY = "dubby.demo-state.v2";
+
+const DEFAULT_USER_CREDIT_MINUTES = 30;
 
 type DemoState = {
   projects: Project[];
   segments: Record<string, Segment[]>;
   jobs: Job[];
-  balance: number;
+  /** @deprecated Prefer balances[userId]; kept for localStorage migration. */
+  balance?: number;
+  /** Per-user dubbing credit minutes (demo / local pipeline). */
+  balances: Record<string, number>;
+  /** Local pipeline run_id per project (scratch + R2 ``local/runs/{id}``). */
+  local_run_ids: Record<string, string>;
   /** Presigned/local URLs for step-1 extracted source audio per project. */
   source_audio_urls: Record<string, string>;
   source_video_urls: Record<string, string>;
   output_urls: Record<string, string>;
 };
 
-const SAMPLE_LINES: Record<LangCode, string[]> = {
+const SAMPLE_LINES: Partial<Record<LangCode, string[]>> = {
   ko: [
     "안녕하세요, 더비를 소개합니다.",
     "영상 하나로 전 세계 시청자를 만나보세요.",
@@ -69,7 +109,8 @@ function defaultState(): DemoState {
     projects: [],
     segments: {},
     jobs: [],
-    balance: 42,
+    balances: {},
+    local_run_ids: {},
     source_audio_urls: {},
     source_video_urls: {},
     output_urls: {},
@@ -90,6 +131,14 @@ function loadState(): DemoState {
   if (!state.source_audio_urls) state.source_audio_urls = {};
   if (!state.source_video_urls) state.source_video_urls = {};
   if (!state.output_urls) state.output_urls = {};
+  if (!state.balances) state.balances = {};
+  if (!state.local_run_ids) state.local_run_ids = {};
+  // Backfill run ids from asset URLs for projects created before this field existed.
+  for (const project of state.projects) {
+    if (state.local_run_ids[project.id]) continue;
+    const runId = resolveProjectRunId(state, project.id);
+    if (runId) state.local_run_ids[project.id] = runId;
+  }
   // Timers don't survive reloads: settle any job that was left mid-flight.
   for (const job of state.jobs) {
     if (job.status === "queued" || job.status === "running") {
@@ -123,8 +172,16 @@ function persist() {
 
 function ensureSegments(st: DemoState, project: Project) {
   if (st.segments[project.id]?.length) return;
-  const source = SAMPLE_LINES[(project.source_lang as LangCode)] ?? SAMPLE_LINES.ko;
-  const target = SAMPLE_LINES[(project.target_lang as LangCode)] ?? SAMPLE_LINES.en;
+  const source =
+    SAMPLE_LINES[project.source_lang as LangCode] ??
+    SAMPLE_LINES.ko ??
+    SAMPLE_LINES.en ??
+    [];
+  const target =
+    SAMPLE_LINES[project.target_lang as LangCode] ??
+    SAMPLE_LINES.en ??
+    SAMPLE_LINES.ko ??
+    [];
   st.segments[project.id] = source.map((text, idx) => ({
     id: uid("seg"),
     project_id: project.id,
@@ -141,6 +198,76 @@ function ensureSegments(st: DemoState, project: Project) {
 function getProjectOrThrow(id: string): Project {
   const project = loadState().projects.find((p) => p.id === id);
   if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
+  return project;
+}
+
+async function requireUserId(): Promise<string> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("로그인이 필요합니다.");
+  const { data } = await supabase.auth.getSession();
+  const userId = data.session?.user?.id;
+  if (!userId) throw new Error("로그인이 필요합니다.");
+  return userId;
+}
+
+function getUserBalance(st: DemoState, userId: string): number {
+  if (st.balances[userId] === undefined) {
+    st.balances[userId] = DEFAULT_USER_CREDIT_MINUTES;
+    persist();
+  }
+  return st.balances[userId];
+}
+
+function setUserBalance(st: DemoState, userId: string, minutes: number) {
+  st.balances[userId] = Math.max(0, minutes);
+}
+
+/** Match real API: ceil(duration_seconds / 60) dubbing minutes. */
+function dubChargeMinutes(project: Project, segments: Segment[]): number {
+  let duration = project.duration_seconds ?? 0;
+  if (duration <= 0 && segments.length) {
+    duration = Math.max(...segments.map((row) => row.end_ms)) / 1000;
+  }
+  if (duration <= 0) return 1;
+  return Math.max(1, Math.ceil(duration / 60));
+}
+
+async function chargeDubCredits(projectId: string): Promise<number> {
+  const userId = await requireUserId();
+  const st = loadState();
+  const project = await requireOwnedProject(projectId);
+  const charge = dubChargeMinutes(project, st.segments[projectId] ?? []);
+  const balance = getUserBalance(st, userId);
+  if (balance < charge) {
+    throw new Error(
+      `크레딧이 부족합니다. 필요 ${charge}분, 잔액 ${balance.toFixed(1)}분`,
+    );
+  }
+  setUserBalance(st, userId, balance - charge);
+  persist();
+  return charge;
+}
+
+async function assertDubCredits(projectId: string): Promise<number> {
+  const userId = await requireUserId();
+  const st = loadState();
+  const project = await requireOwnedProject(projectId);
+  const charge = dubChargeMinutes(project, st.segments[projectId] ?? []);
+  const balance = getUserBalance(st, userId);
+  if (balance < charge) {
+    throw new Error(
+      `크레딧이 부족합니다. 필요 ${charge}분, 잔액 ${balance.toFixed(1)}분`,
+    );
+  }
+  return charge;
+}
+
+async function requireOwnedProject(id: string): Promise<Project> {
+  const userId = await requireUserId();
+  const project = getProjectOrThrow(id);
+  if (project.owner_id !== userId) {
+    throw new Error("프로젝트를 찾을 수 없습니다.");
+  }
   return project;
 }
 
@@ -189,19 +316,79 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+const LOCAL_RUN_ID_RE = /^[a-f0-9]{32}$/i;
+
+function extractLocalRunIdFromUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  const match = url.match(/\/v1\/local\/step12\/([a-f0-9]{32})\//i);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function resolveProjectRunId(st: DemoState, projectId: string): string | null {
+  const stored = st.local_run_ids[projectId];
+  if (stored && LOCAL_RUN_ID_RE.test(stored)) return stored.toLowerCase();
+  return (
+    extractLocalRunIdFromUrl(st.source_video_urls[projectId]) ??
+    extractLocalRunIdFromUrl(st.source_audio_urls[projectId]) ??
+    extractLocalRunIdFromUrl(st.output_urls[projectId]) ??
+    extractLocalRunIdFromUrl(st.segments[projectId]?.[0]?.audio_url) ??
+    extractLocalRunIdFromUrl(st.segments[projectId]?.[0]?.dubbed_audio_url) ??
+    null
+  );
+}
+
+function collectActiveRunIds(st: DemoState, exceptProjectId?: string): string[] {
+  const ids = new Set<string>();
+  for (const project of st.projects) {
+    if (exceptProjectId && project.id === exceptProjectId) continue;
+    const runId = resolveProjectRunId(st, project.id);
+    if (runId) ids.add(runId);
+  }
+  return [...ids];
+}
+
+async function cleanupProjectMedia(st: DemoState, projectId: string) {
+  const runId = resolveProjectRunId(st, projectId);
+  const objectUrl = sourceObjectUrls.get(projectId);
+  if (objectUrl) {
+    URL.revokeObjectURL(objectUrl);
+    sourceObjectUrls.delete(projectId);
+  }
+  if (runId) {
+    try {
+      await deleteLocalRun(runId);
+    } catch {
+      // Continue with orphan GC even if the targeted delete fails.
+    }
+  }
+  delete st.local_run_ids[projectId];
+  try {
+    await gcOrphanLocalRuns(collectActiveRunIds(st, projectId));
+  } catch {
+    // History row must still be removed even if storage GC is unavailable.
+  }
+}
+
 export const demoApi = {
   projects: {
-    list: async () => clone(loadState().projects),
-    get: async (id: string) => clone(getProjectOrThrow(id)),
+    list: async () => {
+      const userId = await requireUserId();
+      return clone(
+        loadState().projects.filter((project) => project.owner_id === userId),
+      );
+    },
+    get: async (id: string) => clone(await requireOwnedProject(id)),
     create: async (
       body: Pick<
         Project,
         "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled"
       >,
     ) => {
+      const userId = await requireUserId();
       const st = loadState();
       const project: Project = {
         id: uid("proj"),
+        owner_id: userId,
         title: body.title,
         status: "created",
         source_lang: body.source_lang,
@@ -226,60 +413,79 @@ export const demoApi = {
       id: string,
       body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode">>,
     ) => {
-      const project = getProjectOrThrow(id);
+      const project = await requireOwnedProject(id);
       Object.assign(project, body, { updated_at: nowIso() });
       persist();
       return clone(project);
     },
-    importUrl: async (id: string, _url: string) => {
-      const project = getProjectOrThrow(id);
-      project.status = "uploaded";
-      project.source_key = "local/remote-video";
-      project.updated_at = nowIso();
-      persist();
-      return clone(project);
-    },
     remove: async (id: string) => {
+      await requireOwnedProject(id);
       const st = loadState();
+      await cleanupProjectMedia(st, id);
       st.projects = st.projects.filter((p) => p.id !== id);
       st.jobs = st.jobs.filter((j) => j.project_id !== id);
       delete st.segments[id];
       delete st.source_audio_urls[id];
       delete st.source_video_urls[id];
       delete st.output_urls[id];
+      delete st.local_run_ids[id];
       persist();
+    },
+    outputUrl: async (id: string) => {
+      const st = loadState();
+      const project = await requireOwnedProject(id);
+      if (project.status !== "completed") throw new Error("더빙 결과가 아직 없습니다.");
+      const url = st.output_urls[id];
+      if (!url) throw new Error("더빙 결과 파일을 찾을 수 없습니다.");
+      return {
+        url,
+        expires_in: 3600,
+      };
     },
     download: async (id: string) => {
       const st = loadState();
-      const project = getProjectOrThrow(id);
+      const project = await requireOwnedProject(id);
       if (project.status !== "completed") throw new Error("더빙 결과가 아직 없습니다.");
-      const url = st.output_urls[id] ?? "/demo-after.mp4";
-      const separator = url.includes("?") ? "&" : "?";
+      const url = st.output_urls[id];
+      if (!url) throw new Error("더빙 결과 파일을 찾을 수 없습니다.");
       return {
-        url: `${url}${separator}download=${encodeURIComponent(`${project.title}-dubbed.mp4`)}`,
+        url: withDownloadAttachment(url, `${project.title}-dubbed.mp4`),
         expires_in: 3600,
       };
     },
     sourceUrl: async (id: string) => {
       const st = loadState();
-      getProjectOrThrow(id);
+      await requireOwnedProject(id);
+      const url =
+        sourceObjectUrls.get(id) ??
+        st.source_video_urls[id] ??
+        st.source_audio_urls[id];
+      if (!url) throw new Error("원본 영상 URL을 찾을 수 없습니다.");
       return {
-        url:
-          sourceObjectUrls.get(id) ??
-          st.source_video_urls[id] ??
-          st.source_audio_urls[id] ??
-          "/demo-before.mp4",
+        url,
         expires_in: 3600,
       };
+    },
+    sourceFromUrl: async (id: string, url: string) => {
+      const project = await requireOwnedProject(id);
+      project.status = "uploaded";
+      project.source_key = `demo/url/${encodeURIComponent(url.slice(0, 120))}`;
+      project.updated_at = nowIso();
+      persist();
+      return clone(project);
     },
   },
 
   segments: {
-    list: async (projectId: string) => clone(loadState().segments[projectId] ?? []),
+    list: async (projectId: string) => {
+      await requireOwnedProject(projectId);
+      return clone(loadState().segments[projectId] ?? []);
+    },
     update: async (
       projectId: string,
       updates: Array<Pick<Segment, "id" | "target_text"> & { source_text?: string }>,
     ) => {
+      await requireOwnedProject(projectId);
       const st = loadState();
       const rows = st.segments[projectId] ?? [];
       for (const update of updates) {
@@ -294,16 +500,19 @@ export const demoApi = {
   },
 
   jobs: {
-    list: async (projectId: string) =>
-      clone(loadState().jobs.filter((j) => j.project_id === projectId)),
+    list: async (projectId: string) => {
+      await requireOwnedProject(projectId);
+      return clone(loadState().jobs.filter((j) => j.project_id === projectId));
+    },
     get: async (jobId: string) => {
       const job = loadState().jobs.find((j) => j.id === jobId);
       if (!job) throw new Error("작업을 찾을 수 없습니다.");
+      await requireOwnedProject(job.project_id);
       return clone(job);
     },
     create: async (projectId: string, kind: "transcribe" | "dub" | "lipsync") => {
       const st = loadState();
-      const project = getProjectOrThrow(projectId);
+      const project = await requireOwnedProject(projectId);
       if (kind === "lipsync") throw new Error("립싱크는 데모 모드에서 지원하지 않습니다.");
       const job: Job = {
         id: uid("job"),
@@ -326,10 +535,14 @@ export const demoApi = {
         });
       } else {
         project.status = "dubbing";
+        const ownerId = project.owner_id;
         runJob(job, DUB_STEPS, () => {
           project.status = "completed";
           project.output_key = "demo-output";
-          st.balance = Math.max(0, st.balance - 0.5);
+          if (ownerId) {
+            const current = getUserBalance(st, ownerId);
+            setUserBalance(st, ownerId, current - 0.5);
+          }
         });
       }
       persist();
@@ -339,6 +552,7 @@ export const demoApi = {
       const st = loadState();
       const job = st.jobs.find((j) => j.id === jobId);
       if (!job) throw new Error("작업을 찾을 수 없습니다.");
+      await requireOwnedProject(job.project_id);
       job.status = "failed";
       job.error = "사용자 취소";
       job.message = null;
@@ -351,10 +565,13 @@ export const demoApi = {
     },
   },
 
-  credits: async (): Promise<Credits> => ({
-    balance_minutes: loadState().balance,
-    entries: [],
-  }),
+  credits: async (): Promise<Credits> => {
+    const userId = await requireUserId();
+    return {
+      balance_minutes: getUserBalance(loadState(), userId),
+      entries: [],
+    };
+  },
 
   checkout: async (): Promise<{ url: string }> => {
     throw new Error("데모 모드에서는 결제가 비활성화되어 있습니다.");
@@ -365,7 +582,7 @@ export const demoApi = {
     file: File,
     onProgress: (pct: number) => void,
   ) => {
-    const project = getProjectOrThrow(projectId);
+    const project = await requireOwnedProject(projectId);
     sourceObjectUrls.set(projectId, URL.createObjectURL(file));
     for (let pct = 10; pct <= 100; pct += 15) {
       await new Promise((resolve) => window.setTimeout(resolve, 140));
@@ -379,7 +596,7 @@ export const demoApi = {
 
   applyStep12: async (projectId: string, result: LocalStep12Result) => {
     const st = loadState();
-    const project = getProjectOrThrow(projectId);
+    const project = await requireOwnedProject(projectId);
     st.segments[projectId] = result.segments.map((item) => ({
       id: uid("seg"),
       project_id: projectId,
@@ -394,8 +611,14 @@ export const demoApi = {
     }));
     project.status = "ready_for_edit";
     project.updated_at = nowIso();
+    const maxEndMs = result.segments.reduce(
+      (max, item) => Math.max(max, item.end_ms),
+      0,
+    );
+    project.duration_seconds = maxEndMs > 0 ? maxEndMs / 1000 : null;
     st.source_audio_urls[projectId] = result.audio_url;
     st.source_video_urls[projectId] = result.source_url;
+    st.local_run_ids[projectId] = result.run_id;
     persist();
     return clone(st.segments[projectId]);
   },
@@ -404,26 +627,36 @@ export const demoApi = {
     projectId: string,
     outputs: Array<{ idx: number; audio_url: string }>,
   ) => {
+    await chargeDubCredits(projectId);
     const st = loadState();
     const rows = st.segments[projectId] ?? [];
+    const bust = `t=${Date.now()}`;
     for (const output of outputs) {
       const row = rows.find((segment) => segment.idx === output.idx);
-      if (row) row.dubbed_audio_url = output.audio_url;
+      if (!row) continue;
+      const base = output.audio_url.split("#")[0].split("?")[0];
+      row.dubbed_audio_url = `${base}?${bust}`;
     }
     persist();
     return clone(rows);
   },
 
+  /** Pre-check before expensive TTS so we fail fast on insufficient credits. */
+  assertDubCredits,
+
   applyRender: async (
     projectId: string,
-    result: { output_url: string },
+    result: { output_url: string; source_url?: string },
   ) => {
     const st = loadState();
-    const project = getProjectOrThrow(projectId);
+    const project = await requireOwnedProject(projectId);
     project.status = "completed";
     project.output_key = "local/dubbed_output.mp4";
     project.updated_at = nowIso();
     st.output_urls[projectId] = result.output_url;
+    if (result.source_url) {
+      st.source_video_urls[projectId] = result.source_url;
+    }
     persist();
     return clone(project);
   },

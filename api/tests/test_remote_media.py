@@ -1,43 +1,126 @@
-from pathlib import Path
+"""Unit tests for remote media URL classification and SSRF helpers."""
 
-import httpx
+from __future__ import annotations
+
+from unittest.mock import patch
+
 import pytest
 
 from app.remote_media import (
     RemoteMediaError,
-    _filename_from_response,
-    _validate_public_url,
+    assert_public_http_url,
+    assert_safe_direct_media_url,
+    classify_media_url,
+    is_ytdlp_platform_host,
+    _is_cookie_auth_error,
+    _strip_ansi,
+    _ytdlp_cookie_option_sets,
 )
 
 
-def test_remote_filename_uses_content_disposition() -> None:
-    response = httpx.Response(
-        200,
-        headers={
-            "content-type": "video/mp4",
-            "content-disposition": 'attachment; filename="lesson final.mp4"',
-        },
-        request=httpx.Request("GET", "https://media.example/video"),
-    )
-    assert (
-        _filename_from_response(response, "https://media.example/video")
-        == "lesson_final.mp4"
-    )
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "ytdlp"),
+        ("https://youtu.be/dQw4w9WgXcQ", "ytdlp"),
+        ("https://m.youtube.com/watch?v=abc", "ytdlp"),
+        ("https://www.facebook.com/watch/?v=123", "ytdlp"),
+        ("https://fb.watch/abc123/", "ytdlp"),
+        ("https://www.tiktok.com/@user/video/123", "ytdlp"),
+        ("https://vm.tiktok.com/ZMabcdef/", "ytdlp"),
+        ("https://vt.tiktok.com/ZSXbHMHEE", "ytdlp"),
+        ("https://cdn.example.com/clip.mp4", "direct"),
+        ("https://cdn.example.com/path/video.webm?token=1", "direct"),
+        ("https://cdn.example.com/path/movie.MOV", "direct"),
+        ("https://example.com/watch?v=1", "unsupported"),
+        ("ftp://cdn.example.com/clip.mp4", "unsupported"),
+        ("not-a-url", "unsupported"),
+        ("", "unsupported"),
+    ],
+)
+def test_classify_media_url(url: str, expected: str) -> None:
+    assert classify_media_url(url) == expected
 
 
-def test_remote_filename_infers_suffix_from_content_type() -> None:
-    response = httpx.Response(
-        200,
-        headers={"content-type": "video/webm"},
-        request=httpx.Request("GET", "https://media.example/watch?id=1"),
-    )
-    assert (
-        Path(_filename_from_response(response, "https://media.example/watch?id=1")).suffix
-        == ".webm"
-    )
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("youtube.com", True),
+        ("www.youtube.com", True),
+        ("m.youtube.com", True),
+        ("youtu.be", True),
+        ("facebook.com", True),
+        ("www.facebook.com", True),
+        ("fb.watch", True),
+        ("tiktok.com", True),
+        ("www.tiktok.com", True),
+        ("vm.tiktok.com", True),
+        ("vt.tiktok.com", True),
+        ("notyoutube.com", False),
+        ("evil-youtube.com", False),
+        ("example.com", False),
+    ],
+)
+def test_is_ytdlp_platform_host(host: str, expected: bool) -> None:
+    assert is_ytdlp_platform_host(host) is expected
 
 
-@pytest.mark.anyio
-async def test_remote_url_rejects_localhost() -> None:
-    with pytest.raises(RemoteMediaError, match="로컬"):
-        await _validate_public_url("http://localhost/video.mp4")
+def test_assert_safe_direct_rejects_platform_urls() -> None:
+    with pytest.raises(RemoteMediaError):
+        assert_safe_direct_media_url("https://www.youtube.com/watch?v=abc")
+
+
+def test_assert_public_http_url_rejects_localhost() -> None:
+    with pytest.raises(RemoteMediaError):
+        assert_public_http_url("http://localhost/video.mp4")
+    with pytest.raises(RemoteMediaError):
+        assert_public_http_url("http://127.0.0.1/video.mp4")
+    with pytest.raises(RemoteMediaError):
+        assert_public_http_url("http://10.0.0.8/video.mp4")
+
+
+def test_assert_public_http_url_rejects_private_resolved_host() -> None:
+    def fake_getaddrinfo(host, port, *args, **kwargs):  # noqa: ANN001, ARG001
+        return [(2, 0, 0, "", ("10.0.0.8", 0))]
+
+    with patch("app.remote_media.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+        with pytest.raises(RemoteMediaError):
+            assert_public_http_url("https://internal.example/video.mp4")
+
+
+def test_assert_public_http_url_allows_nat64_resolved_host() -> None:
+    """TikTok short hosts often resolve to DNS64/NAT64 (reserved but global)."""
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):  # noqa: ANN001, ARG001
+        return [
+            (10, 0, 0, "", ("64:ff9b::1743:3599", 0, 0, 0)),
+            (2, 0, 0, "", ("23.59.72.74", 0)),
+        ]
+
+    with patch("app.remote_media.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+        assert_public_http_url("https://vt.tiktok.com/ZSXbHMHEE")
+
+
+def test_strip_ansi_removes_color_codes() -> None:
+    raw = "\x1b[0;31mERROR:\x1b[0m [TikTok] login required"
+    assert _strip_ansi(raw) == "ERROR: [TikTok] login required"
+
+
+def test_is_cookie_auth_error_detects_tiktok_gate() -> None:
+    message = (
+        "ERROR: [TikTok] 123: This post may not be comfortable for some audiences. "
+        "Log in for access. Use --cookies-from-browser"
+    )
+    assert _is_cookie_auth_error(message) is True
+    assert _is_cookie_auth_error("HTTP Error 404: Not Found") is False
+
+
+def test_ytdlp_cookie_option_sets_includes_explicit_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("YTDLP_COOKIES_AUTO_BROWSER", "0")
+    monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "chrome")
+    monkeypatch.delenv("YTDLP_COOKIES_FILE", raising=False)
+    options = _ytdlp_cookie_option_sets()
+    assert options == [{"cookiesfrombrowser": ("chrome", None, None, None)}]

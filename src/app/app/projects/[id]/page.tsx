@@ -2,14 +2,20 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode } from "@/lib/api";
 import { downloadAndShare } from "@/lib/mobile";
+import { retranslateLocalSegments } from "@/lib/local-step12";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { isDubLangCode } from "@/lib/languages";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
+
+function snapshotSourceTexts(rows: Segment[]) {
+  return Object.fromEntries(rows.map((row) => [row.id, row.source_text]));
+}
 
 function ProjectEditor() {
   const text = useAppDictionary();
@@ -22,6 +28,8 @@ function ProjectEditor() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [retranslating, setRetranslating] = useState(false);
+  const baselineSourceRef = useRef<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -32,6 +40,9 @@ function ProjectEditor() {
     ]);
     setProject(nextProject);
     setSegments(nextSegments);
+    if (Object.keys(baselineSourceRef.current).length === 0) {
+      baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+    }
     setJobs(nextJobs);
     if (nextProject.source_key) {
       void api.projects
@@ -41,7 +52,7 @@ function ProjectEditor() {
     }
     if (nextProject.status === "completed") {
       void api.projects
-        .download(projectId)
+        .outputUrl(projectId)
         .then(({ url }) => setOutputUrl(url))
         .catch(() => setOutputUrl(null));
     } else {
@@ -82,17 +93,74 @@ function ProjectEditor() {
     if (!projectId) return;
     setBusy(true);
     try {
-      setSegments(await api.segments.update(
+      setSegments(
+        await api.segments.update(
+          projectId,
+          segments.map(({ id, source_text, target_text }) => ({
+            id,
+            source_text,
+            target_text,
+          })),
+        ),
+      );
+      setMessage("자막을 저장했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRetranslate = async () => {
+    if (!project || !projectId) return;
+    setError(null);
+    setMessage(null);
+    const changed = segments.filter(
+      (segment) =>
+        (baselineSourceRef.current[segment.id] ?? segment.source_text) !==
+        segment.source_text,
+    );
+    if (!changed.length) {
+      setMessage(text.noSourceTextEdits);
+      return;
+    }
+    setRetranslating(true);
+    try {
+      if (!isDubLangCode(project.source_lang) || !isDubLangCode(project.target_lang)) {
+        throw new Error("지원하지 않는 언어 코드입니다.");
+      }
+      const translations = await retranslateLocalSegments(
+        project.source_lang,
+        project.target_lang,
+        changed.map(({ idx, start_ms, end_ms, source_text }) => ({
+          idx,
+          start_ms,
+          end_ms,
+          source_text,
+        })),
+      );
+      const byIdx = new Map(
+        translations.map((row) => [row.idx, row.target_text]),
+      );
+      const next = segments.map((segment) => {
+        const target = byIdx.get(segment.idx);
+        return target === undefined
+          ? segment
+          : { ...segment, target_text: target };
+      });
+      const saved = await api.segments.update(
         projectId,
-        segments.map(({ id, source_text, target_text }) => ({
+        next.map(({ id, source_text, target_text }) => ({
           id,
           source_text,
           target_text,
         })),
-      ));
-      setMessage("자막을 저장했습니다.");
+      );
+      setSegments(saved);
+      baselineSourceRef.current = snapshotSourceTexts(saved);
+      setMessage(text.retranslateDone);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.retranslate);
     } finally {
-      setBusy(false);
+      setRetranslating(false);
     }
   };
 
@@ -255,34 +323,51 @@ function ProjectEditor() {
             >
               {text.premiumLipSync}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => void load()}>
-              {text.refresh}
-            </button>
           </div>
         </div>
 
-        <div className="app-panel editor-panel">
-          <div className="editor-panel-head">
-            <h2>{text.subtitleEditor}</h2>
-            <p className="muted">{text.reviewThenDub}</p>
+        {project.status !== "completed" && (
+          <div className="app-panel editor-panel">
+            <div className="editor-panel-head">
+              <h2>{text.subtitleEditor}</h2>
+              <p className="muted">{text.reviewThenDub}</p>
+            </div>
+            <SubtitleEditor
+              segments={segments}
+              sourceLang={project.source_lang}
+              targetLang={project.target_lang}
+              disabled={busy || Boolean(activeJob)}
+              onChange={onSegmentChange}
+            />
+            <div className="action-row editor-actions">
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={busy || Boolean(activeJob)}
+                onClick={() => void save().catch((err: Error) => setError(err.message))}
+              >
+                {text.saveSubtitles}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={busy || retranslating || Boolean(activeJob) || segments.length === 0}
+                onClick={() => void onRetranslate()}
+              >
+                {retranslating ? text.retranslating : text.retranslate}
+              </button>
+              <button
+                type="button"
+                className="btn-primary btn-dub"
+                disabled={isDemoMode || busy || Boolean(activeJob) || segments.length === 0}
+                onClick={startDub}
+              >
+                {isDemoMode ? text.continueAfterVerification : text.startDubbing}
+              </button>
+            </div>
+            {message && <p className="form-msg ok">{message}</p>}
           </div>
-          <SubtitleEditor
-            segments={segments}
-            sourceLang={project.source_lang}
-            targetLang={project.target_lang}
-            disabled={busy || Boolean(activeJob)}
-            onChange={onSegmentChange}
-          />
-          <div className="action-row editor-actions">
-            <button type="button" className="btn-ghost" disabled={busy || Boolean(activeJob)} onClick={() => void save().catch((err: Error) => setError(err.message))}>
-              {text.saveSubtitles}
-            </button>
-            <button type="button" className="btn-primary btn-dub" disabled={isDemoMode || busy || Boolean(activeJob) || segments.length === 0} onClick={startDub}>
-              {isDemoMode ? text.continueAfterVerification : text.startDubbing}
-            </button>
-          </div>
-          {message && <p className="form-msg ok">{message}</p>}
-        </div>
+        )}
       </div>
     </>
   );

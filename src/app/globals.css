@@ -877,7 +877,7 @@ body {
 .account-menu .account-menu-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   width: 100%;
   min-height: 3rem;
   padding: 0.75rem 0.9rem;
@@ -885,6 +885,8 @@ body {
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   color: var(--ink);
+  font: inherit;
+  font-weight: 650;
   text-align: left;
   text-decoration: none;
   background: #fff;
@@ -1056,6 +1058,46 @@ body {
   accent-color: var(--teal);
 }
 
+.input-mode-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.7);
+  width: fit-content;
+}
+
+.input-mode-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 650;
+  padding: 0.45rem 0.9rem;
+  border-radius: 0.65rem;
+  cursor: pointer;
+}
+
+.input-mode-toggle button.is-active {
+  background: var(--teal);
+  color: #fff;
+}
+
+.input-mode-toggle button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .billing-status,
 .billing-product {
   display: flex;
@@ -1089,29 +1131,6 @@ body {
   .app-form .row {
     grid-template-columns: 1fr 1fr 1fr;
   }
-}
-
-.source-mode-tabs {
-  display: flex;
-  gap: 0.6rem;
-  margin-bottom: 0.85rem;
-}
-
-.source-mode-tabs button {
-  flex: 1;
-}
-
-.video-url-field {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.video-url-field input {
-  width: 100%;
-}
-
-.video-url-field .muted {
-  font-size: 0.82rem;
 }
 
 .dropzone {
@@ -1429,10 +1448,6 @@ body {
     backdrop-filter: blur(14px);
   }
 
-  .app-nav .credits-pill {
-    display: none;
-  }
-
   .app-nav .btn-ghost,
   .app-nav .header-new-dub,
   .app-nav a {
@@ -1468,12 +1483,33 @@ body {
   margin: 0 auto;
 }
 
+.auth-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.auth-signup-link {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.auth-signup-link:hover {
+  border-color: color-mix(in srgb, var(--accent, #0f9c8a) 45%, var(--line));
+  color: var(--accent, #0f9c8a);
+}
+
 .auth-card {
   display: grid;
   gap: 1.25rem;
-  width: min(100%, 480px);
+  width: min(100%, 580px);
   margin: clamp(3rem, 10vh, 8rem) auto 0;
-  padding: clamp(1.5rem, 4vw, 2.5rem);
+  padding: clamp(1.75rem, 4vw, 2.75rem);
   border: 1px solid var(--line);
   border-radius: 1.5rem;
   background: rgb(255 255 255 / 88%);
@@ -1483,6 +1519,7 @@ body {
 
 .auth-card h1 {
   margin: 0.25rem 0 0.5rem;
+  font-size: clamp(1.75rem, 3vw, 2.1rem);
 }
 
 .oauth-list {
@@ -1516,6 +1553,164 @@ body {
 .oauth-button:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+
+.oauth-button.oauth-disabled:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.auth-email-form {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.auth-card > .auth-email-form {
+  padding-left: 1.15rem;
+}
+
+.auth-field {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 650;
+  font-size: 1.05rem;
+}
+
+.auth-field input,
+.auth-field select,
+.auth-modal .auth-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3.15rem;
+  padding: 0.8rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: #fff;
+  font: inherit;
+  font-size: 1.05rem;
+}
+
+.auth-field-lg {
+  font-size: 1.12rem;
+}
+
+.auth-field-lg input {
+  min-height: 4rem;
+  padding: 1.05rem 1.25rem 1.05rem 1.35rem;
+  font-size: 1.18rem;
+  border-radius: 1rem;
+  text-indent: 0.15rem;
+}
+
+.auth-field input:focus,
+.auth-field select:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent, #0f9c8a) 35%, transparent);
+  outline-offset: 1px;
+  border-color: color-mix(in srgb, var(--accent, #0f9c8a) 55%, var(--line));
+}
+
+.auth-card > .auth-email-form .auth-email-submit {
+  margin-left: 0;
+  min-height: 3.5rem;
+  font-size: 1.08rem;
+}
+
+.auth-email-submit {
+  min-height: 3.25rem;
+  border: 0;
+  border-radius: 0.8rem;
+  background: var(--accent, #0f9c8a);
+  color: #fff;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.auth-email-submit:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  color: var(--muted, #5b6b73);
+  font-size: 0.8rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  height: 1px;
+  background: var(--line);
+}
+
+.auth-modal-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 1.5rem;
+  margin: 0;
+  background: rgb(17 44 54 / 48%);
+  backdrop-filter: blur(8px);
+}
+
+.auth-modal {
+  position: relative;
+  display: grid;
+  gap: 1.1rem;
+  width: min(100%, 420px);
+  max-height: min(90vh, 640px);
+  overflow: auto;
+  margin: 0;
+  padding: 1.5rem 1.4rem 1.55rem;
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  background: #fff;
+  box-shadow: 0 28px 70px rgb(17 44 54 / 28%);
+}
+
+.auth-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.auth-modal-head h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.auth-modal-close {
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(17 44 54 / 6%);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.auth-modal-close:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.auth-signup-done {
+  display: grid;
+  gap: 1rem;
 }
 
 .auth-terms {
@@ -1560,7 +1755,7 @@ body {
 
 .admin-user-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) 0.7fr 0.5fr 0.7fr;
+  grid-template-columns: minmax(0, 2fr) 0.7fr 0.5fr 0.5fr 0.7fr;
   gap: 0.75rem;
   align-items: center;
   width: 100%;
@@ -1570,6 +1765,25 @@ body {
   text-align: left;
   background: #fff;
   cursor: pointer;
+}
+
+.admin-user-row.selected {
+  border-color: color-mix(in srgb, var(--accent, #2f6fed) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent, #2f6fed) 8%, transparent);
+}
+
+.admin-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.admin-section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
 }
 
 .admin-user-row > span:first-child {

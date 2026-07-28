@@ -1,4 +1,6 @@
-export type LangCode = "ko" | "en" | "vi";
+import type { DubLangCode } from "@/lib/languages";
+
+export type LangCode = DubLangCode;
 export type SubtitleMode = "none" | "source" | "target";
 export type ToneStyle = "neutral" | "warm" | "energetic" | "serious";
 
@@ -10,6 +12,8 @@ export type Session = {
 
 export type Project = {
   id: string;
+  /** Authenticated Supabase user id that owns this project. */
+  owner_id?: string | null;
   title: string;
   status: string;
   source_lang: string;
@@ -76,6 +80,8 @@ export type AdminUser = {
   auth_provider: string | null;
   created_at: string;
   last_login_at: string | null;
+  is_active: boolean;
+  deactivated_at: string | null;
   project_count: number;
   credit_balance: number;
 };
@@ -92,15 +98,58 @@ export type AccessLog = {
   created_at: string;
 };
 
+export type AdminJobRow = {
+  id: string;
+  kind: string;
+  status: string;
+  progress: number;
+  charged_minutes: number;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  project_id: string;
+  project_title: string | null;
+};
+
+export type AdminPaymentPurchase = {
+  id: string;
+  delta_minutes: number;
+  reason: string;
+  external_reference: string | null;
+  created_at: string;
+};
+
+export type AdminSubscription = {
+  stripe_subscription_id: string;
+  stripe_customer_id: string;
+  status: string;
+  price_id: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AdminUserUsage = {
   profile: Omit<AdminUser, "project_count" | "credit_balance">;
   projects: Array<
     Pick<
       Project,
-      "id" | "title" | "status" | "source_lang" | "target_lang" |
-      "duration_seconds" | "created_at"
+      | "id"
+      | "title"
+      | "status"
+      | "source_lang"
+      | "target_lang"
+      | "duration_seconds"
+      | "created_at"
     >
   >;
+  jobs: AdminJobRow[];
   credits: CreditEntry[];
+  payments: {
+    purchases: AdminPaymentPurchase[];
+    subscriptions: AdminSubscription[];
+  };
   credit_balance: number;
 };

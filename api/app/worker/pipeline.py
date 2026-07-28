@@ -19,13 +19,13 @@ The actual tool/service calls live behind :class:`app.worker.engine.Engine`;
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from statistics import median
 from typing import Awaitable, Callable, TypeVar
 from uuid import UUID
 
@@ -41,12 +41,22 @@ from .diarization import (
     create_diarization_provider,
     split_speaker_turns,
 )
+from .dub_quality import (
+    matched_loudness_gain,
+    source_loudness_levels_async,
+    voice_removal_ranges,
+)
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
-from .media import validate_source
+from .media import ffmpeg_has_rubberband, validate_source
 from .openai_client import SegmentDraft
 from .subtitles import build_ass
-from .timing import choose_fit_policy, safe_slot_seconds, slot_seconds
+from .timing import (
+    choose_fit_policy,
+    initial_speak_speed,
+    safe_slot_seconds,
+    speak_speed_for_slot,
+)
 
 logger = logging.getLogger("dubby.worker.pipeline")
 
@@ -196,6 +206,49 @@ async def _set_project(ctx: JobContext, **fields: object) -> None:
     await ctx.repo.update_project_for_worker(ctx.project_id, dict(fields))
 
 
+def _speech_ranges_key(ctx: JobContext, source_key: str) -> str:
+    return ctx.storage.meta_key_for_source(source_key, "speech_ranges.json")
+
+
+async def _upload_speech_ranges(
+    ctx: JobContext,
+    source_key: str,
+    speech_ranges: list[tuple[int, int]],
+    scratch: Path,
+) -> None:
+    if not speech_ranges:
+        return
+    ranges_path = scratch / "speech_ranges.json"
+    ranges_path.write_text(
+        json.dumps(
+            [{"start_ms": start, "end_ms": end} for start, end in speech_ranges]
+        ),
+        encoding="utf-8",
+    )
+    await _upload_output(
+        ctx,
+        ranges_path,
+        _speech_ranges_key(ctx, source_key),
+        "application/json",
+    )
+
+
+async def _load_speech_ranges(
+    ctx: JobContext, source_key: str, scratch: Path
+) -> list[tuple[int, int]]:
+    key = _speech_ranges_key(ctx, source_key)
+    if await ctx.storage.head_object(key) is None:
+        return []
+    ranges_path = scratch / "speech_ranges.json"
+    await ctx.storage.download_file(key, str(ranges_path))
+    payload = json.loads(ranges_path.read_text(encoding="utf-8"))
+    return [
+        (int(item["start_ms"]), int(item["end_ms"]))
+        for item in payload
+        if int(item.get("end_ms", 0)) > int(item.get("start_ms", 0))
+    ]
+
+
 # --- handlers --------------------------------------------------------------------
 
 
@@ -231,13 +284,20 @@ async def run_transcribe(ctx: JobContext) -> None:
         await engine.extract_asr_audio(str(source_path), str(asr_audio))
 
         await ctx.report(0.35, "asr")
-        drafts = await _with_retries(
+        transcribe_result = await _with_retries(
             ctx,
             lambda: engine.transcribe(str(asr_audio), str(project["source_lang"])),
             step="asr",
         )
+        drafts = transcribe_result.drafts
         if not drafts:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
+        await _upload_speech_ranges(
+            ctx,
+            str(project["source_key"]),
+            transcribe_result.speech_ranges,
+            scratch,
+        )
 
         speaker_assignments: list[tuple[str | None, bool]] = [
             (None, False) for _ in drafts
@@ -364,12 +424,16 @@ async def run_dub(ctx: JobContext) -> None:
         stems_dir = scratch / "stems"
         stems_dir.mkdir()
         vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
-        speech_ranges = [
+        segment_bounds = [
             (int(segment["start_ms"]), int(segment["end_ms"]))
             for segment in segments
             if str(segment.get("source_text", "")).strip()
             and int(segment["end_ms"]) > int(segment["start_ms"])
         ]
+        saved_ranges = await _load_speech_ranges(
+            ctx, str(project["source_key"]), scratch
+        )
+        speech_ranges = voice_removal_ranges(saved_ranges, segment_bounds)
         if not speech_ranges:
             raise PipelineError(
                 errors.NO_SEGMENTS,
@@ -382,21 +446,15 @@ async def run_dub(ctx: JobContext) -> None:
             speech_ranges,
             str(selective_bed),
         )
-        source_levels: dict[int, float] = {}
-        for segment in speakable:
-            idx = int(segment["idx"])
-            source_levels[idx] = await engine.measure_segment_loudness(
-                vocals,
-                int(segment["start_ms"]),
-                int(segment["end_ms"]),
-            )
-        loudness_reference = (
-            median(source_levels.values()) if source_levels else -20.0
+        speakable_indices = {int(segment["idx"]) for segment in speakable}
+        source_levels = await source_loudness_levels_async(
+            speakable,
+            speech_ranges,
+            speakable_indices,
+            lambda start_ms, end_ms: engine.measure_segment_loudness(
+                vocals, start_ms, end_ms
+            ),
         )
-        gain_by_idx = {
-            idx: max(-8.0, min(6.0, level - loudness_reference))
-            for idx, level in source_levels.items()
-        }
 
         await ctx.report(0.40, "voice_clone_tts")
         default_voice = await _with_retries(
@@ -445,70 +503,164 @@ async def run_dub(ctx: JobContext) -> None:
         clips_dir = scratch / "clips"
         clips_dir.mkdir()
         total = len(speakable)
-        for n, seg in enumerate(speakable):
-            await ctx.report(0.45 + 0.30 * n / total, "tts")
-            raw = clips_dir / f"seg_{seg['idx']}.{engine.tts_extension}"
-            text = str(seg["target_text"]).strip()
-            speaker_id = str(seg.get("speaker_id") or "")
-            voice_id = (
-                speaker_voices.get(speaker_id, default_voice)
-                if not seg.get("speaker_overlap")
-                else default_voice
-            )
-            await _with_retries(
-                ctx,
-                lambda t=text, p=str(raw), v=voice_id: engine.tts(
-                    t,
-                    v,
-                    p,
-                    str(project.get("tone_style") or "neutral"),
-                    str(project["target_lang"]),
-                ),
-                step="tts",
-            )
-            clip_s = await engine.clip_duration_seconds(str(raw))
-            next_start = (
-                int(speakable[n + 1]["start_ms"]) if n + 1 < total else None
-            )
-            slot_s = safe_slot_seconds(
-                int(seg["start_ms"]), int(seg["end_ms"]), next_start
-            )
-            ratio = clip_s / slot_s if slot_s > 0 else 1.0
-            tolerance = ctx.settings.translation_timing_tolerance
-            if ratio > 1 + tolerance or ratio < 1 - tolerance:
-                direction = "compress" if ratio > 1 else "expand"
-                try:
-                    text = await _with_retries(
-                        ctx,
-                        lambda t=text, d=direction: engine.adjust_translation(
-                            t, str(project["target_lang"]), slot_s, d
-                        ),
-                        step="timing_rewrite",
-                    )
+        target_lang = str(project["target_lang"])
+        tone_style = str(project.get("tone_style") or "neutral")
+        tolerance = ctx.settings.translation_timing_tolerance
+        tts_concurrency = max(1, int(ctx.settings.tts_concurrency))
+        sem = asyncio.Semaphore(tts_concurrency)
+
+        async def _synthesize_primary(n: int, seg: dict) -> dict:
+            async with sem:
+                await ctx.report(0.45 + 0.20 * n / max(1, total), "tts")
+                raw = clips_dir / f"seg_{seg['idx']}.{engine.tts_extension}"
+                text = str(seg["target_text"]).strip()
+                speaker_id = str(seg.get("speaker_id") or "")
+                voice_id = (
+                    speaker_voices.get(speaker_id, default_voice)
+                    if not seg.get("speaker_overlap")
+                    else default_voice
+                )
+                next_start = (
+                    int(speakable[n + 1]["start_ms"]) if n + 1 < total else None
+                )
+                slot_s = safe_slot_seconds(
+                    int(seg["start_ms"]), int(seg["end_ms"]), next_start
+                )
+                speak_speed = initial_speak_speed(
+                    text,
+                    slot_s,
+                    target_lang,
+                    min_speed=0.7,
+                    max_speed=1.2,
+                )
+                await _with_retries(
+                    ctx,
+                    lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                        t,
+                        v,
+                        p,
+                        tone_style,
+                        target_lang,
+                        s,
+                    ),
+                    step="tts",
+                )
+                clip_s = await engine.clip_duration_seconds(str(raw))
+                measured_speed = speak_speed_for_slot(
+                    clip_s,
+                    slot_s,
+                    min_speed=0.7,
+                    max_speed=1.2,
+                )
+                # Rare corrective pass only when the estimate was clearly wrong.
+                if abs(measured_speed - speak_speed) >= 0.12 and measured_speed > 1.03:
                     await _with_retries(
                         ctx,
-                        lambda t=text, p=str(raw), v=voice_id: engine.tts(
+                        lambda t=text, p=str(raw), v=voice_id, s=measured_speed: engine.tts(
                             t,
                             v,
                             p,
-                            str(project.get("tone_style") or "neutral"),
-                            str(project["target_lang"]),
+                            tone_style,
+                            target_lang,
+                            s,
                         ),
                         step="tts",
                     )
                     clip_s = await engine.clip_duration_seconds(str(raw))
+                    speak_speed = measured_speed
+                return {
+                    "n": n,
+                    "seg": seg,
+                    "raw": raw,
+                    "text": text,
+                    "voice_id": voice_id,
+                    "slot_s": slot_s,
+                    "clip_s": clip_s,
+                    "speak_speed": speak_speed,
+                }
+
+        primary = await asyncio.gather(
+            *[_synthesize_primary(n, seg) for n, seg in enumerate(speakable)]
+        )
+
+        async def _maybe_rewrite(item: dict) -> dict:
+            ratio = item["clip_s"] / item["slot_s"] if item["slot_s"] > 0 else 1.0
+            # Residual rubberband covers moderate mismatch; only rewrite when
+            # still badly off after synthesis-time speed.
+            if not (ratio > 1 + tolerance or ratio < 1 - tolerance):
+                return item
+            async with sem:
+                direction = "compress" if ratio > 1 else "expand"
+                text = item["text"]
+                raw = item["raw"]
+                voice_id = item["voice_id"]
+                slot_s = item["slot_s"]
+                try:
+                    text = await _with_retries(
+                        ctx,
+                        lambda t=text, d=direction: engine.adjust_translation(
+                            t, target_lang, slot_s, d
+                        ),
+                        step="timing_rewrite",
+                    )
+                    speak_speed = initial_speak_speed(
+                        text,
+                        slot_s,
+                        target_lang,
+                        min_speed=0.7,
+                        max_speed=1.2,
+                    )
+                    await _with_retries(
+                        ctx,
+                        lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                            t,
+                            v,
+                            p,
+                            tone_style,
+                            target_lang,
+                            s,
+                        ),
+                        step="tts",
+                    )
+                    clip_s = await engine.clip_duration_seconds(str(raw))
+                    item = {
+                        **item,
+                        "text": text,
+                        "clip_s": clip_s,
+                        "speak_speed": speak_speed,
+                    }
                 except PipelineError:
-                    quality_warnings.append(f"segment_{seg['idx']}:timing_rewrite_failed")
+                    quality_warnings.append(
+                        f"segment_{item['seg']['idx']}:timing_rewrite_failed"
+                    )
+                return item
+
+        refined = await asyncio.gather(*[_maybe_rewrite(item) for item in primary])
+
+        for item in sorted(refined, key=lambda row: int(row["n"])):
+            await ctx.report(0.65 + 0.10 * item["n"] / max(1, total), "tts")
+            seg = item["seg"]
+            clip_s = float(item["clip_s"])
+            slot_s = float(item["slot_s"])
+            raw = item["raw"]
             decision = choose_fit_policy(
                 clip_s,
                 slot_s,
                 min_tempo=ctx.settings.tts_min_tempo,
                 atempo_max=ctx.settings.tts_atempo_max,
                 max_speedup=ctx.settings.tts_max_speedup,
-                rubberband_available=bool(ctx.settings.rubberband_path),
+                rubberband_available=ffmpeg_has_rubberband(ctx.settings.ffmpeg_path)
+                or bool(ctx.settings.rubberband_path),
             )
             if decision.warning:
                 quality_warnings.append(f"segment_{seg['idx']}:{decision.warning}")
+            tts_level = await engine.measure_clip_loudness(
+                str(raw),
+                0,
+                max(1, int(clip_s * 1000)),
+            )
+            source_level = source_levels.get(int(seg["idx"]), tts_level)
+            gain_db = matched_loudness_gain(source_level, tts_level)
             fitted = clips_dir / f"seg_{seg['idx']}_fit.wav"
             await engine.fit_clip(
                 str(raw),
@@ -516,7 +668,7 @@ async def run_dub(ctx: JobContext) -> None:
                 decision.tempo,
                 decision.backend,
                 decision.output_seconds,
-                gain_by_idx.get(int(seg["idx"]), 0.0),
+                gain_db,
             )
             placed_clips.append((str(fitted), int(seg["start_ms"])))
 

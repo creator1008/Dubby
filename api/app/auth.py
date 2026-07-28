@@ -110,10 +110,24 @@ def get_verifier(request: Request) -> JwtVerifier:
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     verifier: Annotated[JwtVerifier, Depends(get_verifier)],
+    request: Request,
 ) -> AuthenticatedUser:
     if credentials is None or not credentials.credentials:
         raise UnauthorizedError("Missing bearer token")
-    return verifier.verify(credentials.credentials)
+    user = verifier.verify(credentials.credentials)
+    if user.is_admin:
+        return user
+    repository = getattr(request.app.state, "repository", None)
+    if repository is not None:
+        try:
+            active = await repository.is_user_active(user.id)
+        except Exception:
+            # Schema may not be migrated yet; fail open for availability.
+            logger.debug("is_user_active check skipped", exc_info=True)
+            return user
+        if not active:
+            raise UnauthorizedError("Account is deactivated")
+    return user
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]

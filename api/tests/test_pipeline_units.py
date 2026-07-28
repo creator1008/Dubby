@@ -19,9 +19,13 @@ from app.worker.diarization import SpeakerTurn, assign_speakers, split_speaker_t
 from app.worker.timing import (
     atempo_chain,
     choose_fit_policy,
+    estimate_tts_seconds,
     fit_speedup,
+    initial_speak_speed,
     safe_slot_seconds,
     slot_seconds,
+    speak_speed_for_slot,
+    tempo_filters,
 )
 
 
@@ -59,6 +63,40 @@ def test_fit_speedup_degenerate_inputs() -> None:
     assert fit_speedup(3.0, 0.0, 1.6) == 1.0
 
 
+def test_speak_speed_for_slot_preserves_natural_rate_when_fitting() -> None:
+    assert speak_speed_for_slot(2.0, 3.0) == 1.0
+    assert speak_speed_for_slot(3.06, 3.0) == 1.0  # within tolerance
+    assert speak_speed_for_slot(3.6, 3.0) == 1.2  # ElevenLabs cap
+    assert speak_speed_for_slot(9.0, 3.0) == 1.2
+    assert speak_speed_for_slot(4.5, 3.0, max_speed=1.5) == 1.2  # still API-capped
+
+
+def test_estimate_tts_seconds_scales_with_text_length() -> None:
+    short = estimate_tts_seconds("Hello.", "en")
+    long = estimate_tts_seconds("Hello world, this is a much longer sentence.", "en")
+    assert short >= 0.35
+    assert long > short
+
+
+def test_initial_speak_speed_speeds_up_long_text_in_short_slot() -> None:
+    text = "This translation is intentionally verbose so it needs a faster speaking rate."
+    speed = initial_speak_speed(text, 1.2, "en")
+    assert speed > 1.03
+    assert speed <= 1.2
+
+
+def test_initial_speak_speed_stays_natural_for_short_text() -> None:
+    assert initial_speak_speed("Hi.", 3.0, "en") == 1.0
+
+
+def test_tempo_filters_prefer_rubberband() -> None:
+    assert tempo_filters(1.0, rubberband_available=True) == []
+    assert tempo_filters(1.35, rubberband_available=True) == [
+        "rubberband=tempo=1.350000"
+    ]
+    assert tempo_filters(1.5, rubberband_available=False) == ["atempo=1.5"]
+
+
 def test_atempo_chain_simple_and_decomposed() -> None:
     assert atempo_chain(1.5) == ["atempo=1.5"]
     assert atempo_chain(2.0) == ["atempo=2"]
@@ -82,9 +120,23 @@ def test_fit_policy_warns_and_caps_to_prevent_overlap() -> None:
         rubberband_available=False,
     )
     assert decision.tempo == 1.5
+    assert decision.backend == "atempo"
     assert decision.output_seconds == 2.0
     assert decision.warning == "speech_truncated_to_prevent_overlap"
     assert safe_slot_seconds(0, 3000, 2500) == 2.5
+
+
+def test_fit_policy_prefers_rubberband_for_any_tempo_change() -> None:
+    decision = choose_fit_policy(
+        3.6,
+        3.0,
+        min_tempo=0.85,
+        atempo_max=1.5,
+        max_speedup=1.99,
+        rubberband_available=True,
+    )
+    assert decision.backend == "rubberband"
+    assert abs(decision.tempo - 1.2) < 1e-6
 
 
 def test_diarization_overlap_uses_safe_fallback() -> None:

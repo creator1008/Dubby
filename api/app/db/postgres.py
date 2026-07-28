@@ -471,6 +471,16 @@ class PostgresRepository(Repository):
 
     # --- administrator ------------------------------------------------------
 
+    async def is_user_active(self, user_id: UUID) -> bool:
+        row = await self.pool.fetchrow(
+            "SELECT coalesce(is_active, true) AS is_active "
+            "FROM public.profiles WHERE id=$1",
+            user_id,
+        )
+        if row is None:
+            return True
+        return bool(row["is_active"])
+
     async def admin_list_users(
         self, query: str | None = None, limit: int = 100
     ) -> list[Row]:
@@ -479,6 +489,8 @@ class PostgresRepository(Repository):
             """
             SELECT p.id, p.email, p.display_name, p.country, p.auth_provider,
                    p.created_at, p.last_login_at,
+                   coalesce(p.is_active, true) AS is_active,
+                   p.deactivated_at,
                    (SELECT count(*)::integer FROM public.projects pr
                      WHERE pr.owner_id = p.id) AS project_count,
                    (SELECT coalesce(sum(cl.delta_minutes), 0)
@@ -498,7 +510,8 @@ class PostgresRepository(Repository):
 
     async def admin_get_user_usage(self, user_id: UUID) -> Row | None:
         profile = await self.pool.fetchrow(
-            "SELECT id,email,display_name,country,auth_provider,created_at,last_login_at "
+            "SELECT id,email,display_name,country,auth_provider,created_at,"
+            "last_login_at,coalesce(is_active,true) AS is_active,deactivated_at "
             "FROM public.profiles WHERE id=$1",
             user_id,
         )
@@ -509,18 +522,69 @@ class PostgresRepository(Repository):
             "FROM public.projects WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 100",
             user_id,
         )
+        jobs = await self.pool.fetch(
+            """
+            SELECT j.id, j.kind, j.status, j.progress, j.charged_minutes,
+                   j.error, j.created_at, j.started_at, j.finished_at,
+                   p.id AS project_id, p.title AS project_title
+              FROM public.jobs j
+              JOIN public.projects p ON p.id = j.project_id
+             WHERE p.owner_id = $1
+             ORDER BY j.created_at DESC
+             LIMIT 200
+            """,
+            user_id,
+        )
         credits = await self.pool.fetch(
-            "SELECT id,delta_minutes,reason,project_id,created_at "
-            "FROM public.credit_ledger WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200",
+            "SELECT id,delta_minutes,reason,project_id,job_id,admin_note,"
+            "adjusted_by,created_at "
+            "FROM public.credit_ledger WHERE user_id=$1 "
+            "ORDER BY created_at DESC LIMIT 200",
+            user_id,
+        )
+        purchases = await self.pool.fetch(
+            "SELECT id,delta_minutes,reason,external_reference,created_at "
+            "FROM public.credit_ledger WHERE user_id=$1 AND reason='purchase' "
+            "ORDER BY created_at DESC LIMIT 100",
+            user_id,
+        )
+        subscriptions = await self.pool.fetch(
+            "SELECT stripe_subscription_id,stripe_customer_id,status,price_id,"
+            "current_period_end,cancel_at_period_end,created_at,updated_at "
+            "FROM public.stripe_subscriptions WHERE user_id=$1 "
+            "ORDER BY updated_at DESC LIMIT 50",
             user_id,
         )
         balance = await self.get_credit_balance(user_id)
         return {
             "profile": dict(profile),
             "projects": [dict(row) for row in projects],
+            "jobs": [dict(row) for row in jobs],
             "credits": [dict(row) for row in credits],
+            "payments": {
+                "purchases": [dict(row) for row in purchases],
+                "subscriptions": [dict(row) for row in subscriptions],
+            },
             "credit_balance": balance,
         }
+
+    async def admin_set_user_active(
+        self, user_id: UUID, *, is_active: bool
+    ) -> Row | None:
+        row = await self.pool.fetchrow(
+            """
+            UPDATE public.profiles
+               SET is_active = $2,
+                   deactivated_at = CASE WHEN $2 THEN NULL ELSE now() END,
+                   updated_at = now()
+             WHERE id = $1
+         RETURNING id,email,display_name,country,auth_provider,created_at,
+                   last_login_at,is_active,deactivated_at
+            """,
+            user_id,
+            is_active,
+        )
+        return dict(row) if row else None
 
     async def admin_list_access_logs(self, limit: int = 200) -> list[Row]:
         rows = await self.pool.fetch(

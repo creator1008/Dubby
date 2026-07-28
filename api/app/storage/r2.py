@@ -75,6 +75,11 @@ class R2Storage:
     def source_key(self, user_id: UUID, project_id: UUID, filename: str) -> str:
         return f"users/{user_id}/projects/{project_id}/source/{sanitize_filename(filename)}"
 
+    def meta_key_for_source(self, source_key: str, filename: str) -> str:
+        """Derive ``.../meta/<filename>`` from a project's source key."""
+        prefix = source_key.rsplit("/source/", 1)[0]
+        return f"{prefix}/meta/{sanitize_filename(filename)}"
+
     def output_key_for_source(self, source_key: str, filename: str) -> str:
         """Derive ``.../outputs/<filename>`` from a project's source key."""
         prefix = source_key.rsplit("/source/", 1)[0]

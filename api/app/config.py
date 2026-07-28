@@ -93,10 +93,19 @@ class Settings(BaseSettings):
     # Re-touch the job heartbeat during long subprocess steps.
     pipeline_heartbeat_seconds: float = 20.0
 
+    # --- yt-dlp (YouTube / Facebook / TikTok URL ingest) ----------------------
+    # Browser name for cookies (edge|chrome|firefox|brave), optional :profile.
+    ytdlp_cookies_from_browser: str = ""
+    # Netscape cookies.txt path (alternative to browser cookies).
+    ytdlp_cookies_file: str = ""
+    # When APP_ENV=local, retry with common browsers if a post needs login.
+    ytdlp_cookies_auto_browser: bool = True
+
     # --- Demucs stem split -----------------------------------------------------
-    demucs_model: str = "htdemucs_ft"
+    # htdemucs is faster than htdemucs_ft; set DEMUCS_DEVICE=cuda when available.
+    demucs_model: str = "htdemucs"
     demucs_device: str = "cpu"  # cpu | cuda
-    demucs_jobs: int = Field(default=1, ge=1, le=16)
+    demucs_jobs: int = Field(default=2, ge=1, le=16)
 
     # --- OpenAI (Whisper ASR + GPT translation) --------------------------------
     openai_api_key: str = ""
@@ -105,15 +114,18 @@ class Settings(BaseSettings):
     translation_model: str = "gpt-4o-mini"
     # Segments per translation request; keeps prompts well under limits.
     translation_batch_size: int = Field(default=40, ge=1, le=200)
-    translation_timing_tolerance: float = Field(default=0.15, ge=0.0, le=1.0)
+    translation_timing_tolerance: float = Field(default=0.22, ge=0.0, le=1.0)
     speech_segment_max_seconds: float = Field(default=6.0, ge=1.0, le=30.0)
 
     # --- ElevenLabs (voice clone + TTS) ----------------------------------------
     elevenlabs_api_key: str = ""
     elevenlabs_base_url: str = "https://api.elevenlabs.io"
-    elevenlabs_tts_model: str = "eleven_multilingual_v2"
+    # Flash is faster/cheaper; set eleven_multilingual_v2 for max quality.
+    elevenlabs_tts_model: str = "eleven_flash_v2_5"
     # When set, skip Instant Voice Clone and always use this voice.
     elevenlabs_voice_id: str = ""
+    # Parallel TTS requests per dub job (cost unchanged; wall-clock drops).
+    tts_concurrency: int = Field(default=4, ge=1, le=16)
     # Seconds of the vocals stem sent as the IVC reference sample.
     voice_clone_sample_seconds: float = 60.0
     # Tempo policy. Rubber Band is preferred outside atempo's high-quality range.
@@ -139,7 +151,7 @@ class Settings(BaseSettings):
     lipsync_cogs_minutes_multiplier: float = Field(default=2.0, gt=0)
 
     # --- Product rules ------------------------------------------------------
-    signup_credit_minutes: int = 10
+    signup_credit_minutes: int = 30
     dub_cogs_minutes_multiplier: float = Field(default=1.0, gt=0)
 
     # --- Stripe -------------------------------------------------------------

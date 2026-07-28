@@ -1,5 +1,6 @@
 "use client";
 
+import { withBasePath } from "@/lib/base-path";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { BeforeAfterPlayer } from "./BeforeAfterPlayer";
 
@@ -20,8 +21,8 @@ export function Hero() {
       </div>
       <div id="demo">
         <BeforeAfterPlayer
-          beforeSrc="/demo-before.mp4"
-          afterSrc="/demo-after.mp4"
+          beforeSrc={withBasePath("/demo-before.mp4")}
+          afterSrc={withBasePath("/demo-after.mp4")}
           beforeLabel={dict.before}
           afterLabel={dict.after}
           listenBeforeLabel={dict.listenBefore}

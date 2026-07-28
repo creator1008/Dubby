@@ -446,6 +446,22 @@ class SupabaseRestRepository(Repository):
 
     # --- administrator ------------------------------------------------------
 
+    async def is_user_active(self, user_id: UUID) -> bool:
+        resp = await self.client.get(
+            "/profiles",
+            params={
+                "select": "is_active",
+                "id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        if resp.status_code >= 400:
+            return True
+        rows = resp.json()
+        if not rows:
+            return True
+        return bool(rows[0].get("is_active", True))
+
     async def admin_list_users(
         self, query: str | None = None, limit: int = 100
     ) -> list[Row]:
@@ -454,7 +470,7 @@ class SupabaseRestRepository(Repository):
             params={
                 "select": (
                     "id,email,display_name,country,auth_provider,"
-                    "created_at,last_login_at"
+                    "created_at,last_login_at,is_active,deactivated_at"
                 ),
                 "order": "created_at.desc",
                 "limit": str(limit),
@@ -471,6 +487,7 @@ class SupabaseRestRepository(Repository):
         ]
         for row in rows:
             user_id = UUID(str(row["id"]))
+            row["is_active"] = bool(row.get("is_active", True))
             row["credit_balance"] = await self.get_credit_balance(user_id)
             projects = await self.client.get(
                 "/projects",
@@ -486,7 +503,7 @@ class SupabaseRestRepository(Repository):
             params={
                 "select": (
                     "id,email,display_name,country,auth_provider,"
-                    "created_at,last_login_at"
+                    "created_at,last_login_at,is_active,deactivated_at"
                 ),
                 "id": f"eq.{user_id}",
                 "limit": "1",
@@ -496,6 +513,8 @@ class SupabaseRestRepository(Repository):
         profiles = profile_response.json()
         if not profiles:
             return None
+        profile = profiles[0]
+        profile["is_active"] = bool(profile.get("is_active", True))
         projects_response = await self.client.get(
             "/projects",
             params={
@@ -511,20 +530,106 @@ class SupabaseRestRepository(Repository):
         credits_response = await self.client.get(
             "/credit_ledger",
             params={
-                "select": "id,delta_minutes,reason,project_id,created_at",
+                "select": (
+                    "id,delta_minutes,reason,project_id,job_id,"
+                    "admin_note,adjusted_by,created_at"
+                ),
                 "user_id": f"eq.{user_id}",
                 "order": "created_at.desc",
                 "limit": "200",
             },
         )
+        purchases_response = await self.client.get(
+            "/credit_ledger",
+            params={
+                "select": "id,delta_minutes,reason,external_reference,created_at",
+                "user_id": f"eq.{user_id}",
+                "reason": "eq.purchase",
+                "order": "created_at.desc",
+                "limit": "100",
+            },
+        )
+        subscriptions_response = await self.client.get(
+            "/stripe_subscriptions",
+            params={
+                "select": (
+                    "stripe_subscription_id,stripe_customer_id,status,price_id,"
+                    "current_period_end,cancel_at_period_end,created_at,updated_at"
+                ),
+                "user_id": f"eq.{user_id}",
+                "order": "updated_at.desc",
+                "limit": "50",
+            },
+        )
         projects_response.raise_for_status()
         credits_response.raise_for_status()
+        purchases_response.raise_for_status()
+        # Subscriptions table may be empty / unavailable in some backends.
+        subscriptions = (
+            subscriptions_response.json()
+            if subscriptions_response.status_code < 400
+            else []
+        )
+        projects = projects_response.json()
+        project_ids = [str(p["id"]) for p in projects]
+        jobs: list[dict] = []
+        if project_ids:
+            jobs_response = await self.client.get(
+                "/jobs",
+                params={
+                    "select": (
+                        "id,kind,status,progress,charged_minutes,error,"
+                        "created_at,started_at,finished_at,project_id"
+                    ),
+                    "project_id": f"in.({','.join(project_ids)})",
+                    "order": "created_at.desc",
+                    "limit": "200",
+                },
+            )
+            if jobs_response.status_code < 400:
+                title_by_id = {str(p["id"]): p.get("title") for p in projects}
+                for job in jobs_response.json():
+                    job["project_title"] = title_by_id.get(str(job.get("project_id")))
+                    jobs.append(job)
         return {
-            "profile": profiles[0],
-            "projects": projects_response.json(),
+            "profile": profile,
+            "projects": projects,
+            "jobs": jobs,
             "credits": credits_response.json(),
+            "payments": {
+                "purchases": purchases_response.json(),
+                "subscriptions": subscriptions,
+            },
             "credit_balance": await self.get_credit_balance(user_id),
         }
+
+    async def admin_set_user_active(
+        self, user_id: UUID, *, is_active: bool
+    ) -> Row | None:
+        payload = {
+            "is_active": is_active,
+            "deactivated_at": None if is_active else "now()",
+        }
+        # PostgREST wants ISO timestamp, not "now()" string for timestamptz.
+        if not is_active:
+            from datetime import datetime, timezone
+
+            payload["deactivated_at"] = datetime.now(timezone.utc).isoformat()
+        resp = await self.client.patch(
+            "/profiles",
+            params={
+                "id": f"eq.{user_id}",
+                "select": (
+                    "id,email,display_name,country,auth_provider,created_at,"
+                    "last_login_at,is_active,deactivated_at"
+                ),
+            },
+            json=payload,
+            headers={"Prefer": "return=representation"},
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0] if rows else None
 
     async def admin_list_access_logs(self, limit: int = 200) -> list[Row]:
         resp = await self.client.get(

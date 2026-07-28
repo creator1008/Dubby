@@ -4,6 +4,7 @@ import pytest
 
 from app.auth import AuthenticatedUser, get_admin_user
 from app.errors import UnauthorizedError
+from app.routers.admin import CreditAdjustment, UserActiveUpdate
 
 
 @pytest.mark.anyio
@@ -23,3 +24,13 @@ async def test_admin_dependency_accepts_only_app_metadata_admin() -> None:
     )
     with pytest.raises(UnauthorizedError):
         await get_admin_user(regular)
+
+
+def test_credit_adjustment_rejects_zero() -> None:
+    with pytest.raises(Exception):
+        CreditAdjustment(delta_minutes=0, note="noop")
+
+
+def test_user_active_update_model() -> None:
+    assert UserActiveUpdate(is_active=False).is_active is False
+    assert UserActiveUpdate(is_active=True).is_active is True

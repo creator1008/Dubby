@@ -7,6 +7,7 @@ app/deps.py
 app/errors.py
 app/local_step12.py
 app/main.py
+app/remote_media.py
 app/revenuecat.py
 app/schemas.py
 app/db/__init__.py
@@ -14,6 +15,7 @@ app/db/base.py
 app/db/postgres.py
 app/db/supabase_rest.py
 app/routers/__init__.py
+app/routers/admin.py
 app/routers/billing.py
 app/routers/credits.py
 app/routers/health.py
@@ -25,6 +27,7 @@ app/storage/__init__.py
 app/storage/r2.py
 app/worker/__init__.py
 app/worker/diarization.py
+app/worker/dub_quality.py
 app/worker/elevenlabs_client.py
 app/worker/engine.py
 app/worker/errors.py
@@ -41,10 +44,12 @@ dubby_api.egg-info/SOURCES.txt
 dubby_api.egg-info/dependency_links.txt
 dubby_api.egg-info/requires.txt
 dubby_api.egg-info/top_level.txt
+tests/test_admin.py
 tests/test_billing.py
 tests/test_lipsync_client.py
 tests/test_local_step12.py
 tests/test_pipeline_commands.py
 tests/test_pipeline_e2e_mock.py
 tests/test_pipeline_units.py
+tests/test_remote_media.py
 tests/test_smoke.py

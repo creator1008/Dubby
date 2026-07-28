@@ -25,6 +25,10 @@ class CreditAdjustment(BaseModel):
         return value
 
 
+class UserActiveUpdate(BaseModel):
+    is_active: bool
+
+
 @router.get("/users")
 async def list_users(
     _admin: AdminUser,
@@ -45,6 +49,21 @@ async def get_user_usage(
     if result is None:
         raise HTTPException(404, "User not found")
     return result
+
+
+@router.patch("/users/{user_id}/status")
+async def set_user_active(
+    user_id: UUID,
+    body: UserActiveUpdate,
+    admin: AdminUser,
+    repo: Repo,
+) -> dict:
+    if user_id == admin.id and not body.is_active:
+        raise HTTPException(400, "Cannot deactivate your own admin account")
+    profile = await repo.admin_set_user_active(user_id, is_active=body.is_active)
+    if profile is None:
+        raise HTTPException(404, "User not found")
+    return {"profile": profile}
 
 
 @router.post("/users/{user_id}/credits")

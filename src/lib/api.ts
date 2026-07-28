@@ -58,16 +58,18 @@ const realApi = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-    importUrl: (id: string, url: string) =>
-      request<Project>(`/v1/projects/${id}/import-url`, {
-        method: "POST",
-        body: JSON.stringify({ url }),
-      }),
     remove: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
     download: (id: string) =>
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/output-url`),
+    outputUrl: (id: string) =>
+      request<{ url: string; expires_in: number }>(`/v1/projects/${id}/output-url`),
     sourceUrl: (id: string) =>
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/source-url`),
+    sourceFromUrl: (id: string, url: string) =>
+      request<Project>(`/v1/projects/${id}/source-from-url`, {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
   },
   segments: {
     list: (projectId: string) =>
@@ -109,6 +111,14 @@ const realApi = {
         method: "POST",
         body: JSON.stringify({ delta_minutes: deltaMinutes, note }),
       }),
+    setUserActive: (userId: string, isActive: boolean) =>
+      request<{ profile: AdminUserUsage["profile"] }>(
+        `/v1/admin/users/${userId}/status`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: isActive }),
+        },
+      ),
   },
   uploads: {
     create: (body: {

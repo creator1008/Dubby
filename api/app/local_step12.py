@@ -4,11 +4,9 @@ Run from ``api``:
 
     uvicorn app.local_step12:app --reload --port 8002
 
-It accepts a raw media body, extracts a high-quality WAV and an ASR WAV,
-transcribes actual speech with faster-whisper word timestamps, and exports
-one WAV clip per timestamp/text pair. No Supabase, R2, or authentication is
-involved. The server intentionally binds only through the uvicorn command
-chosen by the developer and must not be deployed publicly.
+Extracts audio, transcribes speech, and runs dubbing. Bulky media stays in the
+local scratch directory between steps by default (set LOCAL_PURGE_SCRATCH=1 to
+purge after R2 upload). R2 remains a backup / cross-process hydrate source.
 """
 
 from __future__ import annotations
@@ -21,6 +19,10 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -28,15 +30,30 @@ from statistics import median
 from typing import Annotated
 from uuid import uuid4
 
-import httpx
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from .remote_media import RemoteMediaError, download_remote_media
+import httpx
 
+from .local_r2_store import LocalR2Store
+from .remote_media import RemoteMediaError, ingest_remote_media
+from .worker.dub_quality import (
+    cover_recognized_phrase_boundaries as _cover_recognized_phrase_boundaries,
+    matched_loudness_gain as _matched_loudness_gain,
+    source_loudness_levels as _shared_source_loudness_levels,
+)
+from .languages import LANGUAGE_ALIASES, LANG_QUERY_PATTERN, LANGUAGE_NAMES, SUPPORTED_LANGUAGES
 from .worker.elevenlabs_client import tts_model_for_language
+from .worker.media import merge_speech_ranges as _merge_speech_ranges
+from .worker.timing import (
+    ELEVENLABS_SPEAK_SPEED_MAX,
+    ELEVENLABS_SPEAK_SPEED_MIN,
+    initial_speak_speed,
+    speak_speed_for_slot,
+    tempo_filters,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # The user-facing local setup stores provider keys in the repository root.
@@ -45,13 +62,34 @@ load_dotenv(REPO_ROOT / ".env")
 load_dotenv(REPO_ROOT / "api" / ".env", override=True)
 
 MAX_SOURCE_BYTES = 500 * 1024 * 1024
-DATA_ROOT = REPO_ROOT / ".local-data" / "step12"
-SUPPORTED_LANGUAGES = {"ko", "en", "vi"}
+SCRATCH_ROOT = REPO_ROOT / ".local-data" / "scratch"
 INITIAL_PROMPTS = {
-    "ko": "정확한 한국어 받아쓰기입니다. 고유명사, 띄어쓰기, 문장 부호를 정확히 표기합니다.",
-    "en": "This is an accurate English transcript with correct names and punctuation.",
-    "vi": "Đây là bản chép lời tiếng Việt chính xác với tên riêng và dấu câu.",
+    code: (
+        f"This is an accurate {LANGUAGE_NAMES.get(code, code)} transcript "
+        "with correct names and punctuation."
+    )
+    for code in SUPPORTED_LANGUAGES
 }
+INITIAL_PROMPTS.update(
+    {
+        "ko": "정확한 한국어 받아쓰기입니다. 고유명사, 띄어쓰기, 문장 부호를 정확히 표기합니다.",
+        "en": "This is an accurate English transcript with correct names and punctuation.",
+        "vi": "Đây là bản chép lời tiếng Việt chính xác với tên riêng và dấu câu.",
+        "zh": "这是准确的普通话转写，请正确标注专有名词和标点。",
+        "ja": "これは正確な日本語の書き起こしです。固有名詞と句読点を正しく記してください。",
+        "es": "Esta es una transcripción precisa en español con nombres propios y puntuación correctos.",
+        "fr": "Ceci est une transcription française précise avec noms propres et ponctuation corrects.",
+        "pt": "Esta é uma transcrição precisa em português com nomes próprios e pontuação corretos.",
+        "de": "Dies ist eine genaue deutsche Transkription mit korrekten Namen und Interpunktion.",
+        "ru": "Это точная русская транскрипция с правильными именами и пунктуацией.",
+        "ar": "هذا تفريغ دقيق باللغة العربية مع الأسماء وعلامات الترقيم الصحيحة.",
+        "ur": "یہ درست اردو نقلِ کلام ہے؛ مناسب اسمائے خاص اور رموزِ اوقاف لکھیں۔",
+        "id": "Ini adalah transkrip Bahasa Indonesia yang akurat dengan nama dan tanda baca yang benar.",
+        "ms": "Ini adalah transkrip Bahasa Melayu yang tepat dengan nama dan tanda baca yang betul.",
+        "tr": "Bu, özel adlar ve noktalama işaretleri doğru yazılmış doğru bir Türkçe dökümdür.",
+        "ta": "இது சரியான தமிழ் எழுத்துப்படி; சரியான பெயர்களும் நிறுத்தற்குறிகளும் இருக்கட்டும்.",
+    }
+)
 SENTENCE_END_RE = re.compile(r"[.!?。？！][\"'”’)]*$")
 
 
@@ -99,11 +137,255 @@ class RenderDubRequest(BaseModel):
     subtitle_mode: str = Field(default="none", pattern="^(none|source|target)$")
 
 
-class RemoteStep12Request(BaseModel):
-    url: str = Field(min_length=8, max_length=2048)
-    source_lang: str = Field(default="ko", pattern="^(ko|en|vi)$")
-    target_lang: str = Field(default="en", pattern="^(ko|en|vi)$")
-    diarization_enabled: bool = False
+class FromUrlRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+
+
+class RetranslateSegment(BaseModel):
+    idx: int
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    source_text: str = Field(default="", max_length=2000)
+
+
+class RetranslateRequest(BaseModel):
+    source_lang: str = Field(min_length=2, max_length=16)
+    target_lang: str = Field(min_length=2, max_length=16)
+    segments: list[RetranslateSegment] = Field(min_length=1, max_length=500)
+
+
+class GcRunsRequest(BaseModel):
+    """Keep only these run_ids; delete every other local/R2 run media."""
+
+    keep_run_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+_RUN_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _scratch_dir(run_id: str) -> Path:
+    return SCRATCH_ROOT / run_id
+
+
+def _assert_run_id(run_id: str) -> str:
+    value = (run_id or "").strip().lower()
+    if not _RUN_ID_RE.fullmatch(value):
+        raise HTTPException(400, "유효하지 않은 run_id입니다.")
+    return value
+
+
+def _delete_local_scratch(run_id: str) -> bool:
+    work_dir = _scratch_dir(run_id)
+    if not work_dir.is_dir():
+        return False
+    shutil.rmtree(work_dir, ignore_errors=True)
+    return not work_dir.exists()
+
+
+def _delete_run_storage(run_id: str) -> dict[str, object]:
+    """Permanently remove one run from local scratch and R2. No recovery."""
+    local_removed = _delete_local_scratch(run_id)
+    r2_deleted = 0
+    r2_error: str | None = None
+    try:
+        r2_deleted = LocalR2Store().delete_run(run_id)
+    except Exception as exc:  # noqa: BLE001 - best-effort storage cleanup
+        r2_error = str(exc)
+    return {
+        "run_id": run_id,
+        "local_removed": local_removed,
+        "r2_objects_deleted": r2_deleted,
+        "r2_error": r2_error,
+    }
+
+
+def _list_known_run_ids() -> set[str]:
+    found: set[str] = set()
+    if SCRATCH_ROOT.is_dir():
+        for path in SCRATCH_ROOT.iterdir():
+            if path.is_dir() and _RUN_ID_RE.fullmatch(path.name):
+                found.add(path.name)
+    try:
+        found |= {
+            run_id
+            for run_id in LocalR2Store().list_run_ids()
+            if _RUN_ID_RE.fullmatch(run_id)
+        }
+    except Exception:
+        pass
+    return found
+
+
+def _gc_orphan_runs(keep_run_ids: set[str]) -> dict[str, object]:
+    keep = {run_id for run_id in keep_run_ids if _RUN_ID_RE.fullmatch(run_id)}
+    deleted: list[dict[str, object]] = []
+    for run_id in sorted(_list_known_run_ids() - keep):
+        deleted.append(_delete_run_storage(run_id))
+    return {
+        "kept": sorted(keep),
+        "deleted_count": len(deleted),
+        "deleted": deleted,
+    }
+
+
+def _should_purge_scratch() -> bool:
+    """When true, delete local media after R2 upload (legacy / disk-tight mode)."""
+    return os.getenv("LOCAL_PURGE_SCRATCH", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _audio_upload_content_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix in {".wav", ".wave"}:
+        return "audio/wav"
+    return "application/octet-stream"
+
+
+_demucs_locks: dict[str, threading.Lock] = {}
+_bg_lock = threading.Lock()
+_bg_tasks: set[threading.Thread] = set()
+
+
+def _spawn_background(name: str, target) -> None:
+    def _runner() -> None:
+        try:
+            target()
+        except Exception:
+            pass
+        finally:
+            with _bg_lock:
+                _bg_tasks.discard(thread)
+
+    thread = threading.Thread(target=_runner, name=name, daemon=True)
+    with _bg_lock:
+        _bg_tasks.add(thread)
+    thread.start()
+
+
+def _resolve_work_dir(run_id: str) -> Path:
+    """Return a scratch dir, hydrating from R2 only when local media is missing."""
+    work_dir = _scratch_dir(run_id)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    needs_hydrate = not (work_dir / "manifest.json").is_file()
+    if not needs_hydrate:
+        try:
+            _source_file(work_dir)
+        except RuntimeError:
+            needs_hydrate = True
+    if not needs_hydrate and not (work_dir / "original_audio.wav").is_file():
+        needs_hydrate = True
+    if needs_hydrate:
+        LocalR2Store().sync_run_from_r2(run_id, work_dir)
+    if not (work_dir / "manifest.json").is_file():
+        raise RuntimeError("해당 추출 작업을 찾을 수 없습니다.")
+    if not (work_dir / "original_audio.wav").is_file():
+        raise RuntimeError(
+            "더빙 재생성에 필요한 원본 오디오가 없습니다. "
+            "최종 영상만 보관된 이전 작업은 파일을 다시 추출해 주세요."
+        )
+    return work_dir
+
+
+def _manifest_with_proxy_urls(manifest: dict, run_id: str, work_dir: Path) -> dict:
+    published = dict(manifest)
+    published["storage"] = "r2"
+    source_rel = _source_file(work_dir).relative_to(work_dir).as_posix()
+    published["source_url"] = _local_asset_url(run_id, source_rel)
+    published["audio_url"] = _local_asset_url(run_id, published["audio_path"])
+    published["asr_audio_url"] = _local_asset_url(run_id, published["asr_audio_path"])
+    segments = []
+    for segment in published.get("segments") or []:
+        item = dict(segment)
+        item["audio_url"] = _local_asset_url(run_id, item["audio_path"])
+        segments.append(item)
+    published["segments"] = segments
+    return published
+
+
+def _sync_run_to_r2_safe(run_id: str, work_dir: Path) -> None:
+    store = LocalR2Store()
+    store.sync_run_to_r2(run_id, work_dir)
+    for name in ("manifest.json", "dub_voice_manifest.json"):
+        path = work_dir / name
+        if path.is_file():
+            store.upload_file(run_id, path, name)
+    if _should_purge_scratch():
+        store.purge_work_dir_media(work_dir)
+
+
+def _publish_run_to_r2(work_dir: Path, manifest: dict) -> dict:
+    """Write proxy URLs locally and schedule R2 backup + Demucs pre-warm."""
+    run_id = manifest["run_id"]
+    published = _manifest_with_proxy_urls(manifest, run_id, work_dir)
+    (work_dir / "manifest.json").write_text(
+        json.dumps(published, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    _schedule_post_extract(run_id, work_dir)
+    return published
+
+
+def _local_asset_url(run_id: str, relative: str) -> str:
+    return f"/v1/local/step12/{run_id}/{relative.lstrip('/')}"
+
+
+def _finalize_run_upload(run_id: str, work_dir: Path) -> None:
+    """Keep local media for the next step; backup to R2 asynchronously."""
+    _spawn_background(
+        f"r2-finalize-{run_id[:8]}",
+        lambda: _sync_run_to_r2_safe(run_id, work_dir),
+    )
+
+
+def _finalize_final_outputs(run_id: str, work_dir: Path, source: Path) -> None:
+    """Keep local stems/audio for re-dub; backup final outputs to R2 async."""
+    del source  # kept for call-site compatibility
+    output = work_dir / "dubbed_output.mp4"
+    if not output.is_file():
+        raise RuntimeError("최종 더빙 영상을 찾을 수 없습니다.")
+    _spawn_background(
+        f"r2-final-{run_id[:8]}",
+        lambda: _sync_run_to_r2_safe(run_id, work_dir),
+    )
+
+
+def _prewarm_stems(run_id: str) -> None:
+    """Run Demucs during the edit window so dubbing starts with stems ready."""
+    work_dir = _resolve_work_dir(run_id)
+    _separate_no_vocals(work_dir)
+
+
+def _schedule_post_extract(run_id: str, work_dir: Path) -> None:
+    """Backup extract artifacts and pre-warm Demucs while the user edits."""
+
+    def _run() -> None:
+        keep_local = not _should_purge_scratch()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            sync_future = pool.submit(_sync_run_to_r2_safe, run_id, work_dir)
+            demucs_future = (
+                pool.submit(_prewarm_stems, run_id) if keep_local else None
+            )
+            try:
+                sync_future.result()
+            except Exception:
+                pass
+            if demucs_future is not None:
+                try:
+                    demucs_future.result()
+                except Exception:
+                    pass
+                try:
+                    LocalR2Store().sync_run_to_r2(run_id, work_dir)
+                except Exception:
+                    pass
+
+    _spawn_background(f"post-extract-{run_id[:8]}", _run)
 
 
 def _ffmpeg_executable() -> str:
@@ -195,37 +477,22 @@ def _audio_duration(path: Path) -> float:
 
 
 def _atempo_filters(factor: float) -> list[str]:
-    if factor <= 0:
-        return []
-    filters: list[str] = []
-    remaining = factor
-    while remaining > 2:
-        filters.append("atempo=2")
-        remaining /= 2
-    while remaining < 0.5:
-        filters.append("atempo=0.5")
-        remaining /= 0.5
-    if abs(remaining - 1) > 0.001:
-        filters.append(f"atempo={remaining:.6f}")
-    return filters
+    return tempo_filters(factor, rubberband_available=False)
 
 
-def _merge_speech_ranges(
-    ranges_ms: list[tuple[int, int]],
-    *,
-    max_gap_ms: int = 0,
-) -> list[tuple[int, int]]:
-    """Normalize overlapping ASR ranges used by selective voice removal."""
-    merged: list[tuple[int, int]] = []
-    for start, end in sorted(ranges_ms):
-        start = max(0, start)
-        if end <= start:
-            continue
-        if merged and start <= merged[-1][1] + max_gap_ms:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged
+@lru_cache(maxsize=1)
+def _ffmpeg_has_rubberband() -> bool:
+    result = subprocess.run(
+        [_ffmpeg_executable(), "-hide_banner", "-filters"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    blob = f"{result.stdout}\n{result.stderr}"
+    return bool(re.search(r"\brubberband\b", blob))
 
 
 def _speech_mask_expression(
@@ -266,46 +533,6 @@ def _speech_mask_expression(
     for mask in masks[1:]:
         expression = f"max({expression},{mask})"
     return expression
-
-
-def _cover_recognized_phrase_boundaries(
-    ranges_ms: list[tuple[int, int]],
-    segments: list[tuple[int, int]],
-) -> list[tuple[int, int]]:
-    """Cover words omitted at the start or end of an ASR phrase.
-
-    Local forced alignment is precise around sobbing gaps but can omit a
-    short initial or final word. Broader OpenAI segment boundaries supply
-    those missing edges without filling pauses in the middle of the phrase.
-    """
-    adjusted = list(_merge_speech_ranges(ranges_ms))
-    for segment_start, segment_end in sorted(segments):
-        overlaps = [
-            index
-            for index, (start, end) in enumerate(adjusted)
-            if end > segment_start and start < segment_end
-        ]
-        if not overlaps:
-            # OpenAI can return a valid transcript segment even when the
-            # word-level aligner omits every word (short/quiet phrases are
-            # especially common). Keeping the segment uncovered leaks the
-            # complete source utterance into the dubbed mix, so use the
-            # recognized segment itself as the conservative fallback mask.
-            if segment_end > segment_start:
-                adjusted.append((max(0, segment_start), segment_end))
-                adjusted = _merge_speech_ranges(adjusted)
-            continue
-        first = overlaps[0]
-        last = overlaps[-1]
-        adjusted[first] = (
-            min(adjusted[first][0], segment_start),
-            adjusted[first][1],
-        )
-        adjusted[last] = (
-            adjusted[last][0],
-            max(adjusted[last][1], segment_end),
-        )
-    return _merge_speech_ranges(adjusted)
 
 
 def _join_words(words: list[TimedWord]) -> str:
@@ -384,27 +611,116 @@ def _openai_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
 
 
+def _whisper_segment_is_hallucination(segment: dict) -> bool:
+    """Drop Whisper segments that look like music/noise hallucinations."""
+    text = str(segment.get("text", "")).strip()
+    if not text:
+        return True
+    start = float(segment.get("start", 0.0) or 0.0)
+    end = float(segment.get("end", 0.0) or 0.0)
+    if end <= start:
+        return True
+    no_speech = float(segment.get("no_speech_prob", 0.0) or 0.0)
+    avg_logprob = float(segment.get("avg_logprob", 0.0) or 0.0)
+    compression = float(segment.get("compression_ratio", 0.0) or 0.0)
+    # OpenAI/Whisper guidance: high compression usually means looping junk.
+    if compression >= 2.4:
+        return True
+    if no_speech > 0.6 and avg_logprob < -0.8:
+        return True
+    if no_speech > 0.85:
+        return True
+    # Tiny fragments near the end of music clips are almost always garbage.
+    if end - start < 0.35 and no_speech > 0.4:
+        return True
+    # Detect immediate phrase loops inside one segment ("A A A").
+    tokens = re.findall(r"\S+", text)
+    if len(tokens) >= 6:
+        for n in (2, 3, 4):
+            if len(tokens) < n * 3:
+                continue
+            ngrams = [
+                " ".join(tokens[i : i + n]) for i in range(0, len(tokens) - n + 1, n)
+            ]
+            if len(ngrams) >= 3 and len(set(ngrams)) == 1:
+                return True
+    return False
+
+
+def _dedupe_repetitive_drafts(
+    drafts: list[tuple[int, int, str]],
+) -> list[tuple[int, int, str]]:
+    """Collapse consecutive identical/near-identical hallucinated lines."""
+    cleaned: list[tuple[int, int, str]] = []
+    for start, end, text in drafts:
+        compact = re.sub(r"\s+", "", text)
+        if cleaned:
+            prev_start, prev_end, prev_text = cleaned[-1]
+            prev_compact = re.sub(r"\s+", "", prev_text)
+            if compact == prev_compact or (
+                compact and prev_compact and compact in prev_compact and len(compact) >= 6
+            ):
+                cleaned[-1] = (prev_start, max(prev_end, end), prev_text)
+                continue
+            if prev_compact and compact and prev_compact in compact and len(prev_compact) >= 6:
+                cleaned[-1] = (prev_start, max(prev_end, end), text)
+                continue
+        cleaned.append((start, end, text))
+    return cleaned
+
+
+def _drafts_look_hallucinated(drafts: list[tuple[int, int, str]]) -> bool:
+    """True when the transcript is dominated by a looping junk phrase."""
+    if not drafts:
+        return False
+    tokens = re.findall(r"\S+", " ".join(text for _, _, text in drafts))
+    if len(tokens) < 8:
+        return False
+    counts = Counter(tokens)
+    top_count = counts.most_common(1)[0][1]
+    if top_count / len(tokens) >= 0.3:
+        return True
+    # Many short drafts that share the same first few characters.
+    if len(drafts) >= 4:
+        heads = [re.sub(r"\s+", "", text)[:8] for _, _, text in drafts if text.strip()]
+        if heads and max(Counter(heads).values()) / len(heads) >= 0.5:
+            return True
+    return False
+
+
 def _openai_transcribe(
     asr_wav: Path,
-    language: str,
-) -> tuple[list[tuple[int, int, str]], list[tuple[int, int]]]:
-    """Use OpenAI Whisper word timestamps when an API key is configured."""
+    language: str | None,
+) -> tuple[list[tuple[int, int, str]], list[tuple[int, int]], str | None]:
+    """Use OpenAI Whisper word timestamps when an API key is configured.
+
+    Returns ``(drafts, word_ranges, detected_language)``. When ``language`` is
+    None, Whisper auto-detects and the detected code is returned.
+    """
     base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("WHISPER_MODEL", "whisper-1")
     # No initial prompt here: whisper-1 can echo the prompt verbatim into the
     # transcript on noisy inputs, replacing the actual speech.
+    form: dict[str, object] = {
+        "model": model,
+        "response_format": "verbose_json",
+        "timestamp_granularities[]": ["word", "segment"],
+        "temperature": 0,
+    }
+    if language:
+        form["language"] = language
     with asr_wav.open("rb") as audio:
         response = httpx.post(
             f"{base}/audio/transcriptions",
             headers=_openai_headers(),
-            data={
-                "model": model,
-                "language": language,
-                "response_format": "verbose_json",
-                "timestamp_granularities[]": ["word", "segment"],
-                "temperature": 0,
+            data=form,
+            files={
+                "file": (
+                    asr_wav.name,
+                    audio,
+                    _audio_upload_content_type(asr_wav),
+                )
             },
-            files={"file": (asr_wav.name, audio, "audio/wav")},
             timeout=600,
         )
     if response.status_code >= 400:
@@ -412,6 +728,10 @@ def _openai_transcribe(
             f"OpenAI 음성인식 실패 ({response.status_code}): {response.text[:300]}"
         )
     payload = response.json()
+    detected = str(payload.get("language") or "").strip().lower() or None
+    # Normalize verbose_json language names to our ISO codes when needed.
+    if detected:
+        detected = LANGUAGE_ALIASES.get(detected, detected)
     words = [
         TimedWord(
             start_ms=max(0, round(float(word["start"]) * 1000)),
@@ -425,17 +745,15 @@ def _openai_transcribe(
     # rather than globally regrouping words into arbitrary 9-second chunks.
     # Only split an unusually long segment using its own word timestamps.
     drafts: list[tuple[int, int, str]] = []
-    for segment in payload.get("segments") or []:
+    raw_segments = payload.get("segments") or []
+    kept_segments = 0
+    for segment in raw_segments:
+        if _whisper_segment_is_hallucination(segment):
+            continue
+        kept_segments += 1
         start = max(0, round(float(segment.get("start", 0)) * 1000))
         end = round(float(segment.get("end", 0)) * 1000)
         text = str(segment.get("text", "")).strip()
-        if not text or end <= start:
-            continue
-        # Standard Whisper heuristic for hallucinated text over non-speech.
-        no_speech = float(segment.get("no_speech_prob", 0.0))
-        avg_logprob = float(segment.get("avg_logprob", 0.0))
-        if no_speech > 0.6 and avg_logprob < -1.0:
-            continue
         segment_words = [
             word
             for word in words
@@ -452,8 +770,24 @@ def _openai_transcribe(
         else:
             drafts.append((start, end, text))
 
-    if not drafts:
-        drafts = group_words(words, gap_ms=500, max_duration_ms=4500)
+    if not drafts and not raw_segments:
+        # No segment metadata at all — fall back to word grouping.
+        usable_words = [
+            word
+            for word in words
+            if word.text.strip() and word.end_ms - word.start_ms >= 40
+        ]
+        if usable_words and len(usable_words) <= 80:
+            drafts = group_words(usable_words, gap_ms=500, max_duration_ms=4500)
+    elif not drafts and raw_segments and kept_segments == 0:
+        # Every segment looked like music/noise hallucination. Do not promote
+        # the accompanying word list (it is usually the same junk loop); the
+        # caller can retry with auto-detect or another language.
+        drafts = []
+
+    drafts = _dedupe_repetitive_drafts(drafts)
+    if _drafts_look_hallucinated(drafts):
+        drafts = []
 
     non_overlapping: list[tuple[int, int, str]] = []
     for start, end, text in sorted(drafts, key=lambda item: (item[0], item[1])):
@@ -471,9 +805,11 @@ def _openai_transcribe(
         # cheers, and other non-language sounds remain on the original track.
         max_gap_ms=120,
     )
-    return non_overlapping, word_ranges or [
-        (start, end) for start, end, _ in non_overlapping
-    ]
+    return (
+        non_overlapping,
+        word_ranges or [(start, end) for start, end, _ in non_overlapping],
+        detected,
+    )
 
 
 def _openai_diarize(
@@ -493,7 +829,13 @@ def _openai_diarize(
                 "response_format": "diarized_json",
                 "chunking_strategy": "auto",
             },
-            files={"file": (asr_wav.name, audio, "audio/wav")},
+            files={
+                "file": (
+                    asr_wav.name,
+                    audio,
+                    _audio_upload_content_type(asr_wav),
+                )
+            },
             timeout=600,
         )
     if response.status_code >= 400:
@@ -568,50 +910,74 @@ def _assign_speaker_ids(
 
 
 def _local_speech_ranges(asr_wav: Path, language: str) -> list[tuple[int, int]]:
-    """Precisely align linguistic words while excluding sobbing and pauses."""
+    """Precisely align linguistic words while excluding sobbing and pauses.
+
+    Disabled by default when OpenAI ASR is used: loading faster-whisper
+    ``medium`` on CPU often stalls TikTok/short-form uploads for many minutes.
+    Set ``LOCAL_SPEECH_ALIGN=1`` to opt in.
+    """
+    flag = os.getenv("LOCAL_SPEECH_ALIGN", "0").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return []
     try:
         model = _whisper_model()
     except RuntimeError:
         return []
-    segments, _ = model.transcribe(
-        str(asr_wav),
-        language=language,
-        beam_size=1,
-        word_timestamps=True,
-        vad_filter=True,
-        vad_parameters={
-            "min_silence_duration_ms": 200,
-            "speech_pad_ms": 30,
-        },
-        condition_on_previous_text=False,
-    )
-    ranges: list[tuple[int, int]] = []
-    for segment in segments:
-        for word in segment.words or []:
-            if word.start is None or word.end is None:
-                continue
-            probability = getattr(word, "probability", None)
-            if probability is not None and float(probability) < 0.2:
-                continue
-            start = max(0, round(float(word.start) * 1000))
-            end = round(float(word.end) * 1000)
-            if end - start >= 40 and str(word.word).strip():
-                ranges.append((start, end))
-    return _merge_speech_ranges(ranges, max_gap_ms=120)
+    try:
+        segments, _ = model.transcribe(
+            str(asr_wav),
+            language=language,
+            beam_size=1,
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters={
+                "min_silence_duration_ms": 200,
+                "speech_pad_ms": 30,
+            },
+            condition_on_previous_text=False,
+        )
+        ranges: list[tuple[int, int]] = []
+        for segment in segments:
+            for word in segment.words or []:
+                if word.start is None or word.end is None:
+                    continue
+                probability = getattr(word, "probability", None)
+                if probability is not None and float(probability) < 0.2:
+                    continue
+                start = max(0, round(float(word.start) * 1000))
+                end = round(float(word.end) * 1000)
+                if end - start >= 40 and str(word.word).strip():
+                    ranges.append((start, end))
+        return _merge_speech_ranges(ranges, max_gap_ms=120)
+    except Exception:
+        # Alignment is best-effort; never block the upload on local model issues.
+        return []
 
 
 def _transcribe(
     asr_wav: Path,
     language: str,
-) -> tuple[list[tuple[int, int, str]], list[tuple[int, int]]]:
+) -> tuple[list[tuple[int, int, str]], list[tuple[int, int]], str]:
+    """Return drafts, speech ranges, and the language code used for the text."""
     if os.getenv("OPENAI_API_KEY", "").strip():
-        drafts, api_ranges = _openai_transcribe(asr_wav, language)
-        # OpenAI Whisper can stretch a word timestamp over a long sob or
-        # dramatic pause. A second local alignment pass supplies only the
-        # acoustic word ranges used for removal; OpenAI remains the source
-        # of transcript text and subtitle segmentation.
-        aligned_ranges = _local_speech_ranges(asr_wav, language)
-        return drafts, aligned_ranges or api_ranges
+        drafts, api_ranges, _detected = _openai_transcribe(asr_wav, language)
+        if drafts:
+            aligned_ranges = _local_speech_ranges(asr_wav, language)
+            return drafts, aligned_ranges or api_ranges, language
+
+        # Wrong source language (common on TikTok) yields music-like Korean
+        # hallucinations. Retry with auto-detect, then with the detected code.
+        drafts, api_ranges, detected = _openai_transcribe(asr_wav, None)
+        if drafts:
+            use_lang = detected if detected in SUPPORTED_LANGUAGES else language
+            aligned_ranges = _local_speech_ranges(asr_wav, use_lang)
+            return drafts, aligned_ranges or api_ranges, use_lang
+        if detected and detected in SUPPORTED_LANGUAGES and detected != language:
+            drafts, api_ranges, _ = _openai_transcribe(asr_wav, detected)
+            if drafts:
+                aligned_ranges = _local_speech_ranges(asr_wav, detected)
+                return drafts, aligned_ranges or api_ranges, detected
+        return [], api_ranges, language
 
     model = _whisper_model()
     segments, _ = model.transcribe(
@@ -653,7 +1019,65 @@ def _transcribe(
         ],
         max_gap_ms=120,
     )
-    return drafts, word_ranges or [(start, end) for start, end, _ in drafts]
+    return drafts, word_ranges or [(start, end) for start, end, _ in drafts], language
+
+
+def _parse_translation_payload(
+    content: str,
+    expected_idxs: list[int],
+) -> dict[int, str]:
+    """Accept common OpenAI JSON shapes and recover missing idxs when possible."""
+    raw = (content or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    data = json.loads(raw)
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = (
+            data.get("translations")
+            or data.get("translation")
+            or data.get("segments")
+            or data.get("items")
+        )
+        if items is None and data and all(str(k).isdigit() for k in data.keys()):
+            items = [{"idx": int(k), "text": v} for k, v in data.items()]
+    else:
+        raise ValueError("unexpected translation root type")
+
+    if not isinstance(items, list):
+        raise ValueError("translations is not a list")
+
+    by_idx: dict[int, str] = {}
+    for position, item in enumerate(items):
+        if isinstance(item, str):
+            if position < len(expected_idxs):
+                by_idx[expected_idxs[position]] = item.strip()
+            continue
+        if not isinstance(item, dict):
+            continue
+        idx_raw = item.get("idx", item.get("index"))
+        if idx_raw is None and position < len(expected_idxs):
+            idx_raw = expected_idxs[position]
+        text_raw = item.get("text", item.get("translation", item.get("target_text")))
+        if idx_raw is None or text_raw is None:
+            continue
+        by_idx[int(idx_raw)] = str(text_raw).strip()
+
+    if not by_idx and expected_idxs:
+        raise ValueError("no translation items parsed")
+
+    missing = [idx for idx in expected_idxs if idx not in by_idx]
+    if missing and len(by_idx) == len(expected_idxs):
+        # Dense list returned with wrong/relative idxs — remap by order.
+        ordered = [by_idx[k] for k in sorted(by_idx)]
+        return {
+            expected_idxs[i]: ordered[i] for i in range(len(expected_idxs))
+        }
+    if missing:
+        raise ValueError(f"missing translation idxs: {missing[:10]}")
+    return {idx: by_idx[idx] for idx in expected_idxs}
 
 
 def _translate(
@@ -661,17 +1085,47 @@ def _translate(
     source_language: str,
     target_language: str,
 ) -> list[str]:
+    if not drafts:
+        return []
     if source_language == target_language:
         return [text for _, _, text in drafts]
     base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("TRANSLATION_MODEL", "gpt-4o-mini")
-    response = httpx.post(
-        f"{base}/chat/completions",
-        headers={**_openai_headers(), "Content-Type": "application/json"},
-        json={
+    batch_size = max(1, int(os.getenv("TRANSLATION_BATCH_SIZE", "40")))
+    results: list[str] = [""] * len(drafts)
+
+    for batch_start in range(0, len(drafts), batch_size):
+        batch = drafts[batch_start : batch_start + batch_size]
+        expected_idxs = list(range(batch_start, batch_start + len(batch)))
+        schema_payload = {
             "model": model,
             "temperature": 0.1,
-            "response_format": {"type": "json_object"},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "segment_translations",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "translations": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "idx": {"type": "integer"},
+                                        "text": {"type": "string"},
+                                    },
+                                    "required": ["idx", "text"],
+                                    "additionalProperties": False,
+                                },
+                            }
+                        },
+                        "required": ["translations"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
             "messages": [
                 {
                     "role": "system",
@@ -691,33 +1145,69 @@ def _translate(
                         {
                             "segments": [
                                 {
-                                    "idx": idx,
+                                    "idx": batch_start + offset,
                                     "text": text,
                                     "seconds": round((end - start) / 1000, 2),
                                 }
-                                for idx, (start, end, text) in enumerate(drafts)
+                                for offset, (start, end, text) in enumerate(batch)
                             ]
                         },
                         ensure_ascii=False,
                     ),
                 },
             ],
-        },
-        timeout=300,
-    )
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
-        )
-    try:
-        content = json.loads(response.json()["choices"][0]["message"]["content"])
-        by_idx = {
-            int(item["idx"]): str(item["text"]).strip()
-            for item in content["translations"]
         }
-        return [by_idx[idx] for idx in range(len(drafts))]
-    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError("OpenAI 번역 응답 형식이 올바르지 않습니다.") from exc
+        json_object_payload = {
+            **schema_payload,
+            "response_format": {"type": "json_object"},
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            # Prefer json_schema; after HTTP/schema rejection or parse failure,
+            # fall back to plain json_object.
+            body = schema_payload if attempt == 1 else json_object_payload
+            response = httpx.post(
+                f"{base}/chat/completions",
+                headers={**_openai_headers(), "Content-Type": "application/json"},
+                json=body,
+                timeout=300,
+            )
+            if response.status_code >= 400:
+                if attempt < 3 and response.status_code in {400, 404}:
+                    last_error = RuntimeError(
+                        f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
+                    )
+                    continue
+                raise RuntimeError(
+                    f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
+                )
+            try:
+                message = response.json()["choices"][0]["message"]
+                content = message.get("content") or ""
+                if not content and message.get("refusal"):
+                    raise ValueError(f"model refused: {message['refusal']}")
+                parsed = _parse_translation_payload(content, expected_idxs)
+                for idx in expected_idxs:
+                    results[idx] = parsed[idx]
+                last_error = None
+                break
+            except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                time.sleep(attempt)
+        if last_error is not None:
+            raise RuntimeError(
+                "OpenAI 번역 응답 형식이 올바르지 않습니다."
+            ) from last_error
+
+    if any(not text for text in results):
+        # Fill any holes with source text rather than failing the whole upload.
+        for idx, (_start, _end, text) in enumerate(drafts):
+            if not results[idx]:
+                results[idx] = text
+    return results
 
 
 def _process(
@@ -728,51 +1218,89 @@ def _process(
     diarization_enabled: bool,
 ) -> dict:
     audio_wav = work_dir / "original_audio.wav"
-    asr_wav = work_dir / "asr_audio.wav"
+    asr_mp3 = work_dir / "asr_audio.mp3"
     clips_dir = work_dir / "speech"
     clips_dir.mkdir()
 
-    # Step 1: preserve the source audio as stereo PCM for later processing.
+    # One decode of the source: 48 kHz stereo PCM bed + compact 16 kHz ASR MP3.
     _run_ffmpeg(
         [
             "-i",
             str(source),
-            "-map",
-            "0:a:0",
             "-vn",
+            "-filter_complex",
+            (
+                "[0:a:0]asplit=2[bed][asr];"
+                "[bed]aresample=48000[bed48];"
+                "[asr]highpass=f=60,lowpass=f=7800,aresample=16000[asr16]"
+            ),
+            "-map",
+            "[bed48]",
             "-c:a",
             "pcm_s16le",
-            "-ar",
-            "48000",
             "-ac",
             "2",
             str(audio_wav),
-        ]
-    )
-    # Separate ASR representation: speech-friendly mono 16 kHz PCM.
-    _run_ffmpeg(
-        [
-            "-i",
-            str(source),
             "-map",
-            "0:a:0",
-            "-vn",
-            "-af",
-            "highpass=f=60,lowpass=f=7800",
+            "[asr16]",
             "-c:a",
-            "pcm_s16le",
-            "-ar",
-            "16000",
+            "libmp3lame",
             "-ac",
             "1",
-            str(asr_wav),
+            "-b:a",
+            "64k",
+            str(asr_mp3),
         ]
     )
 
     # Step 2: word timestamps -> sentence/gap grouping -> matching audio clips.
-    drafts, speech_ranges = _transcribe(asr_wav, source_language)
+    drafts, speech_ranges, asr_language = _transcribe(asr_mp3, source_language)
+    if not drafts and os.getenv("ASR_VOCALS_RETRY", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        # Optional: TikTok/Shorts often bury speech under loud music.
+        try:
+            vocals, _ = _separate_no_vocals(work_dir)
+            vocals_asr = work_dir / "asr_vocals.mp3"
+            _run_ffmpeg(
+                [
+                    "-i",
+                    str(vocals),
+                    "-af",
+                    "highpass=f=60,lowpass=f=7800",
+                    "-c:a",
+                    "libmp3lame",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    "-b:a",
+                    "64k",
+                    str(vocals_asr),
+                ]
+            )
+            drafts, speech_ranges, asr_language = _transcribe(
+                vocals_asr, source_language
+            )
+            if drafts:
+                asr_mp3 = vocals_asr
+        except Exception:
+            drafts = []
+            speech_ranges = speech_ranges or []
+    if not drafts:
+        raise RuntimeError(
+            "영상에서 인식 가능한 말(음성)을 찾지 못했습니다. "
+            "원어 설정이 실제 영상 언어와 다르거나, 음악만 있는 영상일 수 있습니다. "
+            "원어를 맞춘 뒤 말소리가 분명한 영상으로 다시 시도해 주세요."
+        )
+    if asr_language != source_language and asr_language in SUPPORTED_LANGUAGES:
+        # Auto-detected a different supported language (common for TikTok).
+        source_language = asr_language
     if diarization_enabled:
-        turns = _openai_diarize(asr_wav, source_language)
+        turns = _openai_diarize(asr_mp3, source_language)
         max_segment_ms = max(
             1000,
             round(float(os.getenv("SPEECH_SEGMENT_MAX_SECONDS", "6")) * 1000),
@@ -829,8 +1357,8 @@ def _process(
         "source_url": f"/v1/local/step12/{work_dir.name}/{source.name}",
         "audio_path": "original_audio.wav",
         "audio_url": f"/v1/local/step12/{work_dir.name}/original_audio.wav",
-        "asr_audio_path": "asr_audio.wav",
-        "asr_audio_url": f"/v1/local/step12/{work_dir.name}/asr_audio.wav",
+        "asr_audio_path": asr_mp3.name,
+        "asr_audio_url": f"/v1/local/step12/{work_dir.name}/{asr_mp3.name}",
         "speech_ranges": [
             {"start_ms": start, "end_ms": end}
             for start, end in speech_ranges
@@ -844,11 +1372,171 @@ def _process(
     return manifest
 
 
+def _process_and_publish(
+    source: Path,
+    work_dir: Path,
+    source_language: str,
+    target_language: str,
+    diarization_enabled: bool,
+) -> dict:
+    manifest = _process(
+        source,
+        work_dir,
+        source_language,
+        target_language,
+        diarization_enabled,
+    )
+    return _publish_run_to_r2(work_dir, manifest)
+
+
 def _eleven_headers() -> dict[str, str]:
     key = os.getenv("ELEVENLABS_API_KEY", "").strip()
     if not key:
         raise RuntimeError("ELEVENLABS_API_KEY가 .env에 설정되지 않았습니다.")
     return {"xi-api-key": key}
+
+
+_DUBBY_TEMP_VOICE_DESCRIPTION = "dubby:temp local verification voice"
+
+
+def _is_dubby_temp_voice(voice: dict[str, object]) -> bool:
+    """True for Instant Voice Clones created by this app (safe to auto-delete)."""
+    category = str(voice.get("category") or "").lower()
+    if category in {"premade", "professional", "famous"}:
+        return False
+    name = str(voice.get("name") or "")
+    description = str(voice.get("description") or "")
+    return (
+        name.startswith("Dubby ")
+        or "dubby:temp" in description.lower()
+        or "Temporary local Dubby" in description
+        or "Dubby per-project" in description
+    )
+
+
+def _list_eleven_voices() -> list[dict[str, object]]:
+    base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
+    response = httpx.get(
+        f"{base}/v1/voices",
+        headers=_eleven_headers(),
+        timeout=60,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"ElevenLabs 보이스 목록 조회 실패 ({response.status_code}: {response.text[:200]})"
+        )
+    payload = response.json()
+    voices = payload.get("voices") if isinstance(payload, dict) else None
+    return [voice for voice in (voices or []) if isinstance(voice, dict)]
+
+
+def _purge_stale_dubby_voices(*, keep_ids: set[str] | None = None) -> int:
+    """Delete leftover Dubby temp clones so the custom-voice quota can recover."""
+    keep = keep_ids or set()
+    base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
+    deleted = 0
+    for voice in _list_eleven_voices():
+        voice_id = str(voice.get("voice_id") or "").strip()
+        if not voice_id or voice_id in keep:
+            continue
+        if not _is_dubby_temp_voice(voice):
+            continue
+        try:
+            httpx.delete(
+                f"{base}/v1/voices/{voice_id}",
+                headers=_eleven_headers(),
+                timeout=30,
+            )
+            deleted += 1
+        except httpx.HTTPError:
+            pass
+    return deleted
+
+
+def _eleven_voice_exists(voice_id: str) -> bool:
+    base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
+    response = httpx.get(
+        f"{base}/v1/voices/{voice_id}",
+        headers=_eleven_headers(),
+        timeout=30,
+    )
+    return response.status_code < 400
+
+
+def _eleven_request(
+    method: str,
+    url: str,
+    *,
+    label: str,
+    retries: int | None = None,
+    backoff_seconds: float | None = None,
+    **kwargs,
+) -> httpx.Response:
+    """Call ElevenLabs with retries for transient 429/5xx failures."""
+    attempts = retries
+    if attempts is None:
+        attempts = max(1, int(os.getenv("PIPELINE_STEP_RETRIES", "3")) + 1)
+    delay = backoff_seconds
+    if delay is None:
+        delay = float(os.getenv("PIPELINE_RETRY_BACKOFF_SECONDS", "2"))
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            response = httpx.request(method, url, **kwargs)
+        except httpx.HTTPError as exc:
+            last_error = str(exc)
+            if attempt >= attempts:
+                raise RuntimeError(f"ElevenLabs {label} 요청 실패: {exc}") from exc
+            time.sleep(delay * attempt)
+            continue
+        if response.status_code < 400:
+            return response
+        last_error = f"{response.status_code}: {response.text[:300]}"
+        retryable = response.status_code == 429 or response.status_code >= 500
+        if not retryable or attempt >= attempts:
+            raise RuntimeError(f"ElevenLabs {label} 실패 ({last_error})")
+        time.sleep(delay * attempt)
+    raise RuntimeError(f"ElevenLabs {label} 실패 ({last_error})")
+
+
+def _is_voice_slot_limit_error(message: str) -> bool:
+    """Concurrent custom-voice slot cap (e.g. 30 voices), not monthly ops."""
+    lowered = message.lower()
+    if "voice_add_edit_limit_reached" in lowered:
+        return False
+    return (
+        "voice_limit_reached" in lowered
+        or "maximum amount of custom voices" in lowered
+        or "custom voice limit" in lowered
+    )
+
+
+def _is_voice_add_edit_limit_error(message: str) -> bool:
+    """Monthly Instant Voice Clone add/edit operation quota."""
+    lowered = message.lower()
+    return (
+        "voice_add_edit_limit_reached" in lowered
+        or "monthly limit of voice add/edit" in lowered
+        or "voice add/edit operations" in lowered
+    )
+
+
+def _pick_reusable_dubby_voice(
+    *,
+    prefer_ids: set[str] | None = None,
+) -> str | None:
+    """Reuse an existing Dubby temp clone when creating a new one is blocked."""
+    prefer = prefer_ids or set()
+    voices = _list_eleven_voices()
+    for voice_id in prefer:
+        for voice in voices:
+            if str(voice.get("voice_id") or "").strip() == voice_id:
+                return voice_id
+    for voice in voices:
+        voice_id = str(voice.get("voice_id") or "").strip()
+        if voice_id and _is_dubby_temp_voice(voice):
+            return voice_id
+    return None
 
 
 def _prepare_voice_sample(work_dir: Path, speaker_id: str | None = None) -> Path:
@@ -858,6 +1546,8 @@ def _prepare_voice_sample(work_dir: Path, speaker_id: str | None = None) -> Path
     background music and ambience, which makes every generated dub sound
     dirty. The vocals stem keeps only the speaker.
     """
+    # ElevenLabs Instant Voice Clone rejects samples shorter than 1 second.
+    min_seconds = float(os.getenv("VOICE_CLONE_MIN_SECONDS", "1.2"))
     manifest_path = work_dir / "manifest.json"
     if not manifest_path.is_file():
         raise RuntimeError("먼저 오디오·자막 추출을 실행해 주세요.")
@@ -873,14 +1563,41 @@ def _prepare_voice_sample(work_dir: Path, speaker_id: str | None = None) -> Path
     if not segments:
         raise RuntimeError("보이스 샘플로 사용할 음성 구간이 없습니다.")
 
+    speech_ranges = [
+        (int(item["start_ms"]), int(item["end_ms"]))
+        for item in manifest.get("speech_ranges") or []
+        if int(item.get("end_ms", 0)) > int(item.get("start_ms", 0))
+    ]
+
+    candidate_ranges: list[tuple[int, int]] = []
+    for segment in segments:
+        start = int(segment["start_ms"])
+        end = int(segment["end_ms"])
+        if end <= start:
+            continue
+        overlaps = [
+            (max(start, s), min(end, e))
+            for s, e in speech_ranges
+            if s < end and e > start
+        ]
+        overlaps = [(s, e) for s, e in overlaps if e - s >= 80]
+        if overlaps:
+            candidate_ranges.extend(overlaps)
+        else:
+            candidate_ranges.append((start, end))
+
+    if not candidate_ranges:
+        raise RuntimeError("보이스 샘플로 사용할 음성 구간이 없습니다.")
+
     vocals, _ = _separate_no_vocals(work_dir)
+    vocals_duration_ms = max(1, int(_audio_duration(vocals) * 1000))
     max_seconds = float(os.getenv("VOICE_CLONE_SAMPLE_SECONDS", "60"))
     trims: list[str] = []
     labels: list[str] = []
     total = 0.0
-    for index, segment in enumerate(segments):
-        start = max(0.0, float(segment["start_ms"]) / 1000)
-        end = float(segment["end_ms"]) / 1000
+    for index, (start_ms, end_ms) in enumerate(candidate_ranges):
+        start = max(0.0, start_ms / 1000)
+        end = end_ms / 1000
         take = min(end - start, max_seconds - total)
         if take <= 0.05:
             continue
@@ -892,6 +1609,29 @@ def _prepare_voice_sample(work_dir: Path, speaker_id: str | None = None) -> Path
         total += take
         if total >= max_seconds:
             break
+
+    if total < min_seconds:
+        # Extend from the first candidate so ElevenLabs always gets >= 1s.
+        start_ms, end_ms = candidate_ranges[0]
+        start = max(0.0, start_ms / 1000)
+        need = min_seconds
+        end = min(vocals_duration_ms / 1000, start + need)
+        if end - start < min_seconds:
+            # Slide window earlier if near the end of the file.
+            end = min(vocals_duration_ms / 1000, max(end, min_seconds))
+            start = max(0.0, end - min_seconds)
+        if end - start < min_seconds:
+            raise RuntimeError(
+                "보이스 클론용 샘플이 1초 미만입니다. "
+                "더 긴 발화 구간이 있는 영상으로 다시 시도해 주세요."
+            )
+        trims = [
+            f"[0:a]atrim=start={start:.3f}:end={end:.3f},"
+            f"asetpts=PTS-STARTPTS[s0]"
+        ]
+        labels = ["[s0]"]
+        total = end - start
+
     if not labels:
         raise RuntimeError("보이스 샘플로 사용할 음성 구간이 없습니다.")
 
@@ -921,38 +1661,169 @@ def _prepare_voice_sample(work_dir: Path, speaker_id: str | None = None) -> Path
             str(sample),
         ]
     )
+    duration = _audio_duration(sample)
+    if duration < 1.0:
+        raise RuntimeError(
+            f"보이스 클론용 샘플이 너무 짧습니다 ({duration:.2f}초). "
+            "ElevenLabs는 최소 1초가 필요합니다."
+        )
     return sample
 
 
 def _create_eleven_voice(
     work_dir: Path,
     speaker_id: str | None = None,
+    *,
+    keep_voice_ids: set[str] | None = None,
 ) -> tuple[str, bool]:
     configured = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
     if configured:
         return configured, False
     base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
     sample = _prepare_voice_sample(work_dir, speaker_id)
-    with sample.open("rb") as audio:
-        response = httpx.post(
-            f"{base}/v1/voices/add",
-            headers=_eleven_headers(),
-            data={
-                "name": f"Dubby {work_dir.name[:8]} {speaker_id or 'default'}",
-                "description": "Temporary local Dubby verification voice",
-            },
-            files={"files": (sample.name, audio, "audio/mpeg")},
-            timeout=300,
-        )
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"ElevenLabs 보이스 클론 실패 ({response.status_code}): "
-            f"{response.text[:300]}"
-        )
+
+    def _add_voice() -> httpx.Response:
+        with sample.open("rb") as audio:
+            return _eleven_request(
+                "POST",
+                f"{base}/v1/voices/add",
+                label="보이스 클론",
+                headers=_eleven_headers(),
+                data={
+                    "name": f"Dubby {work_dir.name[:8]} {speaker_id or 'default'}",
+                    "description": _DUBBY_TEMP_VOICE_DESCRIPTION,
+                },
+                files={"files": (sample.name, audio, "audio/mpeg")},
+                timeout=300,
+            )
+
+    try:
+        response = _add_voice()
+    except RuntimeError as exc:
+        message = str(exc)
+        if _is_voice_add_edit_limit_error(message):
+            # Creating/editing is blocked for the month — never purge+recreate
+            # (that spends the same quota). Reuse any leftover Dubby temp voice.
+            reused = _pick_reusable_dubby_voice(prefer_ids=keep_voice_ids)
+            if reused:
+                return reused, True
+            raise RuntimeError(
+                "ElevenLabs 월간 보이스 추가/수정 한도(예: 95회)에 도달했습니다. "
+                "재사용할 Dubby 임시 보이스도 없습니다. "
+                "api/.env에 ELEVENLABS_VOICE_ID를 설정해 클론을 건너뛰거나, "
+                "요금제를 업그레이드하거나, 한도가 리셋될 때까지 기다려 주세요."
+            ) from exc
+        if not _is_voice_slot_limit_error(message):
+            raise
+        # Concurrent slot full — delete leftover Dubby temps, then retry once.
+        purged = _purge_stale_dubby_voices(keep_ids=keep_voice_ids)
+        if purged <= 0:
+            reused = _pick_reusable_dubby_voice(prefer_ids=keep_voice_ids)
+            if reused:
+                return reused, True
+            raise RuntimeError(
+                "ElevenLabs 커스텀 보이스 한도(예: 30개)에 도달했습니다. "
+                "ElevenLabs 대시보드에서 사용하지 않는 Instant Voice Clone을 삭제하거나 "
+                "요금제를 업그레이드한 뒤 다시 시도해 주세요. "
+                "개발 중이라면 .env에 ELEVENLABS_VOICE_ID를 설정해 클론을 건너뛸 수 있습니다."
+            ) from exc
+        try:
+            response = _add_voice()
+        except RuntimeError as retry_exc:
+            if _is_voice_add_edit_limit_error(str(retry_exc)):
+                reused = _pick_reusable_dubby_voice(prefer_ids=keep_voice_ids)
+                if reused:
+                    return reused, True
+            raise
+
     voice_id = response.json().get("voice_id")
     if not voice_id:
         raise RuntimeError("ElevenLabs 응답에 voice_id가 없습니다.")
     return str(voice_id), True
+
+
+def _load_cached_voices(work_dir: Path) -> dict[str, tuple[str, bool]]:
+    path = work_dir / "dub_voice_manifest.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    cached: dict[str, tuple[str, bool]] = {}
+    for speaker_id, info in (payload.get("voices") or {}).items():
+        if not isinstance(info, dict):
+            continue
+        voice_id = str(info.get("voice_id") or "").strip()
+        if voice_id:
+            cached[str(speaker_id)] = (voice_id, bool(info.get("temporary", True)))
+    return cached
+
+
+def _resolve_usable_voices(
+    work_dir: Path,
+    speaker_ids: set[str],
+) -> dict[str, tuple[str, bool]]:
+    """Reuse valid cached clones; create only what is missing.
+
+    Do not purge on every dub — delete+recreate burns ElevenLabs monthly
+    add/edit quota. Slot cleanup happens only inside ``_create_eleven_voice``
+    when the concurrent voice cap is hit.
+    """
+    cached = _load_cached_voices(work_dir)
+    voices: dict[str, tuple[str, bool]] = {}
+    for speaker_id, (voice_id, temporary) in cached.items():
+        if speaker_id not in speaker_ids:
+            continue
+        if temporary and not _eleven_voice_exists(voice_id):
+            continue
+        voices[speaker_id] = (voice_id, temporary)
+
+    keep_ids = {voice_id for voice_id, _ in voices.values()}
+    for speaker_id in sorted(speaker_ids):
+        if speaker_id in voices:
+            continue
+        voices[speaker_id] = _create_eleven_voice(
+            work_dir,
+            speaker_id,
+            keep_voice_ids=keep_ids | {voice_id for voice_id, _ in voices.values()},
+        )
+        keep_ids.add(voices[speaker_id][0])
+    return voices
+
+
+def _delete_eleven_voices(voices: dict[str, tuple[str, bool]]) -> None:
+    base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
+    for voice_id, temporary in voices.values():
+        if not temporary:
+            continue
+        try:
+            httpx.delete(
+                f"{base}/v1/voices/{voice_id}",
+                headers=_eleven_headers(),
+                timeout=30,
+            )
+        except httpx.HTTPError:
+            pass
+
+
+def _cleanup_cached_voices(work_dir: Path) -> None:
+    cached = _load_cached_voices(work_dir)
+    if not cached:
+        return
+    _delete_eleven_voices(cached)
+    path = work_dir / "dub_voice_manifest.json"
+    if not path.is_file():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+    payload.pop("voices", None)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _mean_volume_db(path: Path, start_ms: int, end_ms: int) -> float:
@@ -1004,43 +1875,49 @@ def _source_loudness_levels(
         for item in manifest.get("speech_ranges") or []
         if int(item.get("end_ms", 0)) > int(item.get("start_ms", 0))
     ]
-    levels: dict[int, float] = {}
+    # Pre-measure unique ranges in parallel; shared helper then only does lookups.
+    ranges_to_measure: set[tuple[int, int]] = set()
     for segment in manifest.get("segments") or []:
         idx = int(segment["idx"])
         if idx not in segment_indices:
             continue
         start_ms = int(segment["start_ms"])
         end_ms = int(segment["end_ms"])
-        voiced_ranges = [
+        voiced = [
             (max(start_ms, start), min(end_ms, end))
             for start, end in speech_ranges
             if end > start_ms and start < end_ms
         ]
-        if not voiced_ranges:
-            voiced_ranges = [(start_ms, end_ms)]
-        weighted_power = 0.0
-        total_duration = 0
-        for range_start, range_end in voiced_ranges:
-            duration = max(1, range_end - range_start)
-            level_db = _mean_volume_db(vocals, range_start, range_end)
-            weighted_power += (10 ** (level_db / 10)) * duration
-            total_duration += duration
-        levels[idx] = round(
-            10 * math.log10(max(weighted_power / max(1, total_duration), 1e-12)),
-            2,
-        )
-    return levels
+        if not voiced:
+            voiced = [(start_ms, end_ms)]
+        for range_start, range_end in voiced:
+            if range_end > range_start:
+                ranges_to_measure.add((range_start, range_end))
+    measured: dict[tuple[int, int], float] = {}
+    workers = max(1, min(8, len(ranges_to_measure)))
+    if ranges_to_measure:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_mean_volume_db, vocals, start, end): (start, end)
+                for start, end in ranges_to_measure
+            }
+            for future in as_completed(futures):
+                start, end = futures[future]
+                measured[(start, end)] = future.result()
 
-
-def _matched_loudness_gain(source_level_db: float, tts_level_db: float) -> float:
-    """Match generated speech to its source slot while avoiding clipping/noise."""
-    return round(max(-8.0, min(6.0, source_level_db - tts_level_db)), 2)
+    return _shared_source_loudness_levels(
+        manifest.get("segments") or [],
+        speech_ranges,
+        segment_indices,
+        lambda start_ms, end_ms: measured.get(
+            (start_ms, end_ms),
+            _mean_volume_db(vocals, start_ms, end_ms),
+        ),
+    )
 
 
 def _generate_dub_voice(request: DubVoiceRequest) -> dict:
-    work_dir = DATA_ROOT / request.run_id
-    if not work_dir.is_dir():
-        raise RuntimeError("해당 추출 작업을 찾을 수 없습니다.")
+    work_dir = _resolve_work_dir(request.run_id)
     manifest = json.loads((work_dir / "manifest.json").read_text(encoding="utf-8"))
     source_segments = {
         int(segment["idx"]): segment
@@ -1052,17 +1929,24 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         )
         for segment in request.segments
     }
-    voices: dict[str, tuple[str, bool]] = {}
-    for speaker_id in sorted(set(speaker_by_idx.values())):
-        voices[speaker_id] = _create_eleven_voice(work_dir, speaker_id)
-    source_levels = _source_loudness_levels(
-        work_dir,
-        {segment.idx for segment in request.segments},
-    )
+    # Voice clone (Demucs + ElevenLabs) and loudness prep overlap on Demucs cache.
+    with ThreadPoolExecutor(max_workers=2) as prep:
+        voices_future = prep.submit(
+            _resolve_usable_voices,
+            work_dir,
+            set(speaker_by_idx.values()),
+        )
+        levels_future = prep.submit(
+            _source_loudness_levels,
+            work_dir,
+            {segment.idx for segment in request.segments},
+        )
+        voices = voices_future.result()
+        source_levels = levels_future.result()
     base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
     target_language = str(manifest.get("target_language") or "")
     model = tts_model_for_language(
-        os.getenv("ELEVENLABS_TTS_MODEL", "eleven_multilingual_v2"),
+        os.getenv("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5"),
         target_language,
     )
     settings = {
@@ -1073,76 +1957,133 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
     }[request.tone_style]
     output_dir = work_dir / "dubbed_speech"
     output_dir.mkdir(exist_ok=True)
-    outputs: list[dict[str, object]] = []
-    try:
-        for position, segment in enumerate(request.segments):
-            filename = f"{segment.idx + 1:04d}.mp3"
-            speaker_id = speaker_by_idx[segment.idx]
-            voice_id = voices[speaker_id][0]
-            tts_body: dict[str, object] = {
-                "text": segment.target_text,
-                "model_id": model,
-                "voice_settings": {**settings, "use_speaker_boost": True},
-                "apply_text_normalization": "on",
+    speak_min = float(
+        os.getenv("TTS_SPEAK_SPEED_MIN", str(ELEVENLABS_SPEAK_SPEED_MIN))
+    )
+    speak_max = float(
+        os.getenv("TTS_SPEAK_SPEED_MAX", str(ELEVENLABS_SPEAK_SPEED_MAX))
+    )
+    concurrency = max(1, int(os.getenv("TTS_CONCURRENCY", "4")))
+
+    def _synthesize_one(position: int, segment: DubSegment) -> dict[str, object]:
+        filename = f"{segment.idx + 1:04d}.mp3"
+        speaker_id = speaker_by_idx[segment.idx]
+        voice_id = voices[speaker_id][0]
+        source_meta = source_segments.get(segment.idx, {})
+        slot_seconds = max(
+            0.001,
+            (
+                int(source_meta.get("end_ms", 0))
+                - int(source_meta.get("start_ms", 0))
+            )
+            / 1000,
+        )
+        speak_speed = initial_speak_speed(
+            segment.target_text,
+            slot_seconds,
+            target_language,
+            min_speed=speak_min,
+            max_speed=speak_max,
+        )
+        tts_body: dict[str, object] = {
+            "text": segment.target_text,
+            "model_id": model,
+            "voice_settings": {
+                **settings,
+                "use_speaker_boost": True,
+                "speed": min(
+                    max(speak_speed, ELEVENLABS_SPEAK_SPEED_MIN),
+                    ELEVENLABS_SPEAK_SPEED_MAX,
+                ),
+            },
+            "apply_text_normalization": "on",
+        }
+        if target_language and model != "eleven_multilingual_v2":
+            tts_body["language_code"] = target_language.lower().split("-", 1)[0]
+        if position > 0:
+            tts_body["previous_text"] = request.segments[position - 1].target_text
+        if position + 1 < len(request.segments):
+            tts_body["next_text"] = request.segments[position + 1].target_text
+        response = _eleven_request(
+            "POST",
+            f"{base}/v1/text-to-speech/{voice_id}",
+            label="TTS",
+            params={"output_format": "mp3_44100_128"},
+            headers={**_eleven_headers(), "Content-Type": "application/json"},
+            json=tts_body,
+            timeout=300,
+        )
+        output_path = output_dir / filename
+        output_path.write_bytes(response.content)
+        duration = _audio_duration(output_path)
+        # If the estimate was badly off, one corrective resynth is still cheaper
+        # than always doing a calibration pass.
+        measured_speed = speak_speed_for_slot(
+            duration,
+            slot_seconds,
+            min_speed=speak_min,
+            max_speed=speak_max,
+        )
+        if abs(measured_speed - speak_speed) >= 0.12 and measured_speed > 1.03:
+            tts_body["voice_settings"] = {
+                **settings,
+                "use_speaker_boost": True,
+                "speed": min(
+                    max(measured_speed, ELEVENLABS_SPEAK_SPEED_MIN),
+                    ELEVENLABS_SPEAK_SPEED_MAX,
+                ),
             }
-            if target_language and model != "eleven_multilingual_v2":
-                tts_body["language_code"] = target_language.lower().split("-", 1)[0]
-            if position > 0:
-                tts_body["previous_text"] = request.segments[
-                    position - 1
-                ].target_text
-            if position + 1 < len(request.segments):
-                tts_body["next_text"] = request.segments[
-                    position + 1
-                ].target_text
-            response = httpx.post(
+            response = _eleven_request(
+                "POST",
                 f"{base}/v1/text-to-speech/{voice_id}",
+                label="TTS",
                 params={"output_format": "mp3_44100_128"},
                 headers={**_eleven_headers(), "Content-Type": "application/json"},
                 json=tts_body,
                 timeout=300,
             )
-            if response.status_code >= 400:
-                raise RuntimeError(
-                    f"ElevenLabs TTS 실패 ({response.status_code}): "
-                    f"{response.text[:300]}"
-                )
-            output_path = output_dir / filename
             output_path.write_bytes(response.content)
-            tts_level = _mean_volume_db(
-                output_path,
-                0,
-                max(1, int(_audio_duration(output_path) * 1000)),
-            )
-            source_level = source_levels.get(segment.idx, tts_level)
-            gain_db = _matched_loudness_gain(source_level, tts_level)
-            outputs.append(
-                {
-                    "idx": segment.idx,
-                    "speaker_id": speaker_id,
-                    "source_level_db": source_level,
-                    "tts_level_db": tts_level,
-                    "gain_db": gain_db,
-                    "audio_url": (
-                        f"/v1/local/step12/{request.run_id}/dubbed_speech/{filename}"
-                    ),
-                }
-            )
-    finally:
-        for voice_id, temporary in voices.values():
-            if not temporary:
-                continue
-            try:
-                httpx.delete(
-                    f"{base}/v1/voices/{voice_id}",
-                    headers=_eleven_headers(),
-                    timeout=30,
-                )
-            except httpx.HTTPError:
-                pass
+            duration = _audio_duration(output_path)
+            speak_speed = measured_speed
+        tts_level = _mean_volume_db(
+            output_path,
+            0,
+            max(1, int(duration * 1000)),
+        )
+        source_level = source_levels.get(segment.idx, tts_level)
+        gain_db = _matched_loudness_gain(source_level, tts_level)
+        return {
+            "idx": segment.idx,
+            "speaker_id": speaker_id,
+            "source_level_db": source_level,
+            "tts_level_db": tts_level,
+            "gain_db": gain_db,
+            "speak_speed": speak_speed if speak_speed > 1.03 else 1.0,
+            "audio_url": (
+                f"/v1/local/step12/{request.run_id}/dubbed_speech/{filename}"
+            ),
+        }
+
+    outputs: list[dict[str, object]] = []
+    with ThreadPoolExecutor(max_workers=min(concurrency, max(1, len(request.segments)))) as pool:
+        futures = [
+            pool.submit(_synthesize_one, position, segment)
+            for position, segment in enumerate(request.segments)
+        ]
+        for future in as_completed(futures):
+            outputs.append(future.result())
+    outputs.sort(key=lambda item: int(item["idx"]))
+
     (work_dir / "dub_voice_manifest.json").write_text(
         json.dumps(
             {
+                "voices": {
+                    speaker_id: {
+                        "voice_id": voice_id,
+                        "temporary": temporary,
+                    }
+                    for speaker_id, (voice_id, temporary) in voices.items()
+                },
                 "segments": [
                     {
                         key: value
@@ -1157,6 +2098,12 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         ),
         encoding="utf-8",
     )
+    _finalize_run_upload(request.run_id, work_dir)
+    for output in outputs:
+        output["audio_url"] = _local_asset_url(
+            request.run_id,
+            f"dubbed_speech/{int(output['idx']) + 1:04d}.mp3",
+        )
     return {"run_id": request.run_id, "segments": outputs}
 
 
@@ -1167,39 +2114,67 @@ def _source_file(work_dir: Path) -> Path:
     return sources[0]
 
 
+def _demucs_model() -> str:
+    return os.getenv("DEMUCS_MODEL", "htdemucs").strip() or "htdemucs"
+
+
+def _demucs_device() -> str:
+    configured = os.getenv("DEMUCS_DEVICE", "").strip()
+    if configured:
+        return configured
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
+def _demucs_jobs() -> str:
+    configured = os.getenv("DEMUCS_JOBS", "").strip()
+    if configured:
+        return configured
+    cpus = os.cpu_count() or 2
+    return str(min(4, max(1, cpus // 2)))
+
+
 def _separate_no_vocals(work_dir: Path) -> tuple[Path, Path]:
     audio = work_dir / "original_audio.wav"
     if not audio.is_file():
         raise RuntimeError("먼저 오디오·자막 추출을 실행해 주세요.")
-    model = os.getenv("DEMUCS_MODEL", "htdemucs_ft")
+    model = _demucs_model()
     stem_root = work_dir / "stems"
     stem_dir = stem_root / model / audio.stem
     vocals = stem_dir / "vocals.wav"
     no_vocals = stem_dir / "no_vocals.wav"
-    if vocals.is_file() and no_vocals.is_file():
+    lock = _demucs_locks.setdefault(work_dir.name, threading.Lock())
+    with lock:
+        if vocals.is_file() and no_vocals.is_file():
+            return vocals, no_vocals
+        _run_command(
+            [
+                sys.executable,
+                "-m",
+                "demucs.separate",
+                "-n",
+                model,
+                "--two-stems",
+                "vocals",
+                "-d",
+                _demucs_device(),
+                "-j",
+                _demucs_jobs(),
+                "-o",
+                str(stem_root),
+                str(audio),
+            ],
+            "Demucs 보이스 분리",
+        )
+        if not vocals.is_file() or not no_vocals.is_file():
+            raise RuntimeError(f"Demucs 결과를 찾을 수 없습니다: {stem_dir}")
         return vocals, no_vocals
-    _run_command(
-        [
-            sys.executable,
-            "-m",
-            "demucs.separate",
-            "-n",
-            model,
-            "--two-stems",
-            "vocals",
-            "-d",
-            os.getenv("DEMUCS_DEVICE", "cpu"),
-            "-j",
-            os.getenv("DEMUCS_JOBS", "1"),
-            "-o",
-            str(stem_root),
-            str(audio),
-        ],
-        "Demucs 보이스 분리",
-    )
-    if not vocals.is_file() or not no_vocals.is_file():
-        raise RuntimeError(f"Demucs 결과를 찾을 수 없습니다: {stem_dir}")
-    return vocals, no_vocals
 
 
 def _build_selective_speech_removed_bed(
@@ -1249,14 +2224,15 @@ def _fit_dub_clip(
     duration = _audio_duration(source)
     if duration <= 0 or slot_seconds <= 0:
         raise RuntimeError(f"유효하지 않은 더빙 구간입니다: {source.name}")
-    # Fit speech exactly inside its non-overlapping timestamp slot. We slow
-    # down only to 0.85x; shorter clips retain their natural pace and are
-    # padded with silence.
+    # Fit speech inside its non-overlapping timestamp slot. Prefer pitch-
+    # preserving rubberband; fall back to atempo only when unavailable.
+    max_speedup = float(os.getenv("TTS_MAX_SPEEDUP", "1.99"))
+    min_tempo = float(os.getenv("TTS_MIN_TEMPO", "0.85"))
     requested = duration / slot_seconds
-    tempo = min(max(requested, 0.85), 2.0)
+    tempo = min(max(requested, min_tempo), max_speedup)
     audible = min(slot_seconds, duration / tempo)
     fade = min(0.2, audible / 2)
-    filters = _atempo_filters(tempo)
+    filters = tempo_filters(tempo, rubberband_available=_ffmpeg_has_rubberband())
     filters.extend(
         [
             f"volume={gain_db:.2f}dB",
@@ -1282,7 +2258,7 @@ def _fit_dub_clip(
             str(output),
         ]
     )
-    return tempo, requested > 2.0
+    return tempo, requested > max_speedup
 
 
 def _mix_dubbed_audio(
@@ -1378,9 +2354,7 @@ def _mux_video(
 
 
 def _render_dubbed_video(request: RenderDubRequest) -> dict:
-    work_dir = DATA_ROOT / request.run_id
-    if not work_dir.is_dir():
-        raise RuntimeError("해당 추출 작업을 찾을 수 없습니다.")
+    work_dir = _resolve_work_dir(request.run_id)
     source = _source_file(work_dir)
     _, no_vocals = _separate_no_vocals(work_dir)
     ordered = sorted(request.segments, key=lambda segment: (segment.start_ms, segment.idx))
@@ -1463,11 +2437,13 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
         )
         if truncated:
             warnings.append(
-                f"segment_{segment.idx}: 2배속으로도 길어 구간 끝에서 잘렸습니다."
+                f"segment_{segment.idx}: 최대 배속으로도 길어 구간 끝에서 잘렸습니다."
             )
         elif tempo > 1.15:
+            backend = "rubberband" if _ffmpeg_has_rubberband() else "atempo"
             warnings.append(
-                f"segment_{segment.idx}: 타임스탬프에 맞춰 {tempo:.2f}배속 처리했습니다."
+                f"segment_{segment.idx}: 피치 유지({backend})로 "
+                f"{tempo:.2f}배 길이를 맞췄습니다."
             )
         placed.append((fitted, segment.start_ms))
     if not placed:
@@ -1496,12 +2472,14 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
 
     output = work_dir / "dubbed_output.mp4"
     _mux_video(source, mixed, output, ass_path)
+    source_name = source.name
+    # Keep cloned voices + stems on R2 so users can edit subtitles and
+    # regenerate dub voice without re-extracting the whole run.
+    _finalize_final_outputs(request.run_id, work_dir, source)
     return {
         "run_id": request.run_id,
-        "voice_removed_url": (
-            f"/v1/local/step12/{request.run_id}/voice_removed.mp4"
-        ),
-        "output_url": f"/v1/local/step12/{request.run_id}/dubbed_output.mp4",
+        "source_url": _local_asset_url(request.run_id, source_name),
+        "output_url": _local_asset_url(request.run_id, "dubbed_output.mp4"),
         "warnings": warnings,
     }
 
@@ -1516,6 +2494,16 @@ app.add_middleware(
 )
 
 
+def _http_remote_media_error(exc: RemoteMediaError) -> HTTPException:
+    message = str(exc)
+    status = 400
+    if "yt-dlp가 설치" in message:
+        status = 503
+    elif "너무 큽니다" in message:
+        status = 413
+    return HTTPException(status, message)
+
+
 @app.get("/health")
 async def health() -> dict[str, object]:
     return {
@@ -1524,21 +2512,27 @@ async def health() -> dict[str, object]:
         "model": os.getenv("LOCAL_WHISPER_MODEL", "medium"),
         "openai_configured": bool(os.getenv("OPENAI_API_KEY", "").strip()),
         "elevenlabs_configured": bool(os.getenv("ELEVENLABS_API_KEY", "").strip()),
+        "r2_configured": bool(
+            os.getenv("R2_ACCOUNT_ID", "").strip()
+            and os.getenv("R2_ACCESS_KEY_ID", "").strip()
+            and os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+        ),
+        "media_storage": "r2",
     }
 
 
 @app.post("/v1/local/step12")
 async def create_step12(
     request: Request,
-    source_lang: Annotated[str, Query(pattern="^(ko|en|vi)$")] = "ko",
-    target_lang: Annotated[str, Query(pattern="^(ko|en|vi)$")] = "en",
+    source_lang: Annotated[str, Query(pattern=LANG_QUERY_PATTERN)] = "ko",
+    target_lang: Annotated[str, Query(pattern=LANG_QUERY_PATTERN)] = "en",
     diarization_enabled: Annotated[bool, Query()] = False,
     x_filename: Annotated[str, Header()] = "source.mp4",
 ) -> dict:
     if source_lang not in SUPPORTED_LANGUAGES:
         raise HTTPException(400, "지원하지 않는 원어입니다.")
     run_id = uuid4().hex
-    work_dir = DATA_ROOT / run_id
+    work_dir = _scratch_dir(run_id)
     work_dir.mkdir(parents=True, exist_ok=False)
     suffix = Path(x_filename).suffix.lower() or ".bin"
     source = work_dir / f"source{suffix}"
@@ -1554,7 +2548,7 @@ async def create_step12(
         if size == 0:
             raise HTTPException(400, "빈 파일입니다.")
         return await asyncio.to_thread(
-            _process,
+            _process_and_publish,
             source,
             work_dir,
             source_lang,
@@ -1577,30 +2571,40 @@ async def create_step12(
         ) from exc
 
 
-@app.post("/v1/local/step12/url")
-async def create_step12_from_url(body: RemoteStep12Request) -> dict:
+@app.post("/v1/local/step12/from-url")
+async def create_step12_from_url(
+    body: FromUrlRequest,
+    source_lang: Annotated[str, Query(pattern=LANG_QUERY_PATTERN)] = "ko",
+    target_lang: Annotated[str, Query(pattern=LANG_QUERY_PATTERN)] = "en",
+    diarization_enabled: Annotated[bool, Query()] = False,
+) -> dict:
+    """Ingest a YouTube/Facebook/TikTok page URL or direct MP4/WebM link."""
+    if source_lang not in SUPPORTED_LANGUAGES:
+        raise HTTPException(400, "지원하지 않는 원어입니다.")
     run_id = uuid4().hex
-    work_dir = DATA_ROOT / run_id
+    work_dir = _scratch_dir(run_id)
     work_dir.mkdir(parents=True, exist_ok=False)
     try:
-        media = await download_remote_media(
-            body.url,
+        source = await ingest_remote_media(
+            body.url.strip(),
             work_dir,
             max_bytes=MAX_SOURCE_BYTES,
         )
-        source = work_dir / f"source{media.path.suffix.lower() or '.mp4'}"
-        media.path.replace(source)
+        # yt-dlp path is sync inside ingest; wrap full process off the event loop.
         return await asyncio.to_thread(
-            _process,
+            _process_and_publish,
             source,
             work_dir,
-            body.source_lang,
-            body.target_lang,
-            body.diarization_enabled,
+            source_lang,
+            target_lang,
+            diarization_enabled,
         )
     except RemoteMediaError as exc:
         shutil.rmtree(work_dir, ignore_errors=True)
-        raise HTTPException(400, str(exc)) from exc
+        raise _http_remote_media_error(exc) from exc
+    except HTTPException:
+        shutil.rmtree(work_dir, ignore_errors=True)
+        raise
     except Exception as exc:
         raise HTTPException(
             500,
@@ -1610,6 +2614,40 @@ async def create_step12_from_url(body: RemoteStep12Request) -> dict:
                 "work_dir": str(work_dir),
             },
         ) from exc
+
+
+@app.post("/v1/local/retranslate")
+async def retranslate_segments(body: RetranslateRequest) -> dict:
+    try:
+        drafts = [
+            (seg.start_ms, seg.end_ms, seg.source_text.strip())
+            for seg in body.segments
+        ]
+        translations = await asyncio.to_thread(
+            _translate, drafts, body.source_lang, body.target_lang
+        )
+        return {
+            "segments": [
+                {"idx": seg.idx, "target_text": translations[offset]}
+                for offset, seg in enumerate(body.segments)
+            ]
+        }
+    except Exception as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@app.delete("/v1/local/runs/{run_id}")
+async def delete_local_run(run_id: str) -> dict:
+    """Permanently delete one local pipeline run (scratch + R2). No recovery."""
+    safe_id = _assert_run_id(run_id)
+    return await asyncio.to_thread(_delete_run_storage, safe_id)
+
+
+@app.post("/v1/local/runs/gc")
+async def gc_local_runs(body: GcRunsRequest) -> dict:
+    """Delete every local/R2 run that is not in ``keep_run_ids``."""
+    keep = {_assert_run_id(run_id) for run_id in body.keep_run_ids if run_id.strip()}
+    return await asyncio.to_thread(_gc_orphan_runs, keep)
 
 
 @app.post("/v1/local/dub-voice")
@@ -1628,23 +2666,40 @@ async def render_dub(body: RenderDubRequest) -> dict:
         raise HTTPException(500, str(exc)) from exc
 
 
-@app.get("/v1/local/step12/{run_id}/{asset_path:path}")
+@app.get("/v1/local/step12/{run_id}/{asset_path:path}", response_model=None)
 async def get_asset(
     run_id: str,
     asset_path: str,
     download: Annotated[str | None, Query(max_length=200)] = None,
-) -> FileResponse:
-    root = (DATA_ROOT / run_id).resolve()
+) -> Response:
+    root = (_scratch_dir(run_id)).resolve()
     candidate = (root / asset_path).resolve()
-    if root not in candidate.parents or not candidate.is_file():
-        raise HTTPException(404, "결과 파일을 찾을 수 없습니다.")
-    if download is not None:
-        # Cross-origin <a download> is ignored by browsers, so the local
-        # server must send Content-Disposition: attachment itself.
-        filename = Path(download).name or candidate.name
-        return FileResponse(
-            candidate,
-            filename=filename,
-            content_disposition_type="attachment",
-        )
-    return FileResponse(candidate)
+    if root in candidate.parents and candidate.is_file():
+        if download is not None:
+            filename = Path(download).name or candidate.name
+            return FileResponse(
+                candidate,
+                filename=filename,
+                content_disposition_type="attachment",
+            )
+        return FileResponse(candidate)
+    try:
+        store = LocalR2Store()
+        filename = Path(download).name if download else None
+        if download is not None:
+            # Proxy through this origin with Content-Disposition so browsers
+            # save the file instead of playing the redirected R2 object.
+            body = await asyncio.to_thread(store.get_object_bytes, run_id, asset_path)
+            safe_name = filename or Path(asset_path).name or "download.bin"
+            return Response(
+                content=body,
+                media_type="application/octet-stream",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_name}"',
+                    "Content-Length": str(len(body)),
+                },
+            )
+        url = store.presign_get(run_id, asset_path)
+        return RedirectResponse(url, status_code=307)
+    except Exception as exc:
+        raise HTTPException(404, "결과 파일을 찾을 수 없습니다.") from exc

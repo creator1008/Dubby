@@ -2,11 +2,14 @@ from app.local_step12 import (
     TimedWord,
     _assign_speaker_ids,
     _cover_recognized_phrase_boundaries,
+    _dedupe_repetitive_drafts,
     _merge_speech_ranges,
     _matched_loudness_gain,
+    _parse_translation_payload,
     _relative_loudness_gains,
     _speech_mask_expression,
     _split_diarized_turns,
+    _whisper_segment_is_hallucination,
     group_words,
 )
 from app.worker.elevenlabs_client import tts_model_for_language
@@ -36,6 +39,8 @@ def test_vietnamese_uses_supported_elevenlabs_model() -> None:
         tts_model_for_language("eleven_multilingual_v2", "ko")
         == "eleven_multilingual_v2"
     )
+    assert tts_model_for_language("eleven_flash_v2_5", "ko") == "eleven_flash_v2_5"
+    assert tts_model_for_language("eleven_flash_v2_5", "en") == "eleven_flash_v2_5"
 
 
 def test_group_words_splits_long_phrase_and_keeps_non_overlapping_ranges() -> None:
@@ -144,3 +149,49 @@ def test_matched_loudness_gain_compensates_tts_level_with_bounds() -> None:
     assert _matched_loudness_gain(-24.0, -18.0) == -6.0
     assert _matched_loudness_gain(-12.0, -24.0) == 6.0
     assert _matched_loudness_gain(-40.0, -18.0) == -8.0
+
+
+def test_parse_translation_payload_accepts_common_shapes() -> None:
+    assert _parse_translation_payload(
+        '{"translations":[{"idx":0,"text":"안녕"},{"idx":1,"text":"세계"}]}',
+        [0, 1],
+    ) == {0: "안녕", 1: "세계"}
+    assert _parse_translation_payload(
+        '```json\n{"translation":[{"index":40,"translation":"A"},{"index":41,"text":"B"}]}\n```',
+        [40, 41],
+    ) == {40: "A", 41: "B"}
+    assert _parse_translation_payload('["one", "two"]', [5, 6]) == {5: "one", 6: "two"}
+    assert _parse_translation_payload(
+        '{"translations":[{"idx":1,"text":"B"},{"idx":0,"text":"A"}]}',
+        [0, 1],
+    ) == {0: "A", 1: "B"}
+
+
+def test_whisper_hallucination_filters_high_compression_and_loops() -> None:
+    assert _whisper_segment_is_hallucination(
+        {
+            "start": 0,
+            "end": 2,
+            "text": "엉덩이 아픔은 아니지만",
+            "compression_ratio": 4.8,
+            "no_speech_prob": 0.1,
+            "avg_logprob": -0.3,
+        }
+    )
+    assert not _whisper_segment_is_hallucination(
+        {
+            "start": 0,
+            "end": 2.5,
+            "text": "안녕하세요, 오늘 리뷰입니다.",
+            "compression_ratio": 1.4,
+            "no_speech_prob": 0.05,
+            "avg_logprob": -0.2,
+        }
+    )
+    assert _dedupe_repetitive_drafts(
+        [
+            (0, 1000, "같은 문장"),
+            (1000, 2000, "같은 문장"),
+            (2000, 3000, "다른 문장"),
+        ]
+    ) == [(0, 2000, "같은 문장"), (2000, 3000, "다른 문장")]

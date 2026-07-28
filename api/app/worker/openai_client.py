@@ -15,12 +15,11 @@ from pathlib import Path
 import httpx
 
 from ..config import Settings
+from ..languages import LANGUAGE_NAMES
 from . import errors
 from .errors import PipelineError
 
 logger = logging.getLogger("dubby.worker.openai")
-
-LANGUAGE_NAMES = {"en": "English", "ko": "Korean", "vi": "Vietnamese"}
 
 _TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=300.0, pool=10.0)
 
@@ -43,6 +42,12 @@ class SegmentDraft:
     text: str
 
 
+@dataclass(frozen=True)
+class TranscribeResult:
+    drafts: list[SegmentDraft]
+    speech_ranges: list[tuple[int, int]]
+
+
 # --- parsing (pure) -------------------------------------------------------------
 
 
@@ -62,6 +67,29 @@ def parse_whisper_segments(payload: dict) -> list[SegmentDraft]:
             end_ms = start_ms + 1
         drafts.append(SegmentDraft(start_ms=start_ms, end_ms=end_ms, text=text))
     return drafts
+
+
+def parse_whisper_word_ranges(payload: dict) -> list[tuple[int, int]]:
+    """Word timestamps -> merged voiced ranges (tight gaps only)."""
+    from .media import merge_speech_ranges
+
+    ranges: list[tuple[int, int]] = []
+    for word in payload.get("words") or []:
+        if word.get("start") is None or word.get("end") is None:
+            continue
+        text = str(word.get("word", "")).strip()
+        start_ms = max(0, int(round(float(word["start"]) * 1000)))
+        end_ms = int(round(float(word["end"]) * 1000))
+        if text and end_ms > start_ms:
+            ranges.append((start_ms, end_ms))
+    merged = merge_speech_ranges(ranges, max_gap_ms=120)
+    if merged:
+        return merged
+    return [
+        (draft.start_ms, draft.end_ms)
+        for draft in parse_whisper_segments(payload)
+        if draft.end_ms > draft.start_ms
+    ]
 
 
 def parse_translation_content(content: str, expected_idxs: list[int]) -> dict[int, str]:
@@ -167,11 +195,12 @@ class OpenAIClient:
         self._base = settings.openai_base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
 
-    async def transcribe(self, audio_path: str, language: str) -> list[SegmentDraft]:
+    async def transcribe(self, audio_path: str, language: str) -> TranscribeResult:
         data = {
             "model": self._settings.whisper_model,
             "language": language,
             "response_format": "verbose_json",
+            "timestamp_granularities[]": ["word", "segment"],
         }
         file_bytes = Path(audio_path).read_bytes()
         files = {"file": (Path(audio_path).name, file_bytes, "audio/mpeg")}
@@ -188,7 +217,11 @@ class OpenAIClient:
                 errors.ASR_FAILED, f"Whisper request failed: {exc}", retryable=True
             ) from exc
         _raise_for_status(resp, errors.ASR_FAILED)
-        return parse_whisper_segments(resp.json())
+        payload = resp.json()
+        return TranscribeResult(
+            drafts=parse_whisper_segments(payload),
+            speech_ranges=parse_whisper_word_ranges(payload),
+        )
 
     async def translate_batch(
         self,

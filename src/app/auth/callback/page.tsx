@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
+import { withBasePath } from "@/lib/base-path";
 import { getSupabase } from "@/lib/supabase";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 
@@ -86,7 +87,7 @@ export default function AuthCallbackPage() {
         return;
       }
       window.sessionStorage.removeItem("dubby-signup-country");
-      window.location.replace("/app");
+      window.location.replace(withBasePath("/app/"));
     };
 
     void finish();

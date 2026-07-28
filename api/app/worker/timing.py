@@ -1,9 +1,8 @@
 """Segment timing math: fitting TTS clips into their transcript slots.
 
-Pure functions, unit-tested without ffmpeg. A dubbed clip that runs longer
-than its segment slot is sped up (never slowed down) up to a configurable
-cap; whatever still does not fit is allowed to spill over and simply
-overlaps the following silence/segment in the mix.
+Pure functions, unit-tested without ffmpeg. Prefer synthesis-time speaking
+rate (ElevenLabs ``speed``) and pitch-preserving rubberband over mechanical
+``atempo`` chains, which thin the voice at high factors.
 """
 
 from __future__ import annotations
@@ -14,6 +13,62 @@ from dataclasses import dataclass
 # must be decomposed into a chain.
 _ATEMPO_MIN = 0.5
 _ATEMPO_MAX = 2.0
+
+# ElevenLabs voice_settings.speed API bounds (HTTP TTS).
+ELEVENLABS_SPEAK_SPEED_MIN = 0.7
+ELEVENLABS_SPEAK_SPEED_MAX = 1.2
+
+# Approx spoken characters/sec at speed=1.0 (used to pick initial speak_speed
+# without a calibration TTS round-trip). Tuned for cost+latency, not perfection.
+_CHARS_PER_SECOND: dict[str, float] = {
+    "en": 14.5,
+    "es": 14.0,
+    "fr": 13.5,
+    "pt": 13.5,
+    "de": 13.0,
+    "id": 13.0,
+    "ms": 13.0,
+    "tr": 12.5,
+    "vi": 12.0,
+    "ru": 11.5,
+    "ar": 11.0,
+    "ur": 11.0,
+    "ko": 8.5,
+    "ja": 7.5,
+    "zh": 6.5,
+    "ta": 10.0,
+}
+
+
+def estimate_tts_seconds(text: str, language: str = "") -> float:
+    """Cheap pre-TTS duration estimate from character density."""
+    compact = "".join(text.split())
+    if not compact:
+        return 0.0
+    lang = language.strip().lower().split("-", 1)[0]
+    cps = _CHARS_PER_SECOND.get(lang, 12.0)
+    # Light pause budget for sentence punctuation.
+    pauses = sum(compact.count(mark) for mark in ".!?。？！…")
+    return max(0.35, len(compact) / cps + 0.12 * pauses)
+
+
+def initial_speak_speed(
+    text: str,
+    slot_seconds_value: float,
+    language: str = "",
+    *,
+    min_speed: float = ELEVENLABS_SPEAK_SPEED_MIN,
+    max_speed: float = ELEVENLABS_SPEAK_SPEED_MAX,
+    tolerance: float = 0.03,
+) -> float:
+    """Speak-speed to request on the first (and usually only) TTS call."""
+    return speak_speed_for_slot(
+        estimate_tts_seconds(text, language),
+        slot_seconds_value,
+        min_speed=min_speed,
+        max_speed=max_speed,
+        tolerance=tolerance,
+    )
 
 
 def fit_speedup(clip_seconds: float, slot_seconds: float, max_speedup: float) -> float:
@@ -30,6 +85,31 @@ def fit_speedup(clip_seconds: float, slot_seconds: float, max_speedup: float) ->
     return min(factor, max_speedup)
 
 
+def speak_speed_for_slot(
+    clip_seconds: float,
+    slot_seconds_value: float,
+    *,
+    min_speed: float = ELEVENLABS_SPEAK_SPEED_MIN,
+    max_speed: float = ELEVENLABS_SPEAK_SPEED_MAX,
+    tolerance: float = 0.03,
+) -> float:
+    """Natural TTS speaking-rate multiplier that preserves pitch/timbre.
+
+    Returns 1.0 when the clip already fits within ``tolerance``. Values above
+    1.0 ask the synthesizer to talk faster rather than post-process audio.
+    Clamped to ElevenLabs ``speed`` bounds (0.7–1.2); residual fit uses
+    rubberband after synthesis.
+    """
+    if clip_seconds <= 0 or slot_seconds_value <= 0:
+        return 1.0
+    if clip_seconds <= slot_seconds_value * (1.0 + tolerance):
+        return 1.0
+    requested = clip_seconds / slot_seconds_value
+    lo = max(min_speed, ELEVENLABS_SPEAK_SPEED_MIN)
+    hi = min(max_speed, ELEVENLABS_SPEAK_SPEED_MAX)
+    return min(max(requested, lo), hi)
+
+
 def atempo_chain(factor: float) -> list[str]:
     """Decompose a tempo factor into valid ``atempo=X`` filter steps."""
     if factor <= 0:
@@ -44,6 +124,15 @@ def atempo_chain(factor: float) -> list[str]:
         remaining /= _ATEMPO_MIN
     steps.append(f"atempo={remaining:.6f}".rstrip("0").rstrip("."))
     return steps
+
+
+def tempo_filters(factor: float, *, rubberband_available: bool) -> list[str]:
+    """Prefer rubberband (pitch-preserving) over atempo for residual fitting."""
+    if abs(factor - 1.0) <= 0.001:
+        return []
+    if rubberband_available:
+        return [f"rubberband=tempo={factor:.6f}"]
+    return atempo_chain(factor)
 
 
 def slot_seconds(start_ms: int, end_ms: int) -> float:
@@ -67,17 +156,21 @@ def choose_fit_policy(
     max_speedup: float,
     rubberband_available: bool,
 ) -> FitDecision:
-    """Choose a bounded tempo and always cap output at the non-overlap slot."""
+    """Choose a bounded tempo and always cap output at the non-overlap slot.
+
+    When rubberband is available it is preferred for any tempo change so the
+    speaker's fundamental frequency stays intact.
+    """
     if clip_seconds <= 0 or slot_seconds_value <= 0:
         return FitDecision(1.0, "atempo", max(0.0, slot_seconds_value), "invalid_duration")
     requested = clip_seconds / slot_seconds_value
     tempo = min(max(requested, min_tempo), max_speedup)
-    backend = "atempo"
     warning = None
-    if tempo > atempo_max:
-        if rubberband_available:
-            backend = "rubberband"
-        else:
+    if rubberband_available and abs(tempo - 1.0) > 0.001:
+        backend = "rubberband"
+    else:
+        backend = "atempo"
+        if tempo > atempo_max:
             tempo = atempo_max
             warning = "rubberband_unavailable"
     fitted = clip_seconds / tempo
@@ -86,6 +179,12 @@ def choose_fit_policy(
     elif requested < min_tempo:
         warning = "speech_not_extended_beyond_quality_limit"
     return FitDecision(tempo, backend, slot_seconds_value, warning)
+
+
+def safe_slot_seconds(start_ms: int, end_ms: int, next_start_ms: int | None) -> float:
+    """Never let a clip extend into the next transcript segment."""
+    safe_end = min(end_ms, next_start_ms) if next_start_ms is not None else end_ms
+    return slot_seconds(start_ms, safe_end)
 
 
 def safe_slot_seconds(start_ms: int, end_ms: int, next_start_ms: int | None) -> float:

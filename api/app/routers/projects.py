@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from uuid import UUID
 
 from fastapi import APIRouter, status
@@ -12,13 +12,13 @@ from ..auth import CurrentUser
 from ..config import get_settings
 from ..deps import Repo, Storage
 from ..errors import BadRequestError, NotFoundError
-from ..remote_media import RemoteMediaError, download_remote_media
+from ..remote_media import RemoteMediaError, ingest_remote_media
 from ..schemas import (
     DownloadUrlResponse,
     ProjectCreate,
-    ProjectImportUrlRequest,
     ProjectOut,
     ProjectUpdate,
+    SourceFromUrlRequest,
 )
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
@@ -80,6 +80,53 @@ async def delete_project(
         pass
 
 
+@router.post("/{project_id}/source-from-url", response_model=ProjectOut)
+async def source_from_url(
+    project_id: UUID,
+    body: SourceFromUrlRequest,
+    user: CurrentUser,
+    repo: Repo,
+    storage: Storage,
+) -> ProjectOut:
+    """Download a remote video (direct MP4/WebM or YouTube/Facebook/TikTok) into R2."""
+    project = await repo.get_project(user.id, project_id)
+    if project is None:
+        raise NotFoundError("Project not found")
+
+    settings = get_settings()
+    with tempfile.TemporaryDirectory(prefix="dubby-url-") as tmp:
+        dest_dir = Path(tmp)
+        try:
+            source = await ingest_remote_media(
+                body.url.strip(),
+                dest_dir,
+                max_bytes=settings.max_source_bytes,
+            )
+        except RemoteMediaError as exc:
+            raise BadRequestError(str(exc)) from exc
+
+        content_type = {
+            ".mp4": "video/mp4",
+            ".webm": "video/webm",
+            ".mov": "video/quicktime",
+            ".mkv": "video/x-matroska",
+            ".m4a": "audio/mp4",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+        }.get(source.suffix.lower(), "application/octet-stream")
+        key = storage.source_key(user.id, project_id, source.name)
+        await storage.upload_file(str(source), key, content_type=content_type)
+
+    row = await repo.update_project(
+        user.id,
+        project_id,
+        {"source_key": key, "status": "uploaded"},
+    )
+    if row is None:
+        raise NotFoundError("Project not found")
+    return ProjectOut.model_validate(row)
+
+
 @router.get("/{project_id}/source-url", response_model=DownloadUrlResponse)
 async def get_source_url(
     project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
@@ -115,40 +162,3 @@ async def get_output_url(
         download_filename=f"{row.get('title') or 'dubby-output'}-dubbed.mp4",
     )
     return DownloadUrlResponse(url=url, expires_in=expires_in)
-
-
-@router.post("/{project_id}/import-url", response_model=ProjectOut)
-async def import_project_url(
-    project_id: UUID,
-    body: ProjectImportUrlRequest,
-    user: CurrentUser,
-    repo: Repo,
-    storage: Storage,
-) -> ProjectOut:
-    project = await repo.get_project(user.id, project_id)
-    if project is None:
-        raise NotFoundError("Project not found")
-    settings = get_settings()
-    try:
-        with TemporaryDirectory(prefix="dubby-url-") as temp_dir:
-            media = await download_remote_media(
-                body.url,
-                Path(temp_dir),
-                max_bytes=settings.max_source_bytes,
-            )
-            key = storage.source_key(user.id, project_id, media.filename)
-            await storage.upload_file(
-                str(media.path),
-                key,
-                media.content_type,
-            )
-    except RemoteMediaError as exc:
-        raise BadRequestError(str(exc)) from exc
-    updated = await repo.update_project(
-        user.id,
-        project_id,
-        {"source_key": key, "status": "uploaded"},
-    )
-    if updated is None:
-        raise NotFoundError("Project not found")
-    return ProjectOut.model_validate(updated)

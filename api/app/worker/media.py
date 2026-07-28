@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 import math
+import re
+import subprocess
 import wave
 from array import array
 from dataclasses import dataclass
@@ -20,7 +22,7 @@ from typing import Awaitable, Callable
 from ..config import Settings
 from . import errors
 from .errors import JobCancelled, PipelineError
-from .timing import atempo_chain
+from .timing import atempo_chain, tempo_filters
 
 logger = logging.getLogger("dubby.worker.media")
 
@@ -29,6 +31,27 @@ logger = logging.getLogger("dubby.worker.media")
 HeartbeatFn = Callable[[], Awaitable[None]]
 
 _STDERR_TAIL_CHARS = 2000
+_ffmpeg_rubberband_cache: dict[str, bool] = {}
+
+
+def ffmpeg_has_rubberband(ffmpeg_path: str = "ffmpeg") -> bool:
+    """True when the ffmpeg binary exposes the pitch-preserving rubberband filter."""
+    cached = _ffmpeg_rubberband_cache.get(ffmpeg_path)
+    if cached is not None:
+        return cached
+    result = subprocess.run(
+        [ffmpeg_path, "-hide_banner", "-filters"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    blob = f"{result.stdout}\n{result.stderr}"
+    available = bool(re.search(r"\brubberband\b", blob))
+    _ffmpeg_rubberband_cache[ffmpeg_path] = available
+    return available
 
 
 @dataclass(frozen=True)
@@ -96,10 +119,13 @@ def build_clip_fit_cmd(
     """Decode/fix tempo and hard-cap duration to prevent adjacent overlap."""
     cmd = [settings.ffmpeg_path, "-y", "-nostdin", "-i", clip_in]
     filters: list[str] = []
-    if backend == "rubberband" and tempo_factor != 1.0:
-        filters.append(f"rubberband=tempo={tempo_factor:.6f}")
-    elif tempo_factor != 1.0:
-        filters.extend(atempo_chain(tempo_factor))
+    if tempo_factor != 1.0:
+        filters.extend(
+            tempo_filters(
+                tempo_factor,
+                rubberband_available=(backend == "rubberband"),
+            )
+        )
     if abs(gain_db) >= 0.01:
         filters.append(f"volume={gain_db:.2f}dB")
     if filters:
@@ -108,6 +134,41 @@ def build_clip_fit_cmd(
         cmd += ["-t", f"{max(0.001, max_seconds):.3f}"]
     cmd += ["-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", wav_out]
     return cmd
+
+
+def measure_audio_loudness_db(
+    path: str,
+    start_ms: int,
+    end_ms: int,
+    *,
+    ffmpeg_path: str = "ffmpeg",
+) -> float:
+    """Measure mean loudness (dBFS) for any audio file via ffmpeg volumedetect."""
+    result = subprocess.run(
+        [
+            ffmpeg_path,
+            "-nostdin",
+            "-ss",
+            f"{start_ms / 1000:.3f}",
+            "-i",
+            path,
+            "-t",
+            f"{max(0.001, (end_ms - start_ms) / 1000):.3f}",
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "-",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    match = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", result.stderr)
+    return float(match.group(1)) if match else -60.0
 
 
 def measure_pcm16_wav_db(
@@ -140,6 +201,8 @@ def build_voice_sample_cmd(
     ranges_ms: list[tuple[int, int]] | None = None,
 ) -> list[str]:
     """Trimmed vocals stem used as the ElevenLabs IVC reference sample."""
+    # Instant Voice Clone rejects samples shorter than 1 second.
+    min_seconds = 1.2
     cmd = [
         settings.ffmpeg_path, "-y", "-nostdin",
         "-i", vocals_in,
@@ -150,19 +213,30 @@ def build_voice_sample_cmd(
         consumed = 0.0
         for i, (start, end) in enumerate(ranges_ms):
             duration = min((end - start) / 1000, sample_seconds - consumed)
-            if duration <= 0:
-                break
+            if duration <= 0.05:
+                continue
             pieces.append(
                 f"[0:a]atrim=start={start / 1000:.3f}:duration={duration:.3f},"
                 f"asetpts=PTS-STARTPTS[s{i}]"
             )
             labels.append(f"[s{i}]")
             consumed += duration
+            if consumed >= sample_seconds:
+                break
+        if consumed < min_seconds and ranges_ms:
+            start = max(0, ranges_ms[0][0])
+            pieces = [
+                f"[0:a]atrim=start={start / 1000:.3f}:duration={min_seconds:.3f},"
+                f"asetpts=PTS-STARTPTS[s0]"
+            ]
+            labels = ["[s0]"]
+            consumed = min_seconds
         if labels:
             pieces.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[sample]")
             cmd += ["-filter_complex", ";".join(pieces), "-map", "[sample]"]
+            sample_seconds = max(sample_seconds, consumed)
     cmd += [
-        "-t", f"{sample_seconds:g}",
+        "-t", f"{max(sample_seconds, min_seconds):g}",
         "-vn",
         "-acodec", "libmp3lame",
         "-ar", "44100",
@@ -175,6 +249,8 @@ def build_voice_sample_cmd(
 
 def merge_speech_ranges(
     ranges_ms: list[tuple[int, int]],
+    *,
+    max_gap_ms: int = 0,
 ) -> list[tuple[int, int]]:
     """Normalize ASR ranges without filling non-language gaps."""
     merged: list[tuple[int, int]] = []
@@ -182,7 +258,7 @@ def merge_speech_ranges(
         start = max(0, start)
         if end <= start:
             continue
-        if merged and start <= merged[-1][1]:
+        if merged and start <= merged[-1][1] + max_gap_ms:
             merged[-1] = (merged[-1][0], max(merged[-1][1], end))
         else:
             merged.append((start, end))

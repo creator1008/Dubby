@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { LanguageSwitcher } from "@/components/landing/LanguageSwitcher";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
-import { useAuthSession } from "@/components/app/AuthBoundary";
+import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
 import { getSupabase } from "@/lib/supabase";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -15,8 +15,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const session = useAuthSession();
   const [balance, setBalance] = useState<number | null>(null);
   const refreshBalance = useCallback(() => {
+    if (!session) {
+      setBalance(null);
+      return;
+    }
     void api.credits().then((data) => setBalance(data.balance_minutes)).catch(() => setBalance(null));
-  }, []);
+  }, [session]);
   useEffect(() => {
     refreshBalance();
     window.addEventListener("credits-changed", refreshBalance);
@@ -30,6 +34,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Dubby
         </Link>
         <nav className="app-nav">
+          {session && (
+            <span className="credits-pill" aria-label={text.credits}>
+              {balance === null ? "—" : `${balance.toFixed(1)}${text.minutes}`}
+            </span>
+          )}
           <LanguageSwitcher />
           <Link href="/app/new" className="btn-primary header-new-dub">
             {text.newDub}
@@ -45,16 +54,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <summary className="account-menu-trigger">
                 {session.user.user_metadata?.full_name ?? session.user.email}
               </summary>
-              <div className="account-menu-popover">
-                <Link href="/app/billing" className="account-menu-item">
-                  <span>{text.credits}</span>
-                  <strong>
-                    {balance === null ? "—" : `${balance.toFixed(1)} ${text.minutes}`}
-                  </strong>
+              <div className="account-menu-popover" role="menu">
+                <Link href="/app/billing" className="account-menu-item" role="menuitem">
+                  {text.topUpCredits}
                 </Link>
+                {isAdminSession(session) && (
+                  <Link href="/admin" className="account-menu-item" role="menuitem">
+                    {text.adminTitle}
+                  </Link>
+                )}
                 <button
                   type="button"
                   className="account-menu-item"
+                  role="menuitem"
                   onClick={() => void getSupabase()?.auth.signOut()}
                 >
                   {text.logout}

@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useLocale } from "@/lib/i18n/locale-context";
+import { getSupabase } from "@/lib/supabase";
 
 export function WaitlistForm() {
   const { dict, locale } = useLocale();
@@ -12,13 +13,30 @@ export function WaitlistForm() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed) return;
     setStatus("loading");
     try {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from("waitlist").insert({
+          email: trimmed,
+          locale,
+          source: "landing",
+        });
+        if (error) {
+          // Already registered — treat as success for the visitor.
+          if (error.code !== "23505") throw error;
+        }
+        setStatus("ok");
+        setEmail("");
+        return;
+      }
+
       const response = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), locale }),
+        body: JSON.stringify({ email: trimmed, locale }),
       });
       if (!response.ok) throw new Error("waitlist_failed");
       setStatus("ok");

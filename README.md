@@ -22,10 +22,12 @@ npm run dev
 ```
 
 `http://localhost:3000/app/new/`에서 원어를 정확히 선택하고 영상을
-업로드합니다. 서버는 `LOCAL_WHISPER_MODEL=medium`(기본값)을 사용하며,
+업로드하거나 YouTube / Facebook / TikTok / 직접 MP4·WebM 링크를
+입력합니다. 서버는 `LOCAL_WHISPER_MODEL=medium`(기본값)을 사용하며,
 더 높은 정확도가 필요하면 `large-v3-turbo`로 바꿀 수 있습니다.
-첫 실행에는 모델 다운로드 시간이 필요합니다. 결과는
-`.local-data/step12/<run-id>/`에 다음과 같이 남습니다.
+첫 실행에는 모델 다운로드 시간이 필요합니다. 처리 중인 scratch 파일은
+`.local-data/scratch/<run-id>/`에, 영상·음성 결과물은 Cloudflare R2
+`local/runs/<run-id>/`에 저장됩니다.
 
 - `original_audio.wav`: 48kHz stereo 원본 추출 오디오
 - `asr_audio.wav`: 음성인식용 16kHz mono 오디오
@@ -35,6 +37,23 @@ npm run dev
 웹 화면에서 전체 추출 오디오와 각 음성 클립을 직접 재생해 자막과
 타임스탬프를 검증할 수 있습니다. 3단계 이후 기능은 이 검증이 끝날 때까지
 로컬 데모에서 비활성화됩니다.
+
+### 영상 링크 (YouTube / Facebook / TikTok)
+
+플랫폼 페이지 URL은 [yt-dlp](https://github.com/yt-dlp/yt-dlp)로
+내려받습니다. GitHub에서 저장소를 직접 clone할 필요는 없습니다.
+API 의존성에 포함되어 있으므로 아래만 실행하면 됩니다.
+
+```bash
+cd api
+python -m pip install -e ".[local]"
+# 또는 단독 설치:
+python -m pip install yt-dlp
+```
+
+직접 `.mp4` / `.webm` URL은 httpx로 SSRF 보호와 함께 다운로드합니다.
+비공개·연령 제한·지역 차단 영상은 실패할 수 있습니다. FFmpeg는
+yt-dlp가 분리된 영상/음성을 합칠 때에도 필요합니다.
 
 ### 전체 SaaS 스택
 
@@ -56,6 +75,24 @@ python -m app.worker.runner
 다른 터미널에서 `npm run dev`를 실행합니다. 프런트엔드는 서버 기능을
 사용하지 않으며 `output: "export"`를 유지합니다. 실제 프로젝트 UUID는
 정적으로 생성된 `/app/projects/_/` 셸의 `?id=` 값으로 전달됩니다.
+
+운영 API에서도 `POST /v1/projects/{id}/source-from-url`로 동일하게
+원격 영상을 가져와 R2에 저장한 뒤 기존 transcribe job을 이어갈 수 있습니다.
+
+## GitHub Pages 배포
+
+`main`에 push하면 GitHub Actions가 정적 사이트를 빌드해
+[GitHub Pages](https://creator1008.github.io/Dubby/)에 배포합니다.
+
+1. 저장소 **Settings → Pages → Build and deployment → Source** 를
+   **GitHub Actions** 로 설정합니다.
+2. `main`에 push하거나 Actions에서 **Deploy GitHub Pages** 워크플로를
+   수동 실행합니다.
+3. 배포 URL: `https://creator1008.github.io/Dubby/`
+
+GitHub Pages는 프런트엔드(정적 export)만 호스팅합니다. 실제 더빙 API는
+별도 서버가 필요하며, API origin이 없으면 브라우저 데모 모드로 UI를
+확인할 수 있습니다.
 
 ## 환경변수
 

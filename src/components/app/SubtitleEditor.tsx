@@ -39,22 +39,32 @@ export function SubtitleEditor({
   return (
     <div className="subtitle-editor">
       <div className="seg-pair-header" aria-hidden>
-        <span>{text.original} ({sourceLabel})</span>
-        <span>{text.translation} ({targetLabel})</span>
+        <span>
+          {text.original} ({sourceLabel})
+        </span>
+        <span>
+          {text.translation} ({targetLabel})
+        </span>
       </div>
       <div className="seg-list">
         {segments.map((seg, i) => (
           <article className="seg-item" key={seg.id}>
             <div className="seg-meta">
               <span>#{i + 1}</span>
-              {seg.speaker_id && <span>{text.speaker} {seg.speaker_id}</span>}
+              {seg.speaker_id && (
+                <span>
+                  {text.speaker} {seg.speaker_id}
+                </span>
+              )}
               <span>
                 {formatMs(seg.start_ms)} – {formatMs(seg.end_ms)}
               </span>
             </div>
             <div className="seg-pair-grid">
               <label className="seg-field">
-                <span className="sr-only">{text.original} {i + 1}</span>
+                <span className="sr-only">
+                  {text.original} {i + 1}
+                </span>
                 <textarea
                   rows={3}
                   value={seg.source_text}
@@ -64,7 +74,9 @@ export function SubtitleEditor({
                 />
               </label>
               <label className="seg-field">
-                <span className="sr-only">{text.translation} {i + 1}</span>
+                <span className="sr-only">
+                  {text.translation} {i + 1}
+                </span>
                 <textarea
                   rows={3}
                   value={seg.target_text}

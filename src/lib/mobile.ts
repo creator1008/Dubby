@@ -20,11 +20,8 @@ function safeFilename(filename: string): string {
 
 export async function downloadAndShare(url: string, filename: string): Promise<void> {
   if (!isNativeApp()) {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.rel = "noopener";
-    anchor.click();
+    const { forceDownload } = await import("@/lib/demo-api");
+    await forceDownload(url, filename);
     return;
   }
 

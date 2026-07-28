@@ -44,6 +44,12 @@ next-env.d.ts
 # Phase 0 waitlist local store
 /data/
 
+# Local pipeline scratch (manifests only; media lives in R2)
+.local-data/
+
+# Accidental nested clone / worktree
+/dubby/
+
 # Python API
 api/.venv/
 api/data/
