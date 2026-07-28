@@ -1022,16 +1022,40 @@ def _transcribe(
     return drafts, word_ranges or [(start, end) for start, end, _ in drafts], language
 
 
+def _extract_json_blob(content: str) -> object:
+    """Parse JSON content, tolerating fences and leading/trailing prose."""
+    raw = (content or "").strip()
+    if not raw:
+        raise ValueError("empty translation content")
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", raw)
+        if not match:
+            raise
+        return json.loads(match.group(1))
+
+
+def _translation_item_text(item: object) -> str | None:
+    if isinstance(item, str):
+        return item.strip()
+    if not isinstance(item, dict):
+        return None
+    text_raw = item.get("text", item.get("translation", item.get("target_text")))
+    if text_raw is None:
+        return None
+    return str(text_raw).strip()
+
+
 def _parse_translation_payload(
     content: str,
     expected_idxs: list[int],
 ) -> dict[int, str]:
     """Accept common OpenAI JSON shapes and recover missing idxs when possible."""
-    raw = (content or "").strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-    data = json.loads(raw)
+    data = _extract_json_blob(content)
     if isinstance(data, list):
         items = data
     elif isinstance(data, dict):
@@ -1040,9 +1064,12 @@ def _parse_translation_payload(
             or data.get("translation")
             or data.get("segments")
             or data.get("items")
+            or data.get("results")
         )
         if items is None and data and all(str(k).isdigit() for k in data.keys()):
             items = [{"idx": int(k), "text": v} for k, v in data.items()]
+        if items is None and {"idx", "text"} <= set(data.keys()):
+            items = [data]
     else:
         raise ValueError("unexpected translation root type")
 
@@ -1050,34 +1077,60 @@ def _parse_translation_payload(
         raise ValueError("translations is not a list")
 
     by_idx: dict[int, str] = {}
+    ordered_texts: list[str] = []
     for position, item in enumerate(items):
+        text = _translation_item_text(item)
+        if text is None:
+            continue
+        ordered_texts.append(text)
         if isinstance(item, str):
             if position < len(expected_idxs):
-                by_idx[expected_idxs[position]] = item.strip()
+                by_idx[expected_idxs[position]] = text
             continue
-        if not isinstance(item, dict):
-            continue
-        idx_raw = item.get("idx", item.get("index"))
+        assert isinstance(item, dict)
+        idx_raw = item.get("idx", item.get("index", item.get("id")))
         if idx_raw is None and position < len(expected_idxs):
             idx_raw = expected_idxs[position]
-        text_raw = item.get("text", item.get("translation", item.get("target_text")))
-        if idx_raw is None or text_raw is None:
+        if idx_raw is None:
             continue
-        by_idx[int(idx_raw)] = str(text_raw).strip()
+        try:
+            by_idx[int(idx_raw)] = text
+        except (TypeError, ValueError):
+            continue
 
-    if not by_idx and expected_idxs:
+    if not ordered_texts and not by_idx:
         raise ValueError("no translation items parsed")
 
     missing = [idx for idx in expected_idxs if idx not in by_idx]
-    if missing and len(by_idx) == len(expected_idxs):
+    if missing and len(ordered_texts) == len(expected_idxs):
         # Dense list returned with wrong/relative idxs — remap by order.
-        ordered = [by_idx[k] for k in sorted(by_idx)]
         return {
-            expected_idxs[i]: ordered[i] for i in range(len(expected_idxs))
+            expected_idxs[i]: ordered_texts[i] for i in range(len(expected_idxs))
         }
-    if missing:
-        raise ValueError(f"missing translation idxs: {missing[:10]}")
-    return {idx: by_idx[idx] for idx in expected_idxs}
+    if missing and ordered_texts:
+        # Partial or 1-based idxs: fill holes positionally when possible.
+        for i, idx in enumerate(expected_idxs):
+            if idx not in by_idx and i < len(ordered_texts):
+                by_idx[idx] = ordered_texts[i]
+    # Allow empty strings for still-missing idxs; caller fills from source.
+    return {idx: by_idx.get(idx, "") for idx in expected_idxs}
+
+
+def _message_text(message: dict) -> str:
+    content = message.get("content")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text") or part.get("content")
+                if text:
+                    parts.append(str(text))
+        return "".join(parts).strip()
+    if content is None:
+        return ""
+    return str(content).strip()
 
 
 def _translate(
@@ -1097,6 +1150,16 @@ def _translate(
     for batch_start in range(0, len(drafts), batch_size):
         batch = drafts[batch_start : batch_start + batch_size]
         expected_idxs = list(range(batch_start, batch_start + len(batch)))
+        # Skip blank ASR scraps — keep source (empty) without calling the model.
+        active = [
+            (offset, start, end, text)
+            for offset, (start, end, text) in enumerate(batch)
+            if text.strip()
+        ]
+        if not active:
+            continue
+
+        active_expected = [batch_start + offset for offset, *_ in active]
         schema_payload = {
             "model": model,
             "temperature": 0.1,
@@ -1149,7 +1212,7 @@ def _translate(
                                     "text": text,
                                     "seconds": round((end - start) / 1000, 2),
                                 }
-                                for offset, (start, end, text) in enumerate(batch)
+                                for offset, start, end, text in active
                             ]
                         },
                         ensure_ascii=False,
@@ -1163,44 +1226,62 @@ def _translate(
         }
 
         last_error: Exception | None = None
+        parsed_ok = False
         for attempt in range(1, 4):
             # Prefer json_schema; after HTTP/schema rejection or parse failure,
             # fall back to plain json_object.
             body = schema_payload if attempt == 1 else json_object_payload
-            response = httpx.post(
-                f"{base}/chat/completions",
-                headers={**_openai_headers(), "Content-Type": "application/json"},
-                json=body,
-                timeout=300,
-            )
+            try:
+                response = httpx.post(
+                    f"{base}/chat/completions",
+                    headers={**_openai_headers(), "Content-Type": "application/json"},
+                    json=body,
+                    timeout=300,
+                )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                time.sleep(attempt)
+                continue
             if response.status_code >= 400:
-                if attempt < 3 and response.status_code in {400, 404}:
+                if attempt < 3 and response.status_code in {400, 404, 429}:
                     last_error = RuntimeError(
                         f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
                     )
+                    time.sleep(attempt)
                     continue
                 raise RuntimeError(
                     f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
                 )
             try:
                 message = response.json()["choices"][0]["message"]
-                content = message.get("content") or ""
+                content = _message_text(message)
                 if not content and message.get("refusal"):
                     raise ValueError(f"model refused: {message['refusal']}")
-                parsed = _parse_translation_payload(content, expected_idxs)
-                for idx in expected_idxs:
-                    results[idx] = parsed[idx]
+                parsed = _parse_translation_payload(content, active_expected)
+                for idx in active_expected:
+                    results[idx] = parsed.get(idx, "")
                 last_error = None
+                parsed_ok = True
                 break
             except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 last_error = exc
                 if attempt >= 3:
                     break
                 time.sleep(attempt)
-        if last_error is not None:
-            raise RuntimeError(
-                "OpenAI 번역 응답 형식이 올바르지 않습니다."
-            ) from last_error
+        if not parsed_ok:
+            # Keep the pipeline moving: fall back to source text for this batch.
+            for offset, (_start, _end, text) in enumerate(batch):
+                idx = batch_start + offset
+                if not results[idx]:
+                    results[idx] = text
+            if last_error is not None:
+                print(
+                    f"[translate] batch {batch_start} fallback after parse error: "
+                    f"{type(last_error).__name__}: {last_error}",
+                    flush=True,
+                )
 
     if any(not text for text in results):
         # Fill any holes with source text rather than failing the whole upload.
@@ -2654,20 +2735,69 @@ async def gc_local_runs(body: GcRunsRequest) -> dict:
     return await asyncio.to_thread(_gc_orphan_runs, keep)
 
 
+_local_jobs_lock = threading.Lock()
+_local_jobs: dict[str, dict[str, object]] = {}
+
+
+def _set_local_job(job_id: str, **fields: object) -> None:
+    with _local_jobs_lock:
+        current = dict(_local_jobs.get(job_id) or {"job_id": job_id})
+        current.update(fields)
+        current["job_id"] = job_id
+        current["updated_at"] = time.time()
+        _local_jobs[job_id] = current
+
+
+def _get_local_job(job_id: str) -> dict[str, object] | None:
+    with _local_jobs_lock:
+        job = _local_jobs.get(job_id)
+        return dict(job) if job else None
+
+
+def _start_local_job(kind: str, worker) -> dict[str, object]:
+    job_id = uuid4().hex
+    _set_local_job(
+        job_id,
+        kind=kind,
+        status="running",
+        created_at=time.time(),
+    )
+
+    def _run() -> None:
+        try:
+            result = worker()
+            _set_local_job(job_id, status="done", result=result, error=None)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the poller
+            _set_local_job(job_id, status="error", error=str(exc), result=None)
+
+    threading.Thread(target=_run, name=f"local-{kind}-{job_id[:8]}", daemon=True).start()
+    return {"job_id": job_id, "status": "running", "kind": kind}
+
+
 @app.post("/v1/local/dub-voice")
 async def create_dub_voice(body: DubVoiceRequest) -> dict:
-    try:
-        return await asyncio.to_thread(_generate_dub_voice, body)
-    except Exception as exc:
-        raise HTTPException(500, str(exc)) from exc
+    # Return immediately and finish TTS in the background. Long sync requests
+    # through Cloudflare Tunnel / mobile browsers are canceled as "Failed to fetch".
+    return _start_local_job("dub-voice", lambda: _generate_dub_voice(body))
 
 
 @app.post("/v1/local/render-dub")
 async def render_dub(body: RenderDubRequest) -> dict:
-    try:
-        return await asyncio.to_thread(_render_dubbed_video, body)
-    except Exception as exc:
-        raise HTTPException(500, str(exc)) from exc
+    return _start_local_job("render-dub", lambda: _render_dubbed_video(body))
+
+
+@app.get("/v1/local/jobs/{job_id}")
+async def get_local_job(job_id: str) -> dict:
+    job = _get_local_job(job_id)
+    if not job:
+        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    return {
+        "job_id": job.get("job_id"),
+        "kind": job.get("kind"),
+        "status": job.get("status"),
+        "error": job.get("error"),
+        "result": job.get("result"),
+    }
 
 
 @app.get("/v1/local/step12/{run_id}/{asset_path:path}", response_model=None)

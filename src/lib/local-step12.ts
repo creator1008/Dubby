@@ -23,6 +23,64 @@ function pipelineUnreachableMessage(): string {
     "서버가 실행 중인지, CORS에 GitHub Pages origin이 허용되는지 확인하세요."
   );
 }
+
+function networkErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof TypeError) {
+    return (
+      "네트워크 연결이 끊겼습니다(Failed to fetch). " +
+      "PC에서 API·터널이 켜져 있는지 확인하고, 긴 작업은 잠시 후 다시 시도해 주세요."
+    );
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+type LocalJobResponse<T> = {
+  job_id: string;
+  status: "running" | "done" | "error" | string;
+  kind?: string;
+  error?: string | null;
+  result?: T;
+};
+
+async function waitForLocalJob<T>(
+  jobId: string,
+  label: string,
+  timeoutMs = 15 * 60 * 1000,
+): Promise<T> {
+  const started = Date.now();
+  let delayMs = 1500;
+  while (Date.now() - started < timeoutMs) {
+    let response: Response;
+    try {
+      response = await fetch(
+        `${LOCAL_PIPELINE_ORIGIN}/v1/local/jobs/${encodeURIComponent(jobId)}`,
+        { cache: "no-store" },
+      );
+    } catch (err) {
+      throw new Error(networkErrorMessage(err, `${label} 상태 확인 실패`));
+    }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        detail?: string;
+      } | null;
+      throw new Error(body?.detail ?? `${label} 상태 확인 실패 (${response.status})`);
+    }
+    const job = (await response.json()) as LocalJobResponse<T>;
+    if (job.status === "done") {
+      if (job.result === undefined || job.result === null) {
+        throw new Error(`${label} 결과가 비어 있습니다.`);
+      }
+      return job.result;
+    }
+    if (job.status === "error") {
+      throw new Error(job.error || `${label} 실패`);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    delayMs = Math.min(5000, delayMs + 500);
+  }
+  throw new Error(`${label} 시간이 초과되었습니다. PC 서버 상태를 확인한 뒤 다시 시도해 주세요.`);
+}
 export type LocalSpeechPair = {
   idx: number;
   start_ms: number;
@@ -192,24 +250,41 @@ export async function generateLocalDubVoice(
   segments: Array<{ idx: number; target_text: string }>,
   toneStyle: string,
 ): Promise<Array<{ idx: number; audio_url: string }>> {
-  const response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/dub-voice`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      run_id: runId,
-      segments,
-      tone_style: toneStyle,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/dub-voice`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        run_id: runId,
+        segments,
+        tone_style: toneStyle,
+      }),
+    });
+  } catch (err) {
+    throw new Error(networkErrorMessage(err, "더빙 음성 생성 요청 실패"));
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
       detail?: string;
     } | null;
     throw new Error(body?.detail ?? `더빙 음성 생성 실패 (${response.status})`);
   }
-  const body = (await response.json()) as {
+  const started = (await response.json()) as LocalJobResponse<{
     segments: Array<{ idx: number; audio_url: string }>;
+  }> & {
+    segments?: Array<{ idx: number; audio_url: string }>;
   };
+  const body =
+    started.job_id && started.status === "running"
+      ? await waitForLocalJob<{ segments: Array<{ idx: number; audio_url: string }> }>(
+          started.job_id,
+          "더빙 음성 생성",
+        )
+      : started;
+  if (!body.segments) {
+    throw new Error("더빙 음성 결과가 비어 있습니다.");
+  }
   const bust = `t=${Date.now()}`;
   return body.segments.map((segment) => ({
     ...segment,
@@ -232,30 +307,50 @@ export async function renderLocalDubVideo(
   output_url: string;
   warnings: string[];
 }> {
-  const response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/render-dub`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      run_id: runId,
-      segments,
-      subtitle_mode: subtitleMode,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/render-dub`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        run_id: runId,
+        segments,
+        subtitle_mode: subtitleMode,
+      }),
+    });
+  } catch (err) {
+    throw new Error(networkErrorMessage(err, "최종 더빙 영상 생성 요청 실패"));
+  }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
       detail?: string;
     } | null;
     throw new Error(body?.detail ?? `최종 더빙 영상 생성 실패 (${response.status})`);
   }
-  const body = (await response.json()) as {
+  const started = (await response.json()) as LocalJobResponse<{
     source_url: string;
     output_url: string;
     warnings: string[];
+  }> & {
+    source_url?: string;
+    output_url?: string;
+    warnings?: string[];
   };
+  const body =
+    started.job_id && started.status === "running"
+      ? await waitForLocalJob<{
+          source_url: string;
+          output_url: string;
+          warnings: string[];
+        }>(started.job_id, "최종 더빙 영상 생성")
+      : started;
+  if (!body.source_url || !body.output_url) {
+    throw new Error("최종 더빙 영상 결과가 비어 있습니다.");
+  }
   return {
-    ...body,
     source_url: absoluteAssetUrl(body.source_url),
     output_url: absoluteAssetUrl(body.output_url),
+    warnings: body.warnings ?? [],
   };
 }
 
