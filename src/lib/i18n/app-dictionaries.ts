@@ -3,7 +3,7 @@ import type { Locale } from "./dictionaries";
 export const appDictionaries: Record<Locale, Record<string, string>> = {
   ko: {
     credits: "크레딧",
-    topUpCredits: "크레딧충전",
+    topUpCredits: "크레딧 충전",
     newDub: "새 더빙",
     history: "더빙 이력",
     loginTitle: "로그인",
