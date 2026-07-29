@@ -9,7 +9,7 @@ import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
 import { getSupabase } from "@/lib/supabase";
 import { withBasePath } from "@/lib/base-path";
-import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
+import { PwaInstallPrompt, shouldOfferPwaInstall } from "@/components/pwa/PwaInstallPrompt";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -18,7 +18,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [installRequestId, setInstallRequestId] = useState(0);
-  const [installAvailable, setInstallAvailable] = useState(true);
+  const [installAvailable, setInstallAvailable] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
@@ -29,6 +29,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     void api.credits().then((data) => setBalance(data.balance_minutes)).catch(() => setBalance(null));
   }, [session]);
+
+  useEffect(() => {
+    setInstallAvailable(shouldOfferPwaInstall());
+  }, []);
 
   useEffect(() => {
     refreshBalance();

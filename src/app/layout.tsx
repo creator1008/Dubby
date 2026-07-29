@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Figtree, Syne } from "next/font/google";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
 import { PwaRegistrar } from "@/components/pwa/PwaRoot";
+import { PwaHeadFix } from "@/components/pwa/PwaHeadFix";
+import { BASE_PATH, withBasePath } from "@/lib/base-path";
 import "./globals.css";
 
 const syne = Syne({
@@ -21,7 +23,9 @@ export const metadata: Metadata = {
   description:
     "유튜브·인강·홍보 영상을 영어·한국어·베트남어로 현지화하는 AI 더빙 서비스",
   applicationName: "Dubby",
-  manifest: "/manifest.json",
+  // Next static export + GitHub Pages does not always prefix metadata URLs —
+  // bake basePath in explicitly so Android can resolve the web manifest.
+  manifest: withBasePath("/manifest.json"),
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -29,12 +33,30 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: withBasePath("/favicon.ico"), sizes: "any" },
+      {
+        url: withBasePath("/icons/icon-192.png"),
+        sizes: "192x192",
+        type: "image/png",
+      },
+      {
+        url: withBasePath("/icons/icon-512.png"),
+        sizes: "512x512",
+        type: "image/png",
+      },
     ],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+    apple: [
+      {
+        url: withBasePath("/icons/apple-touch-icon.png"),
+        sizes: "180x180",
+      },
+    ],
   },
+  other: BASE_PATH
+    ? {
+        "mobile-web-app-capable": "yes",
+      }
+    : undefined,
 };
 
 export const viewport: Viewport = {
@@ -54,6 +76,7 @@ export default function RootLayout({
     <html lang="ko" className={`${syne.variable} ${figtree.variable} h-full`}>
       <body className="min-h-full antialiased">
         <LocaleProvider>
+          <PwaHeadFix />
           <PwaRegistrar />
           {children}
         </LocaleProvider>

@@ -1,17 +1,21 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SiteHeader } from "./SiteHeader";
 import { Hero } from "./Hero";
 import { HowItWorks, LangsBand, SiteFooter } from "./LandingSections";
 import { WaitlistForm } from "./WaitlistForm";
 import { useLocale } from "@/lib/i18n/locale-context";
-import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
+import { PwaInstallPrompt, shouldOfferPwaInstall } from "@/components/pwa/PwaInstallPrompt";
 
 function LocalizedLandingPage() {
   const { dict } = useLocale();
   const [installRequestId, setInstallRequestId] = useState(0);
-  const [installAvailable, setInstallAvailable] = useState(true);
+  const [installAvailable, setInstallAvailable] = useState(false);
+
+  useEffect(() => {
+    setInstallAvailable(shouldOfferPwaInstall());
+  }, []);
 
   const requestInstall = useCallback(() => {
     setInstallRequestId((id) => id + 1);

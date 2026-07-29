@@ -1,22 +1,38 @@
-/* Dubby PWA service worker — cache shell assets for offline reopen. */
-const CACHE_NAME = "dubby-shell-v1";
+/* Dubby PWA service worker */
+const CACHE_NAME = "dubby-shell-v2";
+const PRECACHE = [
+  "./",
+  "./manifest.json",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      cache.addAll(["./", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png"]).catch(() => undefined),
-    ),
+    caches
+      .open(CACHE_NAME)
+      .then((cache) =>
+        Promise.all(
+          PRECACHE.map((url) => cache.add(url).catch(() => undefined)),
+        ),
+      )
+      .then(() => self.skipWaiting()),
   );
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-    ),
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_NAME)
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
@@ -26,17 +42,14 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.ok && response.type === "basic") {
-            const copy = response.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
+    fetch(request)
+      .then((response) => {
+        if (response && response.ok && response.type === "basic") {
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request)),
   );
 });

@@ -3,50 +3,57 @@
 import { useCallback, useEffect, useState } from "react";
 import { withBasePath } from "@/lib/base-path";
 
-const INSTALLED_KEY = "dubby.pwaInstalled";
-
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
-function isStandaloneDisplay(): boolean {
+/** Survives React remounts — beforeinstallprompt only fires once. */
+let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
+let listeningForInstall = false;
+
+function ensureInstallListeners() {
+  if (typeof window === "undefined" || listeningForInstall) return;
+  listeningForInstall = true;
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event as BeforeInstallPromptEvent;
+    window.dispatchEvent(new Event("dubby-pwa-prompt-ready"));
+  });
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    window.dispatchEvent(new Event("dubby-pwa-installed"));
+  });
+}
+
+export function isPwaStandalone(): boolean {
   if (typeof window === "undefined") return false;
-  const media = window.matchMedia("(display-mode: standalone)").matches;
+  const media =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.matchMedia("(display-mode: fullscreen)").matches ||
+    window.matchMedia("(display-mode: minimal-ui)").matches;
   const iosStandalone =
     "standalone" in window.navigator &&
     Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
   return media || iosStandalone;
 }
 
-function alreadyInstalled(): boolean {
-  if (typeof window === "undefined") return true;
-  if (isStandaloneDisplay()) return true;
-  try {
-    return window.localStorage.getItem(INSTALLED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markInstalled() {
-  try {
-    window.localStorage.setItem(INSTALLED_KEY, "1");
-  } catch {
-    /* ignore */
-  }
+/** Hide install CTA when already running as an installed home-screen app. */
+export function shouldOfferPwaInstall(): boolean {
+  return !isPwaStandalone();
 }
 
 export function registerDubbyServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  ensureInstallListeners();
   const swUrl = withBasePath("/sw.js");
-  void navigator.serviceWorker.register(swUrl, { scope: withBasePath("/") }).catch(() => {
-    /* SW optional on some hosts */
+  const scope = withBasePath("/");
+  void navigator.serviceWorker.register(swUrl, { scope }).catch((err) => {
+    console.warn("Dubby SW register failed", err);
   });
 }
 
 type PwaInstallPromptProps = {
-  /** When true, open the confirm dialog (e.g. after clicking the header link). */
   openRequestId: number;
   onAvailabilityChange?: (available: boolean) => void;
 };
@@ -55,46 +62,49 @@ export function PwaInstallPrompt({
   openRequestId,
   onAvailabilityChange,
 }: PwaInstallPromptProps) {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [iosHint, setIosHint] = useState(false);
-  const [installed, setInstalled] = useState(false);
+  const [manualHint, setManualHint] = useState(false);
+  const [hasDeferred, setHasDeferred] = useState(false);
+  const [standalone, setStandalone] = useState(false);
 
-  useEffect(() => {
-    registerDubbyServiceWorker();
-    const installedNow = alreadyInstalled();
-    setInstalled(installedNow);
-    onAvailabilityChange?.(!installedNow);
-
-    const onBeforeInstall = (event: Event) => {
-      event.preventDefault();
-      setDeferred(event as BeforeInstallPromptEvent);
-    };
-    const onAppInstalled = () => {
-      markInstalled();
-      setInstalled(true);
-      setOpen(false);
-      setDeferred(null);
-      onAvailabilityChange?.(false);
-    };
-
-    window.addEventListener("beforeinstallprompt", onBeforeInstall);
-    window.addEventListener("appinstalled", onAppInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
-      window.removeEventListener("appinstalled", onAppInstalled);
-    };
+  const syncAvailability = useCallback(() => {
+    const installed = isPwaStandalone();
+    setStandalone(installed);
+    setHasDeferred(Boolean(deferredInstallPrompt));
+    onAvailabilityChange?.(!installed);
   }, [onAvailabilityChange]);
 
   useEffect(() => {
-    if (!openRequestId || installed) return;
+    registerDubbyServiceWorker();
+    syncAvailability();
+    const onReady = () => syncAvailability();
+    const onInstalled = () => {
+      deferredInstallPrompt = null;
+      syncAvailability();
+      setOpen(false);
+    };
+    window.addEventListener("dubby-pwa-prompt-ready", onReady);
+    window.addEventListener("dubby-pwa-installed", onInstalled);
+    const media = window.matchMedia("(display-mode: standalone)");
+    const onMedia = () => syncAvailability();
+    media.addEventListener?.("change", onMedia);
+    return () => {
+      window.removeEventListener("dubby-pwa-prompt-ready", onReady);
+      window.removeEventListener("dubby-pwa-installed", onInstalled);
+      media.removeEventListener?.("change", onMedia);
+    };
+  }, [syncAvailability]);
+
+  useEffect(() => {
+    if (!openRequestId || standalone) return;
     const isIos =
       /iphone|ipad|ipod/i.test(window.navigator.userAgent) ||
       (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
-    setIosHint(isIos && !deferred);
+    setManualHint(isIos || !deferredInstallPrompt);
+    setHasDeferred(Boolean(deferredInstallPrompt));
     setOpen(true);
-  }, [openRequestId, installed, deferred]);
+  }, [openRequestId, standalone]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -104,27 +114,34 @@ export function PwaInstallPrompt({
     if (busy) return;
     setBusy(true);
     try {
-      if (deferred) {
-        await deferred.prompt();
-        const choice = await deferred.userChoice;
+      const promptEvent = deferredInstallPrompt;
+      if (promptEvent) {
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        deferredInstallPrompt = null;
+        setHasDeferred(false);
         if (choice.outcome === "accepted") {
-          markInstalled();
-          setInstalled(true);
-          onAvailabilityChange?.(false);
+          // Prefer appinstalled / standalone detection over optimistic hide.
+          setOpen(false);
+          window.setTimeout(() => syncAvailability(), 500);
+          return;
         }
-        setDeferred(null);
         setOpen(false);
         return;
       }
-      // iOS / browsers without beforeinstallprompt: keep hint visible until user closes.
-      if (iosHint) return;
-      setOpen(false);
+      // No native prompt (or not ready yet): keep manual instructions visible.
+      setManualHint(true);
     } finally {
       setBusy(false);
     }
-  }, [busy, deferred, iosHint, onAvailabilityChange]);
+  }, [busy, syncAvailability]);
 
-  if (installed || !open) return null;
+  if (standalone || !open) return null;
+
+  const isIos =
+    typeof navigator !== "undefined" &&
+    (/iphone|ipad|ipod/i.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
   return (
     <div className="pwa-install-backdrop" role="presentation" onClick={close}>
@@ -144,22 +161,30 @@ export function PwaInstallPrompt({
         />
         <h2 id="pwa-install-title">홈 화면에 아이콘을 추가하시겠습니까?</h2>
         <p className="pwa-install-body">
-          {iosHint
-            ? "Safari 공유 버튼(□↑)을 누른 뒤 「홈 화면에 추가」를 선택하세요."
-            : "홈 화면에 Dubby 아이콘을 만들어 앱처럼 바로 실행할 수 있습니다."}
+          {isIos
+            ? "Safari 하단 공유(□↑) → 「홈 화면에 추가」를 눌러 주세요."
+            : hasDeferred && !manualHint
+              ? "홈 화면에 Dubby 아이콘을 만들어 앱처럼 바로 실행할 수 있습니다."
+              : "Chrome 메뉴(⋮) → 「홈 화면에 추가」또는 「앱 설치」를 선택해 주세요. 설치 후에는 이 버튼이 사라집니다."}
         </p>
         <div className="pwa-install-actions">
           <button type="button" className="btn-ghost" onClick={close} disabled={busy}>
-            아니오
+            닫기
           </button>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => void confirmInstall()}
-            disabled={busy}
-          >
-            {iosHint ? "확인" : "추가"}
-          </button>
+          {hasDeferred ? (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void confirmInstall()}
+              disabled={busy}
+            >
+              추가
+            </button>
+          ) : (
+            <button type="button" className="btn-primary" onClick={close} disabled={busy}>
+              확인
+            </button>
+          )}
         </div>
       </div>
     </div>
