@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import type { Provider } from "@supabase/supabase-js";
-import { withBasePath } from "@/lib/base-path";
+import { getAuthRedirectUrl, withBasePath } from "@/lib/base-path";
 import { getSupabase } from "@/lib/supabase";
 import { LanguageSwitcher } from "@/components/landing/LanguageSwitcher";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
@@ -146,7 +146,7 @@ export default function LoginPage() {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}${withBasePath("/auth/callback/")}`,
+        redirectTo: getAuthRedirectUrl("/auth/callback/"),
       },
     });
     if (oauthError) {
@@ -222,7 +222,7 @@ export default function LoginPage() {
           full_name: trimmedName,
           name: trimmedName,
         },
-        emailRedirectTo: `${window.location.origin}${withBasePath("/auth/callback/")}`,
+        emailRedirectTo: getAuthRedirectUrl("/auth/callback/"),
       },
     });
     if (signUpError) {
