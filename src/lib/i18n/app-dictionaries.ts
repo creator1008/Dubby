@@ -4,6 +4,15 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
   ko: {
     credits: "크레딧",
     topUpCredits: "크레딧 충전",
+    addToHome: "홈 화면에 추가",
+    addToHomeConfirm: "홈 화면에 아이콘을 추가하시겠습니까?",
+    addToHomeBody: "홈 화면에 Dubby 아이콘을 만들어 앱처럼 바로 실행할 수 있습니다.",
+    addToHomeManual:
+      "Chrome 메뉴(⋮) → 「홈 화면에 추가」또는 「앱 설치」를 선택해 주세요.",
+    addToHomeIos: "Safari 하단 공유(□↑) → 「홈 화면에 추가」를 눌러 주세요.",
+    addToHomeAdd: "추가",
+    addToHomeClose: "닫기",
+    addToHomeOk: "확인",
     newDub: "새 더빙",
     history: "더빙 이력",
     loginTitle: "로그인",
@@ -197,6 +206,15 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
   en: {
     credits: "Credits",
     topUpCredits: "Add credits",
+    addToHome: "Add to Home Screen",
+    addToHomeConfirm: "Add Dubby to your Home Screen?",
+    addToHomeBody: "Create a Home Screen icon to open Dubby like an app.",
+    addToHomeManual:
+      "Open Chrome menu (⋮) → choose “Add to Home screen” or “Install app”.",
+    addToHomeIos: "Tap Share (□↑) in Safari, then “Add to Home Screen”.",
+    addToHomeAdd: "Add",
+    addToHomeClose: "Close",
+    addToHomeOk: "OK",
     newDub: "New dubbing",
     history: "Dubbing history",
     loginTitle: "Sign in",
@@ -389,6 +407,16 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
   vi: {
     credits: "Tín dụng",
     topUpCredits: "Nạp tín dụng",
+    addToHome: "Thêm vào Màn hình chính",
+    addToHomeConfirm: "Thêm biểu tượng Dubby vào Màn hình chính?",
+    addToHomeBody:
+      "Tạo biểu tượng trên Màn hình chính để mở Dubby như một ứng dụng.",
+    addToHomeManual:
+      "Mở menu Chrome (⋮) → chọn “Thêm vào Màn hình chính” hoặc “Cài đặt ứng dụng”.",
+    addToHomeIos: "Nhấn Chia sẻ (□↑) trong Safari, rồi “Thêm vào Màn hình chính”.",
+    addToHomeAdd: "Thêm",
+    addToHomeClose: "Đóng",
+    addToHomeOk: "OK",
     newDub: "Lồng tiếng mới",
     history: "Lịch sử lồng tiếng",
     loginTitle: "Đăng nhập",

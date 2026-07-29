@@ -28,7 +28,7 @@ export function SiteHeader({
             className="header-app-link header-install-link"
             onClick={onInstallClick}
           >
-            홈 화면에 추가
+            {dict.addToHome}
           </button>
         ) : null}
         <Link href="/app/new" className="header-app-link header-app-link-primary">

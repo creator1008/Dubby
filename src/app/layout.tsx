@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import { Figtree, Syne } from "next/font/google";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
 import { PwaRegistrar } from "@/components/pwa/PwaRoot";
@@ -75,6 +76,9 @@ export default function RootLayout({
   return (
     <html lang="ko" className={`${syne.variable} ${figtree.variable} h-full`}>
       <body className="min-h-full antialiased">
+        <Script id="dubby-pwa-capture" strategy="beforeInteractive">
+          {`(function(){try{window.__dubbyDeferredPrompt=window.__dubbyDeferredPrompt||null;window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__dubbyDeferredPrompt=e;window.dispatchEvent(new Event("dubby-pwa-prompt-ready"));});window.addEventListener("appinstalled",function(){window.__dubbyDeferredPrompt=null;window.dispatchEvent(new Event("dubby-pwa-installed"));});}catch(_){}})();`}
+        </Script>
         <LocaleProvider>
           <PwaHeadFix />
           <PwaRegistrar />

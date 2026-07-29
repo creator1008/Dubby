@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="btn-ghost header-install-link"
               onClick={() => setInstallRequestId((id) => id + 1)}
             >
-              <span className="nav-label-full">홈 화면에 추가</span>
+              <span className="nav-label-full">{text.addToHome}</span>
               <span className="nav-label-short" aria-hidden="true">
                 ⌂
               </span>

@@ -2,29 +2,30 @@
   "name": "Dubby",
   "short_name": "Dubby",
   "description": "AI 영상 다국어 더빙",
-  "start_url": "./",
-  "scope": "./",
-  "id": "./",
+  "start_url": "/Dubby/",
+  "scope": "/Dubby/",
+  "id": "/Dubby/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#0F9C8A",
   "theme_color": "#0F9C8A",
   "lang": "ko",
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "./icons/icon-192.png",
+      "src": "/Dubby/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icons/icon-512.png",
+      "src": "/Dubby/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "./icons/icon-512.png",
+      "src": "/Dubby/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

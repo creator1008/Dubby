@@ -37,6 +37,14 @@ export type Dictionary = {
   langsBody: string;
   footer: string;
   settingsLang: string;
+  addToHome: string;
+  addToHomeConfirm: string;
+  addToHomeBody: string;
+  addToHomeManual: string;
+  addToHomeIos: string;
+  addToHomeAdd: string;
+  addToHomeClose: string;
+  addToHomeOk: string;
 };
 
 export const dictionaries: Record<Locale, Dictionary> = {
@@ -83,6 +91,15 @@ export const dictionaries: Record<Locale, Dictionary> = {
     langsBody: "영어 · 한국어 · 베트남어. 이후 전 세계 언어로 확장합니다.",
     footer: "© Dubby — AI 영상 다국어 더빙",
     settingsLang: "언어",
+    addToHome: "홈 화면에 추가",
+    addToHomeConfirm: "홈 화면에 아이콘을 추가하시겠습니까?",
+    addToHomeBody: "홈 화면에 Dubby 아이콘을 만들어 앱처럼 바로 실행할 수 있습니다.",
+    addToHomeManual:
+      "Chrome 메뉴(⋮) → 「홈 화면에 추가」또는 「앱 설치」를 선택해 주세요.",
+    addToHomeIos: "Safari 하단 공유(□↑) → 「홈 화면에 추가」를 눌러 주세요.",
+    addToHomeAdd: "추가",
+    addToHomeClose: "닫기",
+    addToHomeOk: "확인",
   },
   en: {
     pageTitle: "Dubby — AI multilingual video dubbing",
@@ -127,6 +144,15 @@ export const dictionaries: Record<Locale, Dictionary> = {
     langsBody: "English, Korean, Vietnamese — more languages next.",
     footer: "© Dubby — AI multilingual video dubbing",
     settingsLang: "Language",
+    addToHome: "Add to Home Screen",
+    addToHomeConfirm: "Add Dubby to your Home Screen?",
+    addToHomeBody: "Create a Home Screen icon to open Dubby like an app.",
+    addToHomeManual:
+      "Open Chrome menu (⋮) → choose “Add to Home screen” or “Install app”.",
+    addToHomeIos: "Tap Share (□↑) in Safari, then “Add to Home Screen”.",
+    addToHomeAdd: "Add",
+    addToHomeClose: "Close",
+    addToHomeOk: "OK",
   },
   vi: {
     pageTitle: "Dubby — Lồng tiếng video AI đa ngôn ngữ",
@@ -171,5 +197,15 @@ export const dictionaries: Record<Locale, Dictionary> = {
     langsBody: "Anh · Hàn · Việt — mở rộng toàn cầu sau này.",
     footer: "© Dubby — Lồng tiếng video AI đa ngôn ngữ",
     settingsLang: "Ngôn ngữ",
+    addToHome: "Thêm vào Màn hình chính",
+    addToHomeConfirm: "Thêm biểu tượng Dubby vào Màn hình chính?",
+    addToHomeBody:
+      "Tạo biểu tượng trên Màn hình chính để mở Dubby như một ứng dụng.",
+    addToHomeManual:
+      "Mở menu Chrome (⋮) → chọn “Thêm vào Màn hình chính” hoặc “Cài đặt ứng dụng”.",
+    addToHomeIos: "Nhấn Chia sẻ (□↑) trong Safari, rồi “Thêm vào Màn hình chính”.",
+    addToHomeAdd: "Thêm",
+    addToHomeClose: "Đóng",
+    addToHomeOk: "OK",
   },
 };
