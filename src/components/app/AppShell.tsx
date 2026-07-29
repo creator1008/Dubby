@@ -9,6 +9,7 @@ import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
 import { getSupabase } from "@/lib/supabase";
 import { withBasePath } from "@/lib/base-path";
+import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -16,6 +17,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const session = useAuthSession();
   const [balance, setBalance] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [installRequestId, setInstallRequestId] = useState(0);
+  const [installAvailable, setInstallAvailable] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
@@ -83,6 +86,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           )}
           <LanguageSwitcher />
+          {installAvailable && (
+            <button
+              type="button"
+              className="btn-ghost header-install-link"
+              onClick={() => setInstallRequestId((id) => id + 1)}
+            >
+              <span className="nav-label-full">홈 화면에 추가</span>
+              <span className="nav-label-short" aria-hidden="true">
+                ⌂
+              </span>
+            </button>
+          )}
           <Link href="/app/new" className="btn-primary header-new-dub">
             <span className="nav-label-full">{text.newDub}</span>
             <span className="nav-label-short" aria-hidden="true">
@@ -145,6 +160,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </header>
       <div className="app-main">{children}</div>
+      <PwaInstallPrompt
+        openRequestId={installRequestId}
+        onAvailabilityChange={setInstallAvailable}
+      />
     </div>
   );
 }

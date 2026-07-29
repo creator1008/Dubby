@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Figtree, Syne } from "next/font/google";
 import { LocaleProvider } from "@/lib/i18n/locale-context";
+import { PwaRegistrar } from "@/components/pwa/PwaRoot";
 import "./globals.css";
 
 const syne = Syne({
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   description:
     "유튜브·인강·홍보 영상을 영어·한국어·베트남어로 현지화하는 AI 더빙 서비스",
   applicationName: "Dubby",
-  manifest: "/manifest.webmanifest",
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -41,7 +42,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   viewportFit: "cover",
-  themeColor: "#f3f7f9",
+  themeColor: "#0F9C8A",
 };
 
 export default function RootLayout({
@@ -52,7 +53,10 @@ export default function RootLayout({
   return (
     <html lang="ko" className={`${syne.variable} ${figtree.variable} h-full`}>
       <body className="min-h-full antialiased">
-        <LocaleProvider>{children}</LocaleProvider>
+        <LocaleProvider>
+          <PwaRegistrar />
+          {children}
+        </LocaleProvider>
       </body>
     </html>
   );
