@@ -2,9 +2,9 @@
   "name": "Dubby",
   "short_name": "Dubby",
   "description": "AI 영상 다국어 더빙",
-  "start_url": "/Dubby/",
-  "scope": "/Dubby/",
-  "id": "/Dubby/",
+  "start_url": "https://creator1008.github.io/Dubby/",
+  "scope": "https://creator1008.github.io/Dubby/",
+  "id": "https://creator1008.github.io/Dubby/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0F9C8A",
@@ -13,19 +13,19 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/Dubby/icons/icon-192.png",
+      "src": "https://creator1008.github.io/Dubby/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Dubby/icons/icon-512.png",
+      "src": "https://creator1008.github.io/Dubby/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/Dubby/icons/icon-512.png",
+      "src": "https://creator1008.github.io/Dubby/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
