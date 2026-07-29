@@ -12,6 +12,7 @@ import type { Credits, Job, LangCode, Project, Segment } from "@/lib/ui-types";
 import {
   deleteLocalRun,
   gcOrphanLocalRuns,
+  getLocalPipelineOrigin,
   type LocalStep12Result,
 } from "@/lib/local-step12";
 import { getSupabase } from "@/lib/supabase";
@@ -139,6 +140,140 @@ function defaultState(): DemoState {
 }
 
 let state: DemoState | null = null;
+let hydratePromise: Promise<void> | null = null;
+
+function persistLocalOnly() {
+  if (!state || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  } catch {
+    // storage full/unavailable: demo keeps working in-memory
+  }
+}
+
+function userStateSlice(st: DemoState, userId: string): DemoState {
+  const projects = st.projects.filter((project) => project.owner_id === userId);
+  const ids = new Set(projects.map((project) => project.id));
+  const segments: Record<string, Segment[]> = {};
+  const local_run_ids: Record<string, string> = {};
+  const source_audio_urls: Record<string, string> = {};
+  const source_video_urls: Record<string, string> = {};
+  const output_urls: Record<string, string> = {};
+  for (const id of ids) {
+    if (st.segments[id]) segments[id] = st.segments[id];
+    if (st.local_run_ids[id]) local_run_ids[id] = st.local_run_ids[id];
+    if (st.source_audio_urls[id]) source_audio_urls[id] = st.source_audio_urls[id];
+    if (st.source_video_urls[id]) source_video_urls[id] = st.source_video_urls[id];
+    if (st.output_urls[id]) output_urls[id] = st.output_urls[id];
+  }
+  return {
+    projects,
+    segments,
+    jobs: st.jobs.filter((job) => ids.has(job.project_id)),
+    balances: { [userId]: st.balances[userId] ?? DEFAULT_USER_CREDIT_MINUTES },
+    local_run_ids,
+    source_audio_urls,
+    source_video_urls,
+    output_urls,
+  };
+}
+
+function mergeRemoteSlice(local: DemoState, remote: DemoState, userId: string): DemoState {
+  const next = { ...local };
+  next.projects = [...local.projects];
+  next.segments = { ...local.segments };
+  next.jobs = [...local.jobs];
+  next.balances = { ...local.balances };
+  next.local_run_ids = { ...local.local_run_ids };
+  next.source_audio_urls = { ...local.source_audio_urls };
+  next.source_video_urls = { ...local.source_video_urls };
+  next.output_urls = { ...local.output_urls };
+
+  const byId = new Map(next.projects.map((project) => [project.id, project]));
+  for (const project of remote.projects) {
+    if (project.owner_id !== userId) continue;
+    const existing = byId.get(project.id);
+    if (!existing) {
+      byId.set(project.id, project);
+      continue;
+    }
+    const remoteUpdated = Date.parse(project.updated_at || project.created_at || "") || 0;
+    const localUpdated = Date.parse(existing.updated_at || existing.created_at || "") || 0;
+    if (remoteUpdated >= localUpdated) byId.set(project.id, project);
+  }
+  next.projects = Array.from(byId.values()).sort((a, b) =>
+    (b.updated_at || b.created_at || "").localeCompare(a.updated_at || a.created_at || ""),
+  );
+
+  for (const [id, segs] of Object.entries(remote.segments || {})) {
+    if (!next.segments[id] || (segs?.length || 0) >= (next.segments[id]?.length || 0)) {
+      next.segments[id] = segs;
+    }
+  }
+  const jobIds = new Set(next.jobs.map((job) => job.id));
+  for (const job of remote.jobs || []) {
+    if (!jobIds.has(job.id)) next.jobs.push(job);
+  }
+  Object.assign(next.local_run_ids, remote.local_run_ids || {});
+  Object.assign(next.source_audio_urls, remote.source_audio_urls || {});
+  Object.assign(next.source_video_urls, remote.source_video_urls || {});
+  Object.assign(next.output_urls, remote.output_urls || {});
+  if (remote.balances?.[userId] !== undefined) {
+    // Keep the lower balance to avoid undoing charges from the other device.
+    const localBal = next.balances[userId];
+    const remoteBal = remote.balances[userId];
+    next.balances[userId] =
+      localBal === undefined ? remoteBal : Math.min(localBal, remoteBal);
+  }
+  return next;
+}
+
+async function pushStateToRemote(userId: string) {
+  if (!state || typeof window === "undefined") return;
+  try {
+    const origin = getLocalPipelineOrigin();
+    await fetch(`${origin}/v1/local/demo-state/${encodeURIComponent(userId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: userStateSlice(state, userId) }),
+    });
+  } catch {
+    /* tunnel may be down — localStorage still holds a copy */
+  }
+}
+
+async function hydrateFromRemote() {
+  if (typeof window === "undefined") return;
+  if (!hydratePromise) {
+    hydratePromise = (async () => {
+      try {
+        const userId = await requireUserId();
+        const origin = getLocalPipelineOrigin();
+        const response = await fetch(
+          `${origin}/v1/local/demo-state/${encodeURIComponent(userId)}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          empty?: boolean;
+          state?: DemoState | null;
+        };
+        if (payload.empty || !payload.state) {
+          // Seed remote from this device so PC/phone converge next time.
+          await pushStateToRemote(userId);
+          return;
+        }
+        const local = loadState();
+        state = mergeRemoteSlice(local, payload.state, userId);
+        persistLocalOnly();
+      } catch {
+        /* keep local-only when pipeline unreachable */
+      }
+    })();
+  }
+  await hydratePromise;
+  hydratePromise = null;
+}
 
 function loadState(): DemoState {
   if (state) return state;
@@ -178,17 +313,16 @@ function loadState(): DemoState {
       }
     }
   }
-  persist();
+  persistLocalOnly();
   return state;
 }
 
 function persist() {
+  persistLocalOnly();
   if (!state || typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
-  } catch {
-    // storage full/unavailable: demo keeps working in-memory
-  }
+  void requireUserId()
+    .then((userId) => pushStateToRemote(userId))
+    .catch(() => undefined);
 }
 
 function ensureSegments(st: DemoState, project: Project) {
@@ -393,6 +527,7 @@ async function cleanupProjectMedia(st: DemoState, projectId: string) {
 export const demoApi = {
   projects: {
     list: async () => {
+      await hydrateFromRemote();
       const userId = await requireUserId();
       return clone(
         loadState().projects.filter((project) => project.owner_id === userId),

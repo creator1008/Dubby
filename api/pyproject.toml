@@ -30,6 +30,7 @@ worker = [
     "torch>=2.2,<3",
     "torchaudio>=2.2,<3",
     "demucs==4.0.1",
+    "soundfile>=0.12,<1",
     "pyannote.audio>=3.3,<4",
 ]
 dev = [

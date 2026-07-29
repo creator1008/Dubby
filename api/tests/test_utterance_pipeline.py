@@ -131,6 +131,10 @@ def test_translation_groups_neoreul_jegeo_and_lays_english() -> None:
     assert looks_like_sentence_end("제거한다")
     assert not is_translation_dangling("민지를 위해서")
     assert not is_translation_dangling("이제 확실해졌다 민지를 위해서")
+    # Dative ``에게`` is mid-clause, not a spoken sentence closer.
+    assert not looks_like_sentence_end("현대 시청자에게")
+    assert is_translation_dangling("현대 시청자에게")
+    assert looks_like_sentence_end("그렇게")
 
     chunks = [
         UtteranceChunk(26350, 27020, "너를", "A", ()),

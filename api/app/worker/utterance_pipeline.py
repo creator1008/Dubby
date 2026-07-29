@@ -12,8 +12,9 @@ from dataclasses import dataclass
 
 _SENTENCE_END_RE = re.compile(r"[.!?。？！][\"'”’)]*$")
 # Spoken Korean often omits punctuation; treat common closers as utterance ends.
+# Bare ``게`` must not match the dative particle ``에게`` (false sentence end).
 _KO_UTTERANCE_END_RE = re.compile(
-    r"(?:다|요|까|냐|네|군|죠|야|어|아|지|라|게|데|군려)[\"'”’)]*$"
+    r"(?:다|요|까|냐|네|군|죠|야|어|아|지|라|(?<!에)게|(?<![는은])데|군려)[\"'”’)]*$"
 )
 _SOURCE_WEIGHT_TOKEN_RE = re.compile(
     r"[A-Za-z0-9]+(?:'[A-Za-z]+)?|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+"
@@ -336,6 +337,13 @@ def is_translation_dangling(text: str) -> bool:
     cleaned = (text or "").strip()
     if not cleaned:
         return False
+    # Mid-clause particles first — before sentence-end heuristics that can
+    # false-positive on endings like ``게`` inside ``에게``.
+    if re.search(
+        r"(?:에게|한테|께|으로|로서|이며|고|며|는데|지만|거나|든지|은데|는데도)$",
+        cleaned,
+    ):
+        return True
     if looks_like_sentence_end(cleaned):
         return False
     # Adverbial / connective endings that already form a subtitle beat.

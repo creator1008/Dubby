@@ -453,24 +453,34 @@ def _ytdlp_cookie_option_sets() -> list[dict]:
 
 
 def _ytdlp_attempt_cookie_opts(url: str) -> list[dict]:
-    """Order cookie attempts: TikTok sensitive posts need cookies first."""
+    """Order cookie attempts for platform gates.
+
+    TikTok WAF/challenge solving works best with curl_cffi impersonation and
+    *without* stale cookies first — outdated cookie jars often break
+    ``universal data for rehydration``. Fall back to browser/file cookies
+    when the anonymous fetch hits an age/login wall.
+    """
     cookie_sets = _ytdlp_cookie_option_sets()
     host = _hostname(url)
     is_tiktok = bool(host) and (
         host == "tiktok.com" or host.endswith(".tiktok.com")
     )
-    attempts: list[dict] = []
-    if is_tiktok and cookie_sets:
-        for opts in cookie_sets:
-            if opts not in attempts:
-                attempts.append(opts)
-        attempts.append({})
-        return attempts
-    attempts = [{}]
+    attempts: list[dict] = [{}]
     for opts in cookie_sets:
         if opts not in attempts:
             attempts.append(opts)
+    if is_tiktok:
+        # Prefer anonymous+impersonate, then each cookie source.
+        return attempts
     return attempts
+
+
+def _ytdlp_impersonate_targets() -> list[str]:
+    """Browser targets to try when curl_cffi is available."""
+    configured = os.getenv("YTDLP_IMPERSONATE", "").strip()
+    if configured:
+        return [configured]
+    return ["chrome", "chrome-110", "safari"]
 
 
 def _open_ytdlp(yt_dlp_mod, opts: dict):
@@ -518,10 +528,16 @@ def _raise_ytdlp_error(exc: BaseException) -> None:
         raise RemoteMediaError(
             "지역 제한 등으로 이 영상을 다운로드할 수 없습니다."
         ) from exc
+    if "ip address is blocked" in lower or "your ip" in lower:
+        raise RemoteMediaError(
+            "TikTok이 이 PC의 IP를 차단했습니다. "
+            "VPN/다른 네트워크로 바꾸거나, 로그인된 브라우저 cookies.txt를 "
+            "YTDLP_COOKIES_FILE로 지정한 뒤 다시 시도해 주세요."
+        ) from exc
     raise RemoteMediaError(f"yt-dlp 다운로드 실패: {message[:400]}") from exc
 
 
-def _base_ytdlp_opts(outtmpl: str, max_bytes: int) -> dict:
+def _base_ytdlp_opts(outtmpl: str, max_bytes: int, *, impersonate: str | None = None) -> dict:
     opts: dict = {
         "outtmpl": outtmpl,
         "format": (
@@ -538,12 +554,15 @@ def _base_ytdlp_opts(outtmpl: str, max_bytes: int) -> dict:
         "socket_timeout": 30,
         "max_filesize": max_bytes,
     }
-    try:
-        import curl_cffi  # noqa: F401
+    if impersonate:
+        opts["impersonate"] = impersonate
+    else:
+        try:
+            import curl_cffi  # noqa: F401
 
-        opts["impersonate"] = "chrome"
-    except ImportError:
-        pass
+            opts["impersonate"] = _ytdlp_impersonate_targets()[0]
+        except ImportError:
+            pass
     return opts
 
 
@@ -561,46 +580,56 @@ def download_with_ytdlp(
 
     # Prefer browser-safe H.264 progressive MP4 (TikTok's best quality is often
     # HEVC, which many browsers play as audio-only).
-    base_opts = _base_ytdlp_opts(outtmpl, max_bytes)
+    try:
+        import curl_cffi  # noqa: F401
+
+        impersonate_targets: list[str | None] = list(_ytdlp_impersonate_targets())
+    except ImportError:
+        impersonate_targets = [None]
+
     attempt_opts = _ytdlp_attempt_cookie_opts(url)
 
     info = None
     prepared = Path(outtmpl)
     last_error: BaseException | None = None
-    for cookie_opts in attempt_opts:
-        ydl_opts = {**base_opts, **cookie_opts}
-        try:
-            with _open_ytdlp(yt_dlp, ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if info is None:
-                    raise RemoteMediaError("영상을 찾을 수 없습니다.")
-                if "entries" in info and info["entries"]:
-                    info = info["entries"][0]
-                prepared = Path(ydl.prepare_filename(info))
-            last_error = None
+    for impersonate in impersonate_targets:
+        base_opts = _base_ytdlp_opts(outtmpl, max_bytes, impersonate=impersonate)
+        for cookie_opts in attempt_opts:
+            ydl_opts = {**base_opts, **cookie_opts}
+            try:
+                with _open_ytdlp(yt_dlp, ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if info is None:
+                        raise RemoteMediaError("영상을 찾을 수 없습니다.")
+                    if "entries" in info and info["entries"]:
+                        info = info["entries"][0]
+                    prepared = Path(ydl.prepare_filename(info))
+                last_error = None
+                break
+            except RemoteMediaError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - surface yt-dlp errors clearly
+                last_error = exc
+                message = _strip_ansi(str(exc))
+                lower = message.lower()
+                # Cookie/profile locked or missing browser → try next option.
+                if cookie_opts and _COOKIE_DB_HINT_RE.search(message):
+                    continue
+                if _is_cookie_auth_error(message):
+                    # Public fetch failed or cookies insufficient — try next source.
+                    continue
+                if _TIKTOK_EXTRACT_HINT_RE.search(message):
+                    # Stale cookies / wrong impersonate — try next combo.
+                    continue
+                if "unsupported" in lower and "impersonat" in lower:
+                    continue
+                if cookie_opts and (
+                    "assertionerror" in lower or message in {"", "AssertionError"}
+                ):
+                    continue
+                _raise_ytdlp_error(exc)
+        if last_error is None and info is not None:
             break
-        except RemoteMediaError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - surface yt-dlp errors clearly
-            last_error = exc
-            message = _strip_ansi(str(exc))
-            lower = message.lower()
-            # Cookie/profile locked or missing browser → try next option.
-            if cookie_opts and _COOKIE_DB_HINT_RE.search(message):
-                continue
-            if _is_cookie_auth_error(message):
-                # Public fetch failed or cookies insufficient — try next source.
-                continue
-            if cookie_opts and _TIKTOK_EXTRACT_HINT_RE.search(message):
-                # Wrong/stale cookies sometimes break extraction; try next.
-                continue
-            if "unsupported" in lower and "impersonat" in lower:
-                continue
-            if cookie_opts and (
-                "assertionerror" in lower or message in {"", "AssertionError"}
-            ):
-                continue
-            _raise_ytdlp_error(exc)
 
     if last_error is not None or info is None:
         if last_error is not None:

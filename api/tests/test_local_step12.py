@@ -186,6 +186,24 @@ def test_parse_translation_payload_accepts_common_shapes() -> None:
     ) == {0: "A", 1: "B", 2: "C"}
 
 
+def test_merge_drafts_for_translation_joins_incomplete_abutting_lines() -> None:
+    from app.local_step12 import _merge_drafts_for_translation
+
+    drafts = [
+        (17380, 22320, "일본 사극의 촌마게 헤어스타일은 현대 시청자에게"),
+        (22320, 24080, "낯설고 부담스럽게 다가옵니다"),
+        (24500, 28740, "중국 청나라 사극의 변발 또한 해외 팬들에게 큰 장벽이 됩니다."),
+    ]
+    speakers = ["speaker_0", "speaker_0", "speaker_0"]
+    merged, merged_speakers = _merge_drafts_for_translation(drafts, speakers)
+    assert len(merged) == 2
+    assert "낯설고 부담스럽게 다가옵니다" in merged[0][2]
+    assert "현대 시청자에게" in merged[0][2]
+    assert merged[0][0] == 17380 and merged[0][1] == 24080
+    assert "청나라" in merged[1][2]
+    assert merged_speakers == ["speaker_0", "speaker_0"]
+
+
 def test_whisper_hallucination_filters_high_compression_and_loops() -> None:
     assert _whisper_segment_is_hallucination(
         {

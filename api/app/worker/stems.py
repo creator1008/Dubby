@@ -13,11 +13,11 @@ from .errors import PipelineError
 def build_demucs_cmd(settings: Settings, audio_in: str, out_dir: str) -> list[str]:
     """Two-stem separation with a configurable model and device.
 
-    Invoked as ``python -m demucs.separate`` so it works wherever the
-    package is importable, regardless of console-script installation.
+    Invoked via ``app.demucs_separate_shim`` so WAV I/O uses soundfile
+    instead of TorchCodec (which needs FFmpeg DLLs on Windows).
     """
     return [
-        sys.executable, "-m", "demucs.separate",
+        sys.executable, "-m", "app.demucs_separate_shim",
         "-n", settings.demucs_model,
         "--two-stems", "vocals",
         "-d", settings.demucs_device,

@@ -2,13 +2,48 @@
 
 import type { LangCode } from "@/lib/ui-types";
 
-const LOCAL_PIPELINE_ORIGIN = (
+const PIPELINE_ORIGIN_STORAGE_KEY = "dubby.localPipelineOrigin";
+const BUILTIN_PIPELINE_ORIGIN = (
   process.env.NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN ?? "http://localhost:8002"
 ).replace(/\/$/, "");
 
+function normalizePipelineOrigin(value: string | null | undefined): string | null {
+  const raw = (value || "").trim().replace(/\/$/, "");
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve API origin: ?pipeline=… / localStorage override, else build-time env. */
+export function getLocalPipelineOrigin(): string {
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fromQuery = normalizePipelineOrigin(params.get("pipeline"));
+      if (fromQuery) {
+        window.localStorage.setItem(PIPELINE_ORIGIN_STORAGE_KEY, fromQuery);
+        return fromQuery;
+      }
+      const fromStorage = normalizePipelineOrigin(
+        window.localStorage.getItem(PIPELINE_ORIGIN_STORAGE_KEY),
+      );
+      if (fromStorage) return fromStorage;
+    } catch {
+      /* ignore storage / URL errors */
+    }
+  }
+  return BUILTIN_PIPELINE_ORIGIN;
+}
+
 function pipelineUnreachableMessage(): string {
+  const origin = getLocalPipelineOrigin();
   const isLocalOrigin = /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
-    LOCAL_PIPELINE_ORIGIN.replace(/\/$/, ""),
+    origin.replace(/\/$/, ""),
   );
   if (isLocalOrigin) {
     return (
@@ -19,8 +54,9 @@ function pipelineUnreachableMessage(): string {
     );
   }
   return (
-    `자막 추출 서버(${LOCAL_PIPELINE_ORIGIN})에 연결할 수 없습니다. ` +
-    "서버가 실행 중인지, CORS에 GitHub Pages origin이 허용되는지 확인하세요."
+    `자막 추출 서버(${origin})에 연결할 수 없습니다. ` +
+    "서버가 실행 중인지, CORS에 GitHub Pages origin이 허용되는지 확인하세요. " +
+    "터널 URL이 바뀌었다면 ?pipeline=https://….trycloudflare.com 으로 열어 저장할 수 있습니다."
   );
 }
 
@@ -54,7 +90,7 @@ async function waitForLocalJob<T>(
     let response: Response;
     try {
       response = await fetch(
-        `${LOCAL_PIPELINE_ORIGIN}/v1/local/jobs/${encodeURIComponent(jobId)}`,
+        `${getLocalPipelineOrigin()}/v1/local/jobs/${encodeURIComponent(jobId)}`,
         { cache: "no-store" },
       );
     } catch (err) {
@@ -104,12 +140,12 @@ export type LocalStep12Result = {
 };
 
 function absoluteAssetUrl(path: string) {
-  return new URL(path, LOCAL_PIPELINE_ORIGIN).toString();
+  return new URL(path, getLocalPipelineOrigin()).toString();
 }
 
 export async function checkLocalPipeline(): Promise<boolean> {
   try {
-    const response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/health`, {
+    const response = await fetch(`${getLocalPipelineOrigin()}/health`, {
       signal: AbortSignal.timeout(1500),
     });
     return response.ok;
@@ -127,7 +163,7 @@ export async function extractLocalStep12(
   let response: Response;
   try {
     response = await fetch(
-            `${LOCAL_PIPELINE_ORIGIN}/v1/local/step12?source_lang=${sourceLang}&target_lang=${targetLang}&diarization_enabled=${diarizationEnabled}`,
+            `${getLocalPipelineOrigin()}/v1/local/step12?source_lang=${sourceLang}&target_lang=${targetLang}&diarization_enabled=${diarizationEnabled}`,
       {
         method: "POST",
         headers: {
@@ -174,7 +210,7 @@ export async function extractLocalStep12FromUrl(
   let response: Response;
   try {
     response = await fetch(
-      `${LOCAL_PIPELINE_ORIGIN}/v1/local/step12/from-url?source_lang=${sourceLang}&target_lang=${targetLang}&diarization_enabled=${diarizationEnabled}`,
+      `${getLocalPipelineOrigin()}/v1/local/step12/from-url?source_lang=${sourceLang}&target_lang=${targetLang}&diarization_enabled=${diarizationEnabled}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -221,7 +257,7 @@ export async function retranslateLocalSegments(
 ): Promise<Array<{ idx: number; target_text: string }>> {
   let response: Response;
   try {
-    response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/retranslate`, {
+    response = await fetch(`${getLocalPipelineOrigin()}/v1/local/retranslate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -252,7 +288,7 @@ export async function generateLocalDubVoice(
 ): Promise<Array<{ idx: number; audio_url: string }>> {
   let response: Response;
   try {
-    response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/dub-voice`, {
+    response = await fetch(`${getLocalPipelineOrigin()}/v1/local/dub-voice`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -309,7 +345,7 @@ export async function renderLocalDubVideo(
 }> {
   let response: Response;
   try {
-    response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/render-dub`, {
+    response = await fetch(`${getLocalPipelineOrigin()}/v1/local/render-dub`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -356,7 +392,7 @@ export async function renderLocalDubVideo(
 
 export async function deleteLocalRun(runId: string): Promise<void> {
   const response = await fetch(
-    `${LOCAL_PIPELINE_ORIGIN}/v1/local/runs/${encodeURIComponent(runId)}`,
+    `${getLocalPipelineOrigin()}/v1/local/runs/${encodeURIComponent(runId)}`,
     { method: "DELETE" },
   );
   if (!response.ok) {
@@ -371,7 +407,7 @@ export async function deleteLocalRun(runId: string): Promise<void> {
 export async function gcOrphanLocalRuns(keepRunIds: string[]): Promise<{
   deleted_count: number;
 }> {
-  const response = await fetch(`${LOCAL_PIPELINE_ORIGIN}/v1/local/runs/gc`, {
+  const response = await fetch(`${getLocalPipelineOrigin()}/v1/local/runs/gc`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ keep_run_ids: keepRunIds }),

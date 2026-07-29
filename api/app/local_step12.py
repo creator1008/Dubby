@@ -63,6 +63,7 @@ load_dotenv(REPO_ROOT / "api" / ".env", override=True)
 
 MAX_SOURCE_BYTES = 500 * 1024 * 1024
 SCRATCH_ROOT = REPO_ROOT / ".local-data" / "scratch"
+DEMO_STATE_ROOT = REPO_ROOT / ".local-data" / "demo-state"
 INITIAL_PROMPTS = {
     code: (
         f"This is an accurate {LANGUAGE_NAMES.get(code, code)} transcript "
@@ -1148,6 +1149,58 @@ def _message_text(message: dict) -> str:
     return str(content).strip()
 
 
+def _join_draft_text(left: str, right: str) -> str:
+    left = (left or "").strip()
+    right = (right or "").strip()
+    if not left:
+        return right
+    if not right:
+        return left
+    if right[0] in ".,!?。？！、，":
+        return f"{left}{right}"
+    return f"{left} {right}"
+
+
+def _merge_drafts_for_translation(
+    drafts: list[tuple[int, int, str]],
+    speaker_ids: list[str] | None = None,
+) -> tuple[list[tuple[int, int, str]], list[str]]:
+    """Merge abutting / incomplete scraps so translation stays 1:1 with meaning."""
+    if not drafts:
+        return [], []
+    speakers = list(speaker_ids or ["speaker_0"] * len(drafts))
+    if len(speakers) < len(drafts):
+        speakers = speakers + ["speaker_0"] * (len(drafts) - len(speakers))
+    if len(drafts) == 1:
+        return drafts, speakers[:1]
+
+    from .worker.utterance_pipeline import is_translation_dangling, looks_like_sentence_end
+
+    max_gap_ms = max(0, int(os.getenv("TRANSLATION_MERGE_GAP_MS", "350")))
+    # Keep enough room to finish a mid-sentence scrap; STAGE1_MAX may be lower
+    # for display stamps and must not block translation merges.
+    max_ms = max(
+        15000,
+        round(float(os.getenv("TRANSLATION_MERGE_MAX_SECONDS", "20")) * 1000),
+    )
+    merged_drafts: list[tuple[int, int, str]] = [drafts[0]]
+    merged_speakers: list[str] = [speakers[0]]
+    for index in range(1, len(drafts)):
+        start, end, text = drafts[index]
+        prev_start, prev_end, prev_text = merged_drafts[-1]
+        gap = start - prev_end
+        continuous = gap <= max_gap_ms
+        incomplete = is_translation_dangling(prev_text) or (
+            continuous and gap <= 80 and not looks_like_sentence_end(prev_text)
+        )
+        if continuous and incomplete and (end - prev_start) <= max_ms:
+            merged_drafts[-1] = (prev_start, end, _join_draft_text(prev_text, text))
+        else:
+            merged_drafts.append((start, end, text))
+            merged_speakers.append(speakers[index])
+    return merged_drafts, merged_speakers
+
+
 def _translate(
     drafts: list[tuple[int, int, str]],
     source_language: str,
@@ -1159,7 +1212,9 @@ def _translate(
         return [text for _, _, text in drafts]
     base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("TRANSLATION_MODEL", "gpt-4o-mini")
-    batch_size = max(1, int(os.getenv("TRANSLATION_BATCH_SIZE", "40")))
+    batch_size = max(1, int(os.getenv("TRANSLATION_BATCH_SIZE", "8")))
+    src_name = LANGUAGE_NAMES.get(source_language, source_language)
+    tgt_name = LANGUAGE_NAMES.get(target_language, target_language)
     results: list[str] = [""] * len(drafts)
 
     for batch_start in range(0, len(drafts), batch_size):
@@ -1208,12 +1263,14 @@ def _translate(
                 {
                     "role": "system",
                     "content": (
-                        f"Translate dubbing subtitles from {source_language} to "
-                        f"{target_language}. Write natural native spoken language "
+                        f"Translate dubbing subtitles from {src_name} to "
+                        f"{tgt_name}. Write natural native spoken language "
                         "for voice-over, retain all required diacritics, and spell "
-                        "numbers or abbreviations as they should be spoken. Preserve "
-                        "one item per idx; do not merge, split, omit, or reorder. "
-                        "Return JSON: "
+                        "numbers or abbreviations as they should be spoken. "
+                        "Each input segment is already a timing slot: translate "
+                        "that segment alone. Never merge meaning across idxs, "
+                        "never finish a previous segment inside the next idx, "
+                        "and never omit or reorder. Return JSON: "
                         '{"translations":[{"idx":0,"text":"..."}]}.'
                     ),
                 },
@@ -1416,6 +1473,7 @@ def _process(
             speaker_ids = _assign_speaker_ids(drafts, turns)
     else:
         speaker_ids = ["speaker_0"] * len(drafts)
+    drafts, speaker_ids = _merge_drafts_for_translation(drafts, speaker_ids)
     translations = _translate(drafts, source_language, target_language)
     pairs: list[SpeechPair] = []
     for idx, (start_ms, end_ms, text) in enumerate(drafts):
@@ -2260,7 +2318,7 @@ def _separate_no_vocals(work_dir: Path) -> tuple[Path, Path]:
             [
                 sys.executable,
                 "-m",
-                "demucs.separate",
+                "app.demucs_separate_shim",
                 "-n",
                 model,
                 "--two-stems",
@@ -2596,8 +2654,8 @@ app.add_middleware(
         r"|https://([\w-]+\.)?pages\.dev"
     ),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Filename"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Filename", "Authorization"],
 )
 
 
@@ -2755,6 +2813,62 @@ async def gc_local_runs(body: GcRunsRequest) -> dict:
     """Delete every local/R2 run that is not in ``keep_run_ids``."""
     keep = {_assert_run_id(run_id) for run_id in body.keep_run_ids if run_id.strip()}
     return await asyncio.to_thread(_gc_orphan_runs, keep)
+
+
+_USER_ID_RE = re.compile(r"^[0-9a-fA-F-]{8,64}$")
+
+
+def _assert_user_id(user_id: str) -> str:
+    cleaned = (user_id or "").strip()
+    if not _USER_ID_RE.fullmatch(cleaned):
+        raise HTTPException(400, "유효하지 않은 사용자 id 입니다.")
+    return cleaned
+
+
+def _demo_state_path(user_id: str) -> Path:
+    return DEMO_STATE_ROOT / f"{user_id}.json"
+
+
+def _read_demo_state(user_id: str) -> dict[str, object] | None:
+    path = _demo_state_path(user_id)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_demo_state(user_id: str, payload: dict[str, object]) -> None:
+    DEMO_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+    path = _demo_state_path(user_id)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+@app.get("/v1/local/demo-state/{user_id}")
+async def get_demo_state(user_id: str) -> dict[str, object]:
+    """Shared local-pipeline history for phone + PC (same Supabase user)."""
+    safe = _assert_user_id(user_id)
+    payload = await asyncio.to_thread(_read_demo_state, safe)
+    if payload is None:
+        return {"ok": True, "empty": True, "state": None}
+    return {"ok": True, "empty": False, "state": payload}
+
+
+@app.put("/v1/local/demo-state/{user_id}")
+async def put_demo_state(user_id: str, body: dict[str, object]) -> dict[str, object]:
+    """Persist demo/local history so devices sharing the tunnel stay in sync."""
+    safe = _assert_user_id(user_id)
+    if not isinstance(body, dict):
+        raise HTTPException(400, "state 본문이 올바르지 않습니다.")
+    state = body.get("state")
+    if not isinstance(state, dict):
+        raise HTTPException(400, "state 객체가 필요합니다.")
+    await asyncio.to_thread(_write_demo_state, safe, state)
+    return {"ok": True}
 
 
 _local_jobs_lock = threading.Lock()

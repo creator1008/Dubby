@@ -152,7 +152,7 @@ def test_ass_filter_path_escaping_windows() -> None:
 def test_demucs_cmd_two_stems_model_device() -> None:
     settings = _settings(demucs_model="mdx_extra", demucs_device="cuda", demucs_jobs=2)
     cmd = stems.build_demucs_cmd(settings, "audio.wav", "outdir")
-    assert cmd[:3] == [sys.executable, "-m", "demucs.separate"]
+    assert cmd[:3] == [sys.executable, "-m", "app.demucs_separate_shim"]
     assert cmd[cmd.index("-n") + 1] == "mdx_extra"
     assert cmd[cmd.index("--two-stems") + 1] == "vocals"
     assert cmd[cmd.index("-d") + 1] == "cuda"

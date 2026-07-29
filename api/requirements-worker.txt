@@ -4,5 +4,6 @@
 torch>=2.2,<3
 torchaudio>=2.2,<3
 demucs==4.0.1
+soundfile>=0.12,<1
 # Optional at runtime; loaded only when DIARIZATION_PROVIDER=pyannote.
 pyannote.audio>=3.3,<4
