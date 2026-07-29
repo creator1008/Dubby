@@ -165,6 +165,25 @@ def test_parse_translation_payload_accepts_common_shapes() -> None:
         '{"translations":[{"idx":1,"text":"B"},{"idx":0,"text":"A"}]}',
         [0, 1],
     ) == {0: "A", 1: "B"}
+    # Prose-wrapped JSON and partial idxs remap by order.
+    assert _parse_translation_payload(
+        'Here you go:\n{"translations":[{"idx":1,"text":"One"},{"idx":2,"text":"Two"}]}\nThanks',
+        [10, 11],
+    ) == {10: "One", 11: "Two"}
+    assert _parse_translation_payload(
+        '{"translations":[{"idx":0,"text":"only"}]}',
+        [0, 1],
+    ) == {0: "only", 1: ""}
+    # Partial hole must not steal another segment's translation text.
+    assert _parse_translation_payload(
+        '{"translations":[{"idx":2,"text":"third"}]}',
+        [0, 1, 2],
+    ) == {0: "", 1: "", 2: "third"}
+    # 1-based dense idxs remap cleanly onto 0-based expected.
+    assert _parse_translation_payload(
+        '{"translations":[{"idx":1,"text":"A"},{"idx":2,"text":"B"},{"idx":3,"text":"C"}]}',
+        [0, 1, 2],
+    ) == {0: "A", 1: "B", 2: "C"}
 
 
 def test_whisper_hallucination_filters_high_compression_and_loops() -> None:

@@ -1101,18 +1101,33 @@ def _parse_translation_payload(
     if not ordered_texts and not by_idx:
         raise ValueError("no translation items parsed")
 
+    expected_set = set(expected_idxs)
+    matched = expected_set & set(by_idx)
     missing = [idx for idx in expected_idxs if idx not in by_idx]
-    if missing and len(ordered_texts) == len(expected_idxs):
-        # Dense list returned with wrong/relative idxs — remap by order.
+
+    # Full positional remap only when count matches and none/all idxs are off
+    # (e.g. 1-based or relative 0..n). Never partially shuffle already-matched pairs.
+    if missing and len(ordered_texts) == len(expected_idxs) and (
+        not matched or len(matched) == 0
+    ):
         return {
             expected_idxs[i]: ordered_texts[i] for i in range(len(expected_idxs))
         }
-    if missing and ordered_texts:
-        # Partial or 1-based idxs: fill holes positionally when possible.
-        for i, idx in enumerate(expected_idxs):
-            if idx not in by_idx and i < len(ordered_texts):
-                by_idx[idx] = ordered_texts[i]
-    # Allow empty strings for still-missing idxs; caller fills from source.
+
+    if missing and len(ordered_texts) == len(expected_idxs) and matched:
+        # Dense response with a shifted index range (e.g. 1..N for 0..N-1).
+        returned = sorted(by_idx)
+        if len(returned) == len(expected_idxs) and returned != expected_idxs:
+            shifted = [x - returned[0] for x in returned]
+            base = [x - expected_idxs[0] for x in expected_idxs]
+            if shifted == base:
+                return {
+                    expected_idxs[i]: by_idx[returned[i]]
+                    for i in range(len(expected_idxs))
+                }
+
+    # Leave holes empty; caller fills from source text. Do not reassign
+    # ordered_texts[i] onto missing slots — that scrambles source/target pairs.
     return {idx: by_idx.get(idx, "") for idx in expected_idxs}
 
 
@@ -1271,17 +1286,24 @@ def _translate(
                     break
                 time.sleep(attempt)
         if not parsed_ok:
-            # Keep the pipeline moving: fall back to source text for this batch.
-            for offset, (_start, _end, text) in enumerate(batch):
-                idx = batch_start + offset
-                if not results[idx]:
-                    results[idx] = text
-            if last_error is not None:
-                print(
-                    f"[translate] batch {batch_start} fallback after parse error: "
-                    f"{type(last_error).__name__}: {last_error}",
-                    flush=True,
-                )
+            # Retry each segment alone before falling back to source text.
+            # Bulk parse failures used to copy source into target and scramble pairs.
+            if len(active) > 1:
+                for offset, start, end, text in active:
+                    solo_idx = batch_start + offset
+                    solo = _translate([(start, end, text)], source_language, target_language)
+                    results[solo_idx] = solo[0] if solo else text
+            else:
+                for offset, (_start, _end, text) in enumerate(batch):
+                    idx = batch_start + offset
+                    if not results[idx]:
+                        results[idx] = text
+                if last_error is not None:
+                    print(
+                        f"[translate] batch {batch_start} fallback after parse error: "
+                        f"{type(last_error).__name__}: {last_error}",
+                        flush=True,
+                    )
 
     if any(not text for text in results):
         # Fill any holes with source text rather than failing the whole upload.
