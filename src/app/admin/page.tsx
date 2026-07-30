@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
 import { api } from "@/lib/api";
@@ -12,6 +13,14 @@ import { useAppDictionary } from "@/lib/i18n/locale-context";
 
 type Tab = "users" | "logs";
 type DetailSection = "credits" | "payments" | "dubs";
+
+function formatDubDuration(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "—";
+  const total = Math.round(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
 
 export default function AdminPage() {
   const session = useAuthSession();
@@ -74,8 +83,16 @@ export default function AdminPage() {
   const inspectUser = async (userId: string) => {
     setError(null);
     setMessage(null);
-    setDetailSection("credits");
-    setSelected(await api.admin!.userUsage(userId));
+    setBusy(true);
+    try {
+      setDetailSection("credits");
+      setSelected(await api.admin!.userUsage(userId));
+    } catch (err) {
+      setSelected(null);
+      setError(err instanceof Error ? err.message : text.adminPermissionDenied);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const adjustCredits = async () => {
@@ -124,7 +141,9 @@ export default function AdminPage() {
   };
 
   const payments = selected?.payments ?? { purchases: [], subscriptions: [] };
-  const jobs = selected?.jobs ?? [];
+  const completedDubs = (selected?.projects ?? []).filter(
+    (project) => project.status === "completed",
+  );
 
   return (
     <>
@@ -352,38 +371,25 @@ export default function AdminPage() {
 
                 {detailSection === "dubs" && (
                   <div>
-                    <h3>{text.dubbingJobs}</h3>
-                    {jobs.length === 0 ? (
+                    <h3>{text.dubbingHistory}</h3>
+                    {completedDubs.length === 0 ? (
                       <p className="muted">{text.noDubbingHistory}</p>
                     ) : (
-                      jobs.map((job) => (
-                        <div className="admin-usage-row" key={job.id}>
-                          <span>{job.project_title || job.project_id}</span>
-                          <span>
-                            {job.kind} · {job.status}
-                          </span>
-                          <span>
-                            {Number(job.charged_minutes || 0).toFixed(1)}
-                            {text.minutes}
-                          </span>
-                          <span>
-                            {new Date(job.created_at).toLocaleString()}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                    <h3>{text.projects}</h3>
-                    {selected.projects.length === 0 ? (
-                      <p className="muted">{text.noProjects}</p>
-                    ) : (
-                      selected.projects.map((project) => (
-                        <div className="admin-usage-row" key={project.id}>
+                      completedDubs.map((project) => (
+                        <Link
+                          key={project.id}
+                          href={`/app/projects/${project.id}`}
+                          className="admin-usage-row admin-dub-history-row"
+                        >
                           <span>{project.title}</span>
                           <span>
                             {project.source_lang} → {project.target_lang}
                           </span>
-                          <span>{project.status}</span>
-                        </div>
+                          <span>{formatDubDuration(project.duration_seconds)}</span>
+                          <span>
+                            {new Date(project.created_at).toLocaleString()}
+                          </span>
+                        </Link>
                       ))
                     )}
                   </div>

@@ -519,7 +519,10 @@ class PostgresRepository(Repository):
             return None
         projects = await self.pool.fetch(
             "SELECT id,title,status,source_lang,target_lang,duration_seconds,created_at "
-            "FROM public.projects WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 100",
+            "FROM public.projects WHERE owner_id=$1 "
+            "AND coalesce(error, '') <> '__deleted__' "
+            "AND status = 'completed' "
+            "ORDER BY created_at DESC LIMIT 100",
             user_id,
         )
         jobs = await self.pool.fetch(

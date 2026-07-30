@@ -879,6 +879,14 @@ body {
   box-shadow: 0 18px 45px rgb(17 44 54 / 18%);
 }
 
+.account-menu-popover-portal {
+  position: fixed;
+  z-index: 4000;
+  top: auto;
+  right: auto;
+  margin: 0;
+}
+
 .account-menu .account-menu-item {
   display: flex;
   align-items: center;
@@ -1451,9 +1459,11 @@ body {
     padding: 0.55rem max(0.5rem, env(safe-area-inset-right))
       calc(0.55rem + env(safe-area-inset-bottom))
       max(0.5rem, env(safe-area-inset-left));
+    overflow: visible;
     background: rgba(243, 247, 249, 0.96);
     border-top: 1px solid var(--line);
-    backdrop-filter: blur(14px);
+    /* backdrop-filter clips absolute children on mobile WebKit */
+    backdrop-filter: none;
   }
 
   .app-nav .btn-ghost,
@@ -1491,10 +1501,14 @@ body {
   }
 
   .app-nav .account-menu-trigger {
-    max-width: 5.5rem;
+    max-width: 4.25rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .app-nav .account-menu-trigger::after {
+    content: none;
   }
 
   .app-nav .account-menu {
@@ -1502,10 +1516,8 @@ body {
     z-index: 60;
   }
 
-  .account-menu-popover {
-    top: auto;
-    right: 0;
-    bottom: calc(100% + 0.55rem);
+  .account-menu-popover,
+  .account-menu-popover-portal {
     width: min(16rem, calc(100vw - 1.25rem));
   }
 
@@ -1869,6 +1881,27 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.admin-usage-row.admin-dub-history-row {
+  grid-template-columns: minmax(0, 1.6fr) 0.9fr 0.7fr 1.1fr;
+  align-items: center;
+  width: 100%;
+  color: inherit;
+  text-decoration: none;
+  background: transparent;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.admin-usage-row.admin-dub-history-row:hover {
+  color: var(--teal-deep);
+  background: var(--surface-soft);
+}
+
 .admin-log-row {
   grid-template-columns: 1.25fr 0.45fr minmax(0, 2fr) 0.5fr 1fr;
 }
@@ -1880,6 +1913,10 @@ body {
 
   .admin-user-row,
   .admin-log-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-usage-row.admin-dub-history-row {
     grid-template-columns: 1fr 1fr;
   }
 }

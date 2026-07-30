@@ -566,7 +566,7 @@ class SupabaseRestRepository(Repository):
             params={
                 "select": (
                     "id,title,status,source_lang,target_lang,"
-                    "duration_seconds,created_at"
+                    "duration_seconds,created_at,error"
                 ),
                 "owner_id": f"eq.{user_id}",
                 "order": "created_at.desc",
@@ -616,7 +616,11 @@ class SupabaseRestRepository(Repository):
             if subscriptions_response.status_code < 400
             else []
         )
-        projects = projects_response.json()
+        projects = [
+            p
+            for p in projects_response.json()
+            if _is_live_project(p) and p.get("status") == "completed"
+        ]
         project_ids = [str(p["id"]) for p in projects]
         jobs: list[dict] = []
         if project_ids:
@@ -637,6 +641,9 @@ class SupabaseRestRepository(Repository):
                 for job in jobs_response.json():
                     job["project_title"] = title_by_id.get(str(job.get("project_id")))
                     jobs.append(job)
+        # Strip soft-delete sentinel from admin payload.
+        for project in projects:
+            project.pop("error", None)
         return {
             "profile": profile,
             "projects": projects,
