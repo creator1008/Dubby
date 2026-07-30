@@ -30,20 +30,21 @@ export function withDownloadAttachment(url: string, filename: string): string {
 export async function forceDownload(url: string, filename: string): Promise<void> {
   const safeName =
     filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
-  // Presigned R2/S3 URLs usually lack browser CORS for fetch(); open directly.
-  // ResponseContentDisposition=attachment on the API presign triggers download.
+  // Presigned R2/S3 often lacks CORS for fetch(). Trigger download in a hidden
+  // iframe — never target=_blank (that blanks/closes the SPA on mobile).
   const isSignedObject = /[?&](X-Amz-Signature|Signature|X-Amz-Credential)=/i.test(
     url,
   );
+  const triggerHiddenDownload = (href: string) => {
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.setAttribute("aria-hidden", "true");
+    frame.src = href;
+    document.body.appendChild(frame);
+    window.setTimeout(() => frame.remove(), 60_000);
+  };
   if (isSignedObject) {
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = safeName;
-    anchor.rel = "noopener";
-    anchor.target = "_blank";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    triggerHiddenDownload(url);
     return;
   }
 
@@ -52,14 +53,7 @@ export async function forceDownload(url: string, filename: string): Promise<void
   try {
     response = await fetch(downloadUrl, { redirect: "follow" });
   } catch {
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = safeName;
-    anchor.rel = "noopener";
-    anchor.target = "_blank";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    triggerHiddenDownload(downloadUrl);
     return;
   }
   if (!response.ok) {
@@ -75,11 +69,16 @@ export async function forceDownload(url: string, filename: string): Promise<void
     canShare?: (data?: ShareData) => boolean;
   };
   if (typeof nav.share === "function" && nav.canShare?.({ files: [file] })) {
-    await nav.share({
-      files: [file],
-      title: "Dubby",
-      text: safeName,
-    });
+    try {
+      await nav.share({
+        files: [file],
+        title: "Dubby",
+        text: safeName,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      throw err;
+    }
     return;
   }
 

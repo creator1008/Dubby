@@ -15,7 +15,7 @@ import { PwaInstallPrompt, shouldOfferPwaInstall } from "@/components/pwa/PwaIns
 type MenuPlacement = {
   top?: number;
   bottom?: number;
-  right: number;
+  left: number;
 };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -64,17 +64,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const mobile = window.matchMedia("(max-width: 767px)").matches;
-    const right = Math.max(8, window.innerWidth - rect.right);
+    const menuWidth = Math.min(16 * 16, window.innerWidth - 16);
+    // Left-align the menu with the trigger; clamp into the viewport.
+    const left = Math.min(
+      Math.max(8, rect.left),
+      window.innerWidth - menuWidth - 8,
+    );
     if (mobile) {
       setMenuPlacement({
         bottom: Math.max(8, window.innerHeight - rect.top + 10),
-        right,
+        left,
       });
       return;
     }
     setMenuPlacement({
       top: rect.bottom + 8,
-      right,
+      left,
     });
   }, []);
 
@@ -150,8 +155,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               position: "fixed",
               top: menuPlacement.top,
               bottom: menuPlacement.bottom,
-              right: menuPlacement.right,
-              left: "auto",
+              left: menuPlacement.left,
+              right: "auto",
             }}
           >
             <Link

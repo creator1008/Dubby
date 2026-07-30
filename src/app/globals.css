@@ -887,7 +887,7 @@ body {
   margin: 0;
 }
 
-.account-menu .account-menu-item {
+.account-menu-item {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -906,11 +906,11 @@ body {
   cursor: pointer;
 }
 
-.account-menu .account-menu-item:last-child {
+.account-menu-item:last-child {
   border-bottom: 0;
 }
 
-.account-menu .account-menu-item:hover {
+.account-menu-item:hover {
   color: var(--teal-deep);
   background: var(--surface-soft);
 }
@@ -1521,7 +1521,7 @@ body {
     width: min(16rem, calc(100vw - 1.25rem));
   }
 
-  .account-menu .account-menu-item {
+  .account-menu-item {
     min-height: 3.15rem;
     font-size: 0.95rem;
   }

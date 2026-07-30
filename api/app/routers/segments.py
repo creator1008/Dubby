@@ -112,17 +112,20 @@ async def retranslate_segments(
     except Exception:
         pass
 
-    full_source = "\n".join(c.text for c in chunks)
-    document = await client.translate_document(
-        full_source,
+    full_source = "\n".join(f"[{i}] {c.text}" for i, c in enumerate(chunks))
+    translate_items = [
+        (
+            i,
+            c.text,
+            max(0.35, (c.end_ms - c.start_ms) / 1000.0),
+        )
+        for i, c in enumerate(chunks)
+    ]
+    aligned_map = await client.translate_batch(
+        translate_items,
         str(project["source_lang"]),
         str(project["target_lang"]),
-    )
-    aligned_map = await client.align_translation_to_segments(
-        [(i, c.text) for i, c in enumerate(chunks)],
-        document,
-        str(project["source_lang"]),
-        str(project["target_lang"]),
+        document_context=full_source,
     )
 
     updates: list[tuple[UUID, str, str | None]] = []

@@ -438,12 +438,20 @@ class OpenAIClient:
                     "role": "system",
                     "content": (
                         f"You align a complete {tgt} dubbing translation onto "
-                        f"numbered {src} source segments. Rules: each idx gets "
-                        "ONLY the meaning of that source line; never continue a "
-                        "previous sentence into the next idx; never borrow words "
-                        "from neighbors; keep natural spoken phrasing; cover the "
-                        "whole document translation without dropping content. "
-                        "Return JSON "
+                        f"numbered {src} source segments. CRITICAL RULES: "
+                        "(1) idx N may express ONLY the meaning of source N — "
+                        "never attach leftover clauses from a previous source "
+                        "onto a short following line; "
+                        "(2) if source N contains two clauses, both of their "
+                        "meanings stay on idx N; "
+                        "(3) never continue a previous sentence into the next "
+                        "idx; never borrow words from neighbors; "
+                        "(4) a short source (e.g. one clause) must get a short "
+                        "matching translation — do not pad it with previous "
+                        "leftover dialogue; "
+                        "(5) cover the whole document without dropping content "
+                        "by placing each clause on the idx that owns that "
+                        "meaning. Return JSON "
                         '{"translations":[{"idx":0,"text":"..."}]}.'
                     ),
                 },

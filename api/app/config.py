@@ -115,10 +115,12 @@ class Settings(BaseSettings):
     # Segments per translation request; smaller batches keep local-quality cohesion.
     translation_batch_size: int = Field(default=12, ge=1, le=200)
     translation_timing_tolerance: float = Field(default=0.22, ge=0.0, le=1.0)
-    # When true, LLM may rewrite spoken lines to fit slots — can invent words not
-    # present in editor target_text. Keep false so TTS === subtitle text.
-    translation_timing_rewrite: bool = False
+    # When true, allow LLM compress (never invent) before extending timestamps.
+    translation_timing_rewrite: bool = True
     speech_segment_max_seconds: float = Field(default=6.0, ge=1.0, le=30.0)
+    # Split voice chunks when inter-word silence is at least this long (ms),
+    # even inside a single grammatical sentence.
+    breath_pause_ms: int = Field(default=1500, ge=400, le=4000)
 
     # --- ElevenLabs (voice clone + TTS) ----------------------------------------
     elevenlabs_api_key: str = ""
@@ -132,9 +134,10 @@ class Settings(BaseSettings):
     # Seconds of the vocals stem sent as the IVC reference sample.
     voice_clone_sample_seconds: float = 60.0
     # Tempo policy. Rubber Band is preferred outside atempo's high-quality range.
-    tts_max_speedup: float = Field(default=1.6, ge=1.0, le=4.0)
+    # Keep residual tempo mild; prefer compress + slot extension first.
+    tts_max_speedup: float = Field(default=1.25, ge=1.0, le=4.0)
     tts_min_tempo: float = Field(default=0.85, ge=0.5, le=1.0)
-    tts_atempo_max: float = Field(default=1.5, ge=1.0, le=2.0)
+    tts_atempo_max: float = Field(default=1.25, ge=1.0, le=2.0)
     rubberband_path: str = ""
 
     # --- Speaker diarization -------------------------------------------------

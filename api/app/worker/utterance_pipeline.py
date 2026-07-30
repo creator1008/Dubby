@@ -449,7 +449,7 @@ def merge_dangling_chunks(
         if (
             same_speaker
             and dangling
-            and 0 <= gap <= max_gap_ms
+            and 0 <= gap < max_gap_ms
             and combined <= max_duration_ms
         ):
             words = tuple([*current.words, *nxt.words])

@@ -296,10 +296,16 @@ function ProjectEditor() {
           <h2 className="panel-inline-title">{text.beforeAfter}</h2>
           {sourceUrl ? (
             <BeforeAfterPlayer
-              beforeSrc={voiceRemovedUrl ?? sourceUrl}
+              beforeSrc={
+                project.status === "completed"
+                  ? sourceUrl
+                  : (voiceRemovedUrl ?? sourceUrl)
+              }
               afterSrc={outputUrl ?? ""}
               beforeLabel={
-                voiceRemovedUrl ? text.beforeVoiceRemoved : text.beforeOriginal
+                project.status === "completed" || !voiceRemovedUrl
+                  ? text.beforeOriginal
+                  : text.beforeVoiceRemoved
               }
               afterLabel={text.afterDubbed}
               segments={segments}

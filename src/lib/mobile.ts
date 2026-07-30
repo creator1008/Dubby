@@ -35,11 +35,15 @@ export async function downloadAndShare(url: string, filename: string): Promise<v
 
   const { value } = await Share.canShare();
   if (value) {
-    await Share.share({
-      title: "Dubby 더빙 결과",
-      text: "Dubby에서 만든 더빙 결과입니다.",
-      files: [result.path],
-      dialogTitle: "저장 또는 공유",
-    });
+    try {
+      await Share.share({
+        title: "Dubby 더빙 결과",
+        text: "Dubby에서 만든 더빙 결과입니다.",
+        files: [result.path],
+        dialogTitle: "저장 또는 공유",
+      });
+    } catch {
+      // Cancelled share sheets should leave the app screen open.
+    }
   }
 }

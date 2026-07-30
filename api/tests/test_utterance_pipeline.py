@@ -168,6 +168,36 @@ def test_translation_groups_neoreul_jegeo_and_lays_english() -> None:
     ]
 
 
+def test_breath_split_at_1500ms_even_inside_flow() -> None:
+    """Voice gaps >= 1.5s split chunks even without sentence punctuation."""
+    from app.worker.utterance_pipeline import (
+        TimedToken,
+        build_breath_utterances,
+        merge_dangling_chunks,
+    )
+
+    words = [
+        TimedToken(0, 800, "Right"),
+        TimedToken(800, 1600, "now"),
+        TimedToken(1600, 2800, "maybe"),
+        # 1600ms silence — must become a new voice chunk
+        TimedToken(4400, 5200, "now"),
+        TimedToken(5200, 6000, "clear"),
+    ]
+    chunks = build_breath_utterances(
+        words,
+        None,
+        breath_pause_ms=1500,
+        max_duration_ms=20000,
+        soft_pause_ms=400,
+    )
+    assert len(chunks) == 2
+    merged = merge_dangling_chunks(chunks, max_gap_ms=1499, max_duration_ms=13000)
+    assert len(merged) == 2
+    assert "maybe" in merged[0].text.lower()
+    assert "clear" in merged[1].text.lower()
+
+
 def test_soft_split_overlong_prefers_pause_not_forced_cut() -> None:
     from app.worker.utterance_pipeline import soft_split_overlong_groups
 

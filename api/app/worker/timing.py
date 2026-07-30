@@ -7,6 +7,7 @@ rate (ElevenLabs ``speed``) and pitch-preserving rubberband over mechanical
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 # ffmpeg's atempo filter only accepts factors in [0.5, 2.0]; larger factors
@@ -50,6 +51,53 @@ def estimate_tts_seconds(text: str, language: str = "") -> float:
     # Light pause budget for sentence punctuation.
     pauses = sum(compact.count(mark) for mark in ".!?。？！…")
     return max(0.35, len(compact) / cps + 0.12 * pauses)
+
+
+def source_relative_pace(
+    source_text: str,
+    source_lang: str,
+    slot_seconds_value: float,
+) -> float:
+    """How fast the original speaker was vs average TTS for that language.
+
+    Values > 1 mean the source was delivered faster than a typical reading;
+    values < 1 mean a slower, more deliberate delivery.
+    """
+    if slot_seconds_value <= 0:
+        return 1.0
+    estimated = estimate_tts_seconds(source_text, source_lang)
+    if estimated <= 0:
+        return 1.0
+    return max(0.55, min(1.85, estimated / slot_seconds_value))
+
+
+def speak_speed_matching_source(
+    source_text: str,
+    source_lang: str,
+    target_text: str,
+    target_lang: str,
+    slot_seconds_value: float,
+    *,
+    min_speed: float = ELEVENLABS_SPEAK_SPEED_MIN,
+    max_speed: float = ELEVENLABS_SPEAK_SPEED_MAX,
+) -> float:
+    """Match dub delivery pace to the original speaker, not a fixed rate.
+
+    Uses the source line's spoken density in its timestamp slot as the pace
+    reference, then asks TTS for a similar relative rate on the target line.
+    Residual slot fit is handled separately (compress / extend / tempo).
+    """
+    pace = source_relative_pace(source_text, source_lang, slot_seconds_value)
+    lo = max(min_speed, ELEVENLABS_SPEAK_SPEED_MIN)
+    hi = min(max_speed, ELEVENLABS_SPEAK_SPEED_MAX)
+    # Prefer speaker-matched pace; only nudge faster when the target line is
+    # clearly longer than the slot even at that pace.
+    target_est = estimate_tts_seconds(target_text, target_lang)
+    paced_duration = target_est / pace if pace > 0 else target_est
+    if paced_duration > slot_seconds_value * 1.08 and slot_seconds_value > 0:
+        needed = paced_duration / slot_seconds_value
+        return min(max(needed, lo), hi)
+    return min(max(pace, lo), hi)
 
 
 def initial_speak_speed(
@@ -185,3 +233,28 @@ def safe_slot_seconds(start_ms: int, end_ms: int, next_start_ms: int | None) -> 
     """Never let a clip extend into the next transcript segment."""
     safe_end = min(end_ms, next_start_ms) if next_start_ms is not None else end_ms
     return slot_seconds(start_ms, safe_end)
+
+
+def extend_end_ms(
+    start_ms: int,
+    end_ms: int,
+    next_start_ms: int | None,
+    needed_seconds: float,
+    *,
+    pad_ms: int = 80,
+) -> int:
+    """Grow ``end_ms`` into trailing silence without overlapping the next voice.
+
+    Used when compression + natural speak-speed still leave the dub clip longer
+    than the original stamp — prefer a longer natural delivery over chipmunk
+    tempo.
+    """
+    if needed_seconds <= 0:
+        return end_ms
+    need_ms = max(0, int(math.ceil(needed_seconds * 1000)))
+    desired = end_ms + need_ms
+    if next_start_ms is None:
+        return max(end_ms, desired)
+    limit = max(end_ms, next_start_ms - max(0, pad_ms))
+    # Never move start; never cross into the next utterance.
+    return min(max(end_ms, desired), limit)

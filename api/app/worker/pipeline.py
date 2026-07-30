@@ -53,10 +53,9 @@ from .openai_client import SegmentDraft
 from .subtitles import build_ass
 from .timing import (
     choose_fit_policy,
-    initial_speak_speed,
+    extend_end_ms,
     safe_slot_seconds,
-    slot_seconds,
-    speak_speed_for_slot,
+    speak_speed_matching_source,
 )
 from .utterance_pipeline import (
     UtteranceChunk,
@@ -404,15 +403,15 @@ async def run_transcribe(ctx: JobContext) -> None:
                 ] or None
 
         await ctx.report(0.58, "segment_timing")
-        # Breath/pause chunking on word timestamps (local high-quality path).
-        # Never fall back to even time-slicing of diarization turns.
+        # Split on real voice gaps (>= breath_pause_ms), even inside one sentence.
+        breath_ms = max(400, int(getattr(ctx.settings, "breath_pause_ms", 1500)))
         if transcribe_result.words:
             chunks = build_breath_utterances(
                 list(transcribe_result.words),
                 speaker_turns,
-                breath_pause_ms=650,
+                breath_pause_ms=breath_ms,
                 max_duration_ms=max(
-                    8000, round(ctx.settings.speech_segment_max_seconds * 1000 * 3)
+                    8000, round(ctx.settings.speech_segment_max_seconds * 1000 * 2)
                 ),
                 soft_pause_ms=400,
             )
@@ -427,9 +426,11 @@ async def run_transcribe(ctx: JobContext) -> None:
                     )
                     for draft in drafts
                 ]
+            # Re-glue only mid-clause scraps across *shorter* gaps than a breath.
+            # Never re-merge across a deliberate >= breath_ms silence.
             chunks = merge_dangling_chunks(
                 chunks,
-                max_gap_ms=1500,
+                max_gap_ms=max(200, breath_ms - 1),
                 max_duration_ms=13000,
             )
         else:
@@ -514,26 +515,29 @@ async def run_transcribe(ctx: JobContext) -> None:
             quality_warnings.append("overlapping_speakers_use_default_voice")
 
         await ctx.report(0.72, "translate")
-        full_source = "\n".join(c.text.strip() for c in chunks if c.text.strip())
-        document_translation = await _with_retries(
-            ctx,
-            lambda: engine.translate_document(
-                full_source,
-                str(project["source_lang"]),
-                str(project["target_lang"]),
-            ),
-            step="translate",
+        # Per-segment translation with full-transcript context. Document-level
+        # translate + LLM align used to bleed clauses onto neighbor idxs
+        # (e.g. "I've been thinking…" attached to the next short line).
+        full_source = "\n".join(
+            f"[{i}] {c.text.strip()}" for i, c in enumerate(chunks) if c.text.strip()
         )
-        align_items = [(i, c.text) for i, c in enumerate(chunks)]
+        translate_items = [
+            (
+                i,
+                c.text,
+                max(0.35, (c.end_ms - c.start_ms) / 1000.0),
+            )
+            for i, c in enumerate(chunks)
+        ]
         translations = await _with_retries(
             ctx,
-            lambda: engine.align_translation_to_segments(
-                align_items,
-                document_translation,
+            lambda: engine.translate_batch(
+                translate_items,
                 str(project["source_lang"]),
                 str(project["target_lang"]),
+                document_context=full_source,
             ),
-            step="align_translations",
+            step="translate",
         )
 
         drafts = [
@@ -714,6 +718,7 @@ async def run_dub(ctx: JobContext) -> None:
         clips_dir.mkdir()
         total = len(speakable)
         target_lang = str(project["target_lang"])
+        source_lang = str(project["source_lang"])
         tone_style = str(project.get("tone_style") or "neutral")
         tolerance = ctx.settings.translation_timing_tolerance
         tts_concurrency = max(1, int(ctx.settings.tts_concurrency))
@@ -724,6 +729,7 @@ async def run_dub(ctx: JobContext) -> None:
                 await ctx.report(0.45 + 0.20 * n / max(1, total), "tts")
                 raw = clips_dir / f"seg_{seg['idx']}.{engine.tts_extension}"
                 text = str(seg["target_text"]).strip()
+                source_text = str(seg.get("source_text") or "").strip()
                 speaker_id = str(seg.get("speaker_id") or "")
                 voice_id = (
                     speaker_voices.get(speaker_id, default_voice)
@@ -733,13 +739,16 @@ async def run_dub(ctx: JobContext) -> None:
                 next_start = (
                     int(speakable[n + 1]["start_ms"]) if n + 1 < total else None
                 )
+                end_ms = int(seg["end_ms"])
                 slot_s = safe_slot_seconds(
-                    int(seg["start_ms"]), int(seg["end_ms"]), next_start
+                    int(seg["start_ms"]), end_ms, next_start
                 )
-                speak_speed = initial_speak_speed(
+                speak_speed = speak_speed_matching_source(
+                    source_text,
+                    source_lang,
                     text,
-                    slot_s,
                     target_lang,
+                    slot_s,
                     min_speed=0.7,
                     max_speed=1.2,
                 )
@@ -756,35 +765,16 @@ async def run_dub(ctx: JobContext) -> None:
                     step="tts",
                 )
                 clip_s = await engine.clip_duration_seconds(str(raw))
-                measured_speed = speak_speed_for_slot(
-                    clip_s,
-                    slot_s,
-                    min_speed=0.7,
-                    max_speed=1.2,
-                )
-                # Rare corrective pass only when the estimate was clearly wrong.
-                if abs(measured_speed - speak_speed) >= 0.12 and measured_speed > 1.03:
-                    await _with_retries(
-                        ctx,
-                        lambda t=text, p=str(raw), v=voice_id, s=measured_speed: engine.tts(
-                            t,
-                            v,
-                            p,
-                            tone_style,
-                            target_lang,
-                            s,
-                        ),
-                        step="tts",
-                    )
-                    clip_s = await engine.clip_duration_seconds(str(raw))
-                    speak_speed = measured_speed
                 return {
                     "n": n,
                     "seg": seg,
                     "raw": raw,
                     "text": text,
+                    "source_text": source_text,
                     "voice_id": voice_id,
                     "slot_s": slot_s,
+                    "end_ms": end_ms,
+                    "next_start": next_start,
                     "clip_s": clip_s,
                     "speak_speed": speak_speed,
                 }
@@ -793,71 +783,134 @@ async def run_dub(ctx: JobContext) -> None:
             *[_synthesize_primary(n, seg) for n, seg in enumerate(speakable)]
         )
 
-        async def _maybe_rewrite(item: dict) -> dict:
-            # Critical consistency: spoken audio must match editor target_text.
-            # LLM timing rewrites invent/omit words; fit with tempo only.
-            if not ctx.settings.translation_timing_rewrite:
-                return item
+        async def _fit_natural_delivery(item: dict) -> dict:
+            """Compress translation first, then extend stamp into silence.
+
+            Avoid chipmunk tempo: residual speedup stays mild.
+            """
             ratio = item["clip_s"] / item["slot_s"] if item["slot_s"] > 0 else 1.0
-            # Residual rubberband covers moderate mismatch; only rewrite when
-            # still badly off after synthesis-time speed.
-            if not (ratio > 1 + tolerance or ratio < 1 - tolerance):
+            if ratio <= 1 + tolerance:
                 return item
+
             async with sem:
-                direction = "compress" if ratio > 1 else "expand"
                 text = item["text"]
                 raw = item["raw"]
                 voice_id = item["voice_id"]
-                slot_s = item["slot_s"]
-                try:
-                    text = await _with_retries(
-                        ctx,
-                        lambda t=text, d=direction: engine.adjust_translation(
-                            t, target_lang, slot_s, d
-                        ),
-                        step="timing_rewrite",
-                    )
-                    # Reject rewrites that drift too far from the editor line.
-                    original = str(item["text"]).strip()
-                    rewritten = str(text or "").strip()
-                    if not rewritten or _rewrite_diverges(original, rewritten):
-                        quality_warnings.append(
-                            f"segment_{item['seg']['idx']}:timing_rewrite_rejected"
+                slot_s = float(item["slot_s"])
+                end_ms = int(item["end_ms"])
+                next_start = item["next_start"]
+                source_text = item["source_text"]
+
+                # 1) Compress translation (same meaning, fewer spoken syllables).
+                if ctx.settings.translation_timing_rewrite:
+                    try:
+                        compressed = await _with_retries(
+                            ctx,
+                            lambda t=text: engine.adjust_translation(
+                                t, target_lang, slot_s, "compress"
+                            ),
+                            step="timing_rewrite",
                         )
-                        return item
-                    speak_speed = initial_speak_speed(
-                        rewritten,
-                        slot_s,
-                        target_lang,
-                        min_speed=0.7,
-                        max_speed=1.2,
+                        rewritten = str(compressed or "").strip()
+                        if rewritten and not _rewrite_diverges(text, rewritten):
+                            text = rewritten
+                            speak_speed = speak_speed_matching_source(
+                                source_text,
+                                source_lang,
+                                text,
+                                target_lang,
+                                slot_s,
+                                min_speed=0.7,
+                                max_speed=1.2,
+                            )
+                            await _with_retries(
+                                ctx,
+                                lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                                    t,
+                                    v,
+                                    p,
+                                    tone_style,
+                                    target_lang,
+                                    s,
+                                ),
+                                step="tts",
+                            )
+                            clip_s = await engine.clip_duration_seconds(str(raw))
+                            item = {
+                                **item,
+                                "text": text,
+                                "clip_s": clip_s,
+                                "speak_speed": speak_speed,
+                            }
+                            if clip_s / slot_s <= 1 + tolerance:
+                                return item
+                        else:
+                            quality_warnings.append(
+                                f"segment_{item['seg']['idx']}:timing_rewrite_rejected"
+                            )
+                    except PipelineError:
+                        quality_warnings.append(
+                            f"segment_{item['seg']['idx']}:timing_rewrite_failed"
+                        )
+
+                # 2) Extend end timestamp into trailing silence (no overlap).
+                clip_s = float(item["clip_s"])
+                need = max(0.0, clip_s - slot_s)
+                if need > 0.05:
+                    new_end = extend_end_ms(
+                        int(item["seg"]["start_ms"]),
+                        end_ms,
+                        next_start if next_start is None else int(next_start),
+                        need,
+                        pad_ms=80,
                     )
-                    await _with_retries(
-                        ctx,
-                        lambda t=rewritten, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
-                            t,
-                            v,
-                            p,
-                            tone_style,
-                            target_lang,
-                            s,
-                        ),
-                        step="tts",
-                    )
-                    clip_s = await engine.clip_duration_seconds(str(raw))
-                    item = {
-                        **item,
-                        "text": rewritten,
-                        "clip_s": clip_s,
-                        "speak_speed": speak_speed,
-                    }
-                except PipelineError:
-                    quality_warnings.append(
-                        f"segment_{item['seg']['idx']}:timing_rewrite_failed"
-                    )
+                    if new_end > end_ms:
+                        end_ms = new_end
+                        slot_s = safe_slot_seconds(
+                            int(item["seg"]["start_ms"]), end_ms, next_start
+                        )
+                        item = {**item, "end_ms": end_ms, "slot_s": slot_s}
+                        quality_warnings.append(
+                            f"segment_{item['seg']['idx']}:slot_extended"
+                        )
                 return item
 
-        refined = await asyncio.gather(*[_maybe_rewrite(item) for item in primary])
+        refined = await asyncio.gather(
+            *[_fit_natural_delivery(item) for item in primary]
+        )
+
+        # Persist compressed lines + extended ends so editor/ASS stay consistent.
+        text_updates: list[tuple] = []
+        end_by_idx: dict[int, int] = {}
+        for item in refined:
+            seg = item["seg"]
+            idx = int(seg["idx"])
+            end_by_idx[idx] = int(item["end_ms"])
+            new_text = str(item["text"]).strip()
+            old_text = str(seg.get("target_text") or "").strip()
+            if new_text and new_text != old_text and seg.get("id") is not None:
+                text_updates.append((seg["id"], new_text, None))
+        if text_updates:
+            try:
+                owner_id = project.get("owner_id")
+                if owner_id is not None:
+                    await ctx.repo.update_segment_texts(
+                        UUID(str(owner_id)),
+                        ctx.project_id,
+                        [
+                            (
+                                UUID(str(seg_id))
+                                if not isinstance(seg_id, UUID)
+                                else seg_id,
+                                target,
+                                source,
+                            )
+                            for seg_id, target, source in text_updates
+                        ],
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("persist compressed targets failed: %s", exc)
+                quality_warnings.append("compressed_targets_not_persisted")
 
         for item in sorted(refined, key=lambda row: int(row["n"])):
             await ctx.report(0.65 + 0.10 * item["n"] / max(1, total), "tts")
@@ -910,6 +963,8 @@ async def run_dub(ctx: JobContext) -> None:
         for row in segments:
             copied = dict(row)
             idx = int(row["idx"])
+            if idx in end_by_idx:
+                copied["end_ms"] = end_by_idx[idx]
             if subtitle_mode == "target":
                 copied["target_text"] = spoken_by_idx.get(idx, "")
             ass_rows.append(copied)
