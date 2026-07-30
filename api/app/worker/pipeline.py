@@ -55,6 +55,7 @@ from .timing import (
     choose_fit_policy,
     initial_speak_speed,
     safe_slot_seconds,
+    slot_seconds,
     speak_speed_for_slot,
 )
 
