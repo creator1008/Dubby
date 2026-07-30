@@ -176,10 +176,17 @@ export async function uploadSourceFile(
       const partNumber = index + 1;
       const { url } = await realApi.uploads.signPart(upload.upload_id, upload.key, partNumber);
       const start = index * upload.part_size_bytes;
-      const response = await fetch(url, {
-        method: "PUT",
-        body: file.slice(start, Math.min(file.size, start + upload.part_size_bytes)),
-      });
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "PUT",
+          body: file.slice(start, Math.min(file.size, start + upload.part_size_bytes)),
+        });
+      } catch {
+        throw new Error(
+          "저장소(R2) 업로드에 실패했습니다. CORS에 GitHub Pages origin이 허용되는지 확인하세요.",
+        );
+      }
       if (!response.ok) throw new Error(`업로드 파트 ${partNumber} 실패`);
       const etag = response.headers.get("etag");
       if (!etag) throw new Error("R2 CORS에서 ETag 응답 헤더를 노출해야 합니다.");
