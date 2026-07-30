@@ -1,18 +1,30 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AdminDubDetailModal } from "@/components/app/AdminDubDetailModal";
 import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
 import { api } from "@/lib/api";
 import type {
   AccessLog,
   AdminUser,
   AdminUserUsage,
+  Project,
 } from "@/lib/ui-types";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 
 type Tab = "users" | "logs";
 type DetailSection = "credits" | "payments" | "dubs";
+type DubSummary = Pick<
+  Project,
+  | "id"
+  | "title"
+  | "source_lang"
+  | "target_lang"
+  | "duration_seconds"
+  | "created_at"
+  | "status"
+  | "subtitle_mode"
+>;
 
 function formatDubDuration(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "—";
@@ -37,6 +49,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dubDetail, setDubDetail] = useState<DubSummary | null>(null);
 
   const loadUsers = useCallback(async (search = "") => {
     if (!api.admin) return;
@@ -376,10 +389,22 @@ export default function AdminPage() {
                       <p className="muted">{text.noDubbingHistory}</p>
                     ) : (
                       completedDubs.map((project) => (
-                        <Link
+                        <button
+                          type="button"
                           key={project.id}
-                          href={`/app/projects/_/?id=${encodeURIComponent(project.id)}`}
                           className="admin-usage-row admin-dub-history-row"
+                          onClick={() =>
+                            setDubDetail({
+                              id: project.id,
+                              title: project.title,
+                              source_lang: project.source_lang,
+                              target_lang: project.target_lang,
+                              duration_seconds: project.duration_seconds,
+                              created_at: project.created_at,
+                              status: project.status,
+                              subtitle_mode: "target",
+                            })
+                          }
                         >
                           <span>{project.title}</span>
                           <span>
@@ -389,7 +414,7 @@ export default function AdminPage() {
                           <span>
                             {new Date(project.created_at).toLocaleString()}
                           </span>
-                        </Link>
+                        </button>
                       ))
                     )}
                   </div>
@@ -420,6 +445,12 @@ export default function AdminPage() {
           ))}
         </section>
       )}
+
+      <AdminDubDetailModal
+        open={Boolean(dubDetail)}
+        project={dubDetail}
+        onClose={() => setDubDetail(null)}
+      />
     </>
   );
 }
