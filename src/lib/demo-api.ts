@@ -1,11 +1,8 @@
 "use client";
 
 /**
- * Local demo backend: lets the whole /app flow (upload → transcribe →
- * edit → dub → before/after) run in the browser with no API server,
- * so screens can be developed and verified locally first.
- * Active when NEXT_PUBLIC_LOCAL_PIPELINE=true, or when no SaaS API origin
- * is configured.
+ * Local demo backend: lets the whole /app flow run without the SaaS API.
+ * Active only when NEXT_PUBLIC_API_ORIGIN is unset.
  */
 
 import type { Credits, Job, LangCode, Project, Segment } from "@/lib/ui-types";
@@ -66,9 +63,9 @@ export async function forceDownload(url: string, filename: string): Promise<void
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
 }
 
-export const isDemoMode =
-  (process.env.NEXT_PUBLIC_LOCAL_PIPELINE ?? "").trim() === "true" ||
-  !(process.env.NEXT_PUBLIC_API_ORIGIN ?? "").trim();
+export const isDemoMode = !(
+  process.env.NEXT_PUBLIC_API_ORIGIN ?? ""
+).trim();
 
 const STORE_KEY = "dubby.demo-state.v2";
 

@@ -82,6 +82,14 @@ const realApi = {
         method: "PUT",
         body: JSON.stringify({ segments }),
       }),
+    retranslate: (
+      projectId: string,
+      segments: Array<Pick<Segment, "id" | "source_text">>,
+    ) =>
+      request<Segment[]>(`/v1/projects/${projectId}/segments/retranslate`, {
+        method: "POST",
+        body: JSON.stringify({ segments }),
+      }),
   },
   jobs: {
     list: (projectId: string) => request<Job[]>(`/v1/projects/${projectId}/jobs`),

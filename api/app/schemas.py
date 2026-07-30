@@ -110,6 +110,15 @@ class SegmentsBulkUpdate(BaseModel):
     segments: list[SegmentUpdate] = Field(min_length=1, max_length=500)
 
 
+class SegmentRetranslateItem(BaseModel):
+    id: UUID
+    source_text: str = Field(min_length=1, max_length=2000)
+
+
+class SegmentsRetranslateRequest(BaseModel):
+    segments: list[SegmentRetranslateItem] = Field(min_length=1, max_length=500)
+
+
 class SegmentOut(BaseModel):
     id: UUID
     project_id: UUID

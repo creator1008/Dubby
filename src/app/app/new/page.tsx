@@ -437,33 +437,41 @@ export default function NewDubPage() {
       if (!isDubLangCode(project.source_lang) || !isDubLangCode(project.target_lang)) {
         throw new Error("지원하지 않는 언어 코드입니다.");
       }
-      const translations = await retranslateLocalSegments(
-        project.source_lang,
-        project.target_lang,
-        changed.map(({ idx, start_ms, end_ms, source_text }) => ({
-          idx,
-          start_ms,
-          end_ms,
-          source_text,
-        })),
-      );
-      const byIdx = new Map(
-        translations.map((row) => [row.idx, row.target_text]),
-      );
-      const next = segments.map((segment) => {
-        const target = byIdx.get(segment.idx);
-        return target === undefined
-          ? segment
-          : { ...segment, target_text: target };
-      });
-      const saved = await api.segments.update(
-        project.id,
-        next.map(({ id, source_text, target_text }) => ({
-          id,
-          source_text,
-          target_text,
-        })),
-      );
+      let saved: Segment[];
+      if (isDemoMode) {
+        const translations = await retranslateLocalSegments(
+          project.source_lang,
+          project.target_lang,
+          changed.map(({ idx, start_ms, end_ms, source_text }) => ({
+            idx,
+            start_ms,
+            end_ms,
+            source_text,
+          })),
+        );
+        const byIdx = new Map(
+          translations.map((row) => [row.idx, row.target_text]),
+        );
+        const next = segments.map((segment) => {
+          const target = byIdx.get(segment.idx);
+          return target === undefined
+            ? segment
+            : { ...segment, target_text: target };
+        });
+        saved = await api.segments.update(
+          project.id,
+          next.map(({ id, source_text, target_text }) => ({
+            id,
+            source_text,
+            target_text,
+          })),
+        );
+      } else {
+        saved = await api.segments.retranslate(
+          project.id,
+          changed.map(({ id, source_text }) => ({ id, source_text })),
+        );
+      }
       setSegments(saved);
       baselineSourceRef.current = snapshotSourceTexts(saved);
       if (outputUrl) setOutputUrl(null);
