@@ -8,7 +8,7 @@ import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModa
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode, uploadSourceFile } from "@/lib/api";
 import { useVoiceConsent } from "@/lib/consent";
-import { demoApi, forceDownload } from "@/lib/demo-api";
+import { demoApi } from "@/lib/demo-api";
 import { preferStableMediaUrl } from "@/lib/media-url";
 import {
   extractLocalStep12,
@@ -904,10 +904,14 @@ export default function NewDubPage() {
                   type="button"
                   className="btn-primary"
                   onClick={() =>
-                    void forceDownload(
-                      outputUrl,
-                      `${project.title}-dubbed.mp4`,
-                    ).catch((err: Error) => setError(err.message))
+                    void api.projects
+                      .downloadFile(project.id)
+                      .then((blob) =>
+                        import("@/lib/demo-api").then(({ saveBlobDownload }) =>
+                          saveBlobDownload(blob, `${project.title}-dubbed.mp4`),
+                        ),
+                      )
+                      .catch((err: Error) => setError(err.message))
                   }
                 >
                   {text.downloadFinal}

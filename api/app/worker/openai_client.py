@@ -282,9 +282,14 @@ class OpenAIClient:
                     "role": "system",
                     "content": (
                         f"You proofread {lang} ASR (speech-to-text) subtitles for "
-                        "dubbing. Fix clear recognition errors using full context "
-                        "(wrong homophones, truncated words, nonsense). Remove "
-                        "duplicated phrases that were repeated across neighboring "
+                        "dubbing. Fix clear recognition errors using FULL narrative "
+                        "context across neighboring idxs: wrong near-homophones, "
+                        "truncated words, nonsense tokens. "
+                        "Korean example: if someone survives because caretakers "
+                        "fed them, prefer 살아지더라 over 사라지더라 when Whisper "
+                        "misheard survival as disappearance — choose the reading "
+                        "that makes sense with the surrounding story. "
+                        "Remove duplicated phrases repeated across neighboring "
                         "idxs. Do not rewrite style or add new meaning. Keep each "
                         "idx as its own subtitle line. Return JSON "
                         '{"translations":[{"idx":0,"text":"..."}]} — use the same '

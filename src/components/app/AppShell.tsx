@@ -159,23 +159,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               right: "auto",
             }}
           >
-            <Link
-              href="/app/billing"
-              className="account-menu-item"
-              role="menuitem"
-              onClick={() => setMenuOpen(false)}
-            >
-              {text.topUpCredits}
-            </Link>
-            {isAdminSession(session) && (
+            {pathname.startsWith("/admin") ? (
               <Link
-                href="/admin"
+                href="/app"
                 className="account-menu-item"
                 role="menuitem"
                 onClick={() => setMenuOpen(false)}
               >
-                {text.adminTitle}
+                {text.exitAdmin}
               </Link>
+            ) : (
+              <>
+                <Link
+                  href="/app/billing"
+                  className="account-menu-item"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {text.topUpCredits}
+                </Link>
+                {isAdminSession(session) && (
+                  <Link
+                    href="/admin"
+                    className="account-menu-item"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {text.adminTitle}
+                  </Link>
+                )}
+              </>
             )}
             <button
               type="button"

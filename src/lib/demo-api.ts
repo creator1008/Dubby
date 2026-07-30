@@ -26,45 +26,14 @@ export function withDownloadAttachment(url: string, filename: string): string {
   return `${url}${separator}download=${encodeURIComponent(filename)}`;
 }
 
-/** Force a file save even when the URL redirects cross-origin. */
-export async function forceDownload(url: string, filename: string): Promise<void> {
+/** Save a Blob without navigating away (no target=_blank / no remote iframe). */
+export async function saveBlobDownload(blob: Blob, filename: string): Promise<void> {
   const safeName =
     filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
-  // Presigned R2/S3 often lacks CORS for fetch(). Trigger download in a hidden
-  // iframe — never target=_blank (that blanks/closes the SPA on mobile).
-  const isSignedObject = /[?&](X-Amz-Signature|Signature|X-Amz-Credential)=/i.test(
-    url,
-  );
-  const triggerHiddenDownload = (href: string) => {
-    const frame = document.createElement("iframe");
-    frame.style.display = "none";
-    frame.setAttribute("aria-hidden", "true");
-    frame.src = href;
-    document.body.appendChild(frame);
-    window.setTimeout(() => frame.remove(), 60_000);
-  };
-  if (isSignedObject) {
-    triggerHiddenDownload(url);
-    return;
-  }
-
-  const downloadUrl = withDownloadAttachment(url, filename);
-  let response: Response;
-  try {
-    response = await fetch(downloadUrl, { redirect: "follow" });
-  } catch {
-    triggerHiddenDownload(downloadUrl);
-    return;
-  }
-  if (!response.ok) {
-    throw new Error(`다운로드 실패 (${response.status})`);
-  }
-  const blob = await response.blob();
   const file = new File([blob], safeName, {
     type: blob.type || "video/mp4",
   });
 
-  // iOS Safari often ignores <a download>; prefer the system share sheet.
   const nav = navigator as Navigator & {
     canShare?: (data?: ShareData) => boolean;
   };
@@ -82,7 +51,7 @@ export async function forceDownload(url: string, filename: string): Promise<void
     return;
   }
 
-  const objectUrl = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(file);
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
   anchor.download = safeName;
@@ -90,8 +59,34 @@ export async function forceDownload(url: string, filename: string): Promise<void
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  // Keep the object URL briefly so mobile browsers can start the download.
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+}
+
+/** Force a file save even when the URL redirects cross-origin. */
+export async function forceDownload(url: string, filename: string): Promise<void> {
+  const safeName =
+    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
+  // Prefer fetch→blob so we never navigate / open an external browser.
+  // Signed R2 URLs usually lack CORS; callers should use API /output streaming.
+  const downloadUrl = withDownloadAttachment(url, filename);
+  let response: Response;
+  try {
+    response = await fetch(downloadUrl, { redirect: "follow" });
+  } catch {
+    // Last resort: same-tab <a download> (no target). May be ignored on iOS.
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = safeName;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`다운로드 실패 (${response.status})`);
+  }
+  await saveBlobDownload(await response.blob(), safeName);
 }
 
 export const isDemoMode = !(
@@ -636,6 +631,18 @@ export const demoApi = {
         url: withDownloadAttachment(url, `${project.title}-dubbed.mp4`),
         expires_in: 3600,
       };
+    },
+    downloadFile: async (id: string) => {
+      const st = loadState();
+      const project = await requireOwnedProject(id);
+      if (project.status !== "completed") throw new Error("더빙 결과가 아직 없습니다.");
+      const url = st.output_urls[id];
+      if (!url) throw new Error("더빙 결과 파일을 찾을 수 없습니다.");
+      const response = await fetch(
+        withDownloadAttachment(url, `${project.title}-dubbed.mp4`),
+      );
+      if (!response.ok) throw new Error(`다운로드 실패 (${response.status})`);
+      return response.blob();
     },
     sourceUrl: async (id: string) => {
       const st = loadState();

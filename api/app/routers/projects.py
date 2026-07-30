@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from pathlib import Path
 from uuid import UUID
+from urllib.parse import quote
 
 from fastapi import APIRouter, status
+from fastapi.responses import StreamingResponse
 
 from ..auth import CurrentUser
 from ..config import get_settings
@@ -20,6 +23,7 @@ from ..schemas import (
     ProjectUpdate,
     SourceFromUrlRequest,
 )
+from ..storage.r2 import sanitize_filename
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
@@ -181,3 +185,56 @@ async def get_output_url(
         download_filename=f"{row.get('title') or 'dubby-output'}-dubbed.mp4",
     )
     return DownloadUrlResponse(url=url, expires_in=expires_in)
+
+
+@router.get("/{project_id}/output")
+async def download_output_file(
+    project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
+) -> StreamingResponse:
+    """Stream the dubbed file through the API so the SPA never leaves the page.
+
+    Mobile browsers often open signed R2 URLs in an external browser / blank the
+    PWA when using iframe or target=_blank. Authenticated same-origin fetch →
+    blob download keeps the editor screen.
+    """
+    row = await repo.get_project(user.id, project_id)
+    if row is None:
+        raise NotFoundError("Project not found")
+    if row.get("status") != "completed":
+        raise NotFoundError("Output not available yet")
+    output_key = row.get("lipsync_output_key") or row.get("output_key")
+    if not output_key:
+        raise NotFoundError("Output not available yet")
+
+    display_name = f"{row.get('title') or 'dubby-output'}-dubbed.mp4"
+    ascii_name = sanitize_filename(display_name)
+    try:
+        body = await storage.open_object_stream(str(output_key))
+    except Exception as exc:  # noqa: BLE001
+        raise NotFoundError("Output not available yet") from exc
+
+    def iter_chunks():
+        try:
+            while True:
+                chunk = body.read(256 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                body.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    disposition = (
+        f'attachment; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{quote(display_name)}"
+    )
+    return StreamingResponse(
+        iter_chunks(),
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": disposition,
+            "Cache-Control": "no-store",
+        },
+    )

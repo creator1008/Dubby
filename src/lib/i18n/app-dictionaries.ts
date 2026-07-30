@@ -51,6 +51,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     loginTerms: "계속하면 서비스 이용약관 및 개인정보 처리방침에 동의하는 것으로 간주합니다.",
     checkingLogin: "로그인 정보를 확인하는 중…",
     adminTitle: "관리자",
+    exitAdmin: "일반사용자",
     logout: "로그아웃",
     adminDescription:
       "사용자 활성화, 크레딧·결제·더빙 이력을 관리합니다.",
@@ -259,6 +260,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     loginTerms: "By continuing, you agree to the Terms of Service and Privacy Policy.",
     checkingLogin: "Checking your sign-in…",
     adminTitle: "Admin",
+    exitAdmin: "Regular user",
     logout: "Sign out",
     adminDescription:
       "Manage user activation, credits, payments, and dubbing history.",
@@ -467,6 +469,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     loginTerms: "Khi tiếp tục, bạn đồng ý với Điều khoản dịch vụ và Chính sách quyền riêng tư.",
     checkingLogin: "Đang kiểm tra đăng nhập…",
     adminTitle: "Quản trị",
+    exitAdmin: "Người dùng thường",
     logout: "Đăng xuất",
     adminDescription:
       "Quản lý kích hoạt người dùng, tín dụng, thanh toán và lịch sử lồng tiếng.",

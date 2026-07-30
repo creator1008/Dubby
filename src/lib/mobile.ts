@@ -18,6 +18,52 @@ function safeFilename(filename: string): string {
   return filename.replace(/[^\w.\-]+/g, "_").slice(-120) || "dubby-output.mp4";
 }
 
+/** Save a local Blob; keeps the current SPA/PWA screen open. */
+export async function downloadBlobAndShare(
+  blob: Blob,
+  filename: string,
+): Promise<void> {
+  const { saveBlobDownload } = await import("@/lib/demo-api");
+  if (!isNativeApp()) {
+    await saveBlobDownload(blob, filename);
+    return;
+  }
+
+  const safeName = safeFilename(filename);
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  const base64 = btoa(binary);
+  const path = `dubby/${safeName}`;
+  await Filesystem.writeFile({
+    path,
+    data: base64,
+    directory: Directory.Cache,
+    recursive: true,
+  });
+  const { uri } = await Filesystem.getUri({
+    path,
+    directory: Directory.Cache,
+  });
+  const { value } = await Share.canShare();
+  if (value) {
+    try {
+      await Share.share({
+        title: "Dubby 더빙 결과",
+        text: "Dubby에서 만든 더빙 결과입니다.",
+        files: [uri],
+        dialogTitle: "저장 또는 공유",
+      });
+    } catch {
+      // Cancelled share sheets should leave the app screen open.
+    }
+  }
+}
+
 export async function downloadAndShare(url: string, filename: string): Promise<void> {
   if (!isNativeApp()) {
     const { forceDownload } = await import("@/lib/demo-api");

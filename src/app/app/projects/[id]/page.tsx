@@ -8,7 +8,7 @@ import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode } from "@/lib/api";
-import { downloadAndShare } from "@/lib/mobile";
+import { downloadBlobAndShare } from "@/lib/mobile";
 import { retranslateLocalSegments } from "@/lib/local-step12";
 import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
@@ -233,8 +233,11 @@ function ProjectEditor() {
   const download = async () => {
     if (!projectId) return;
     try {
-      const { url } = await api.projects.download(projectId);
-      await downloadAndShare(url, `${project?.title ?? "dubby-output"}.mp4`);
+      const blob = await api.projects.downloadFile(projectId);
+      await downloadBlobAndShare(
+        blob,
+        `${project?.title ?? "dubby-output"}.mp4`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "다운로드하지 못했습니다.");
     }

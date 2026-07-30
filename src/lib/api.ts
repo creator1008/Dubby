@@ -21,6 +21,26 @@ export class ApiError extends Error {
   }
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const supabase = getSupabase();
+  const { data } = supabase
+    ? await supabase.auth.getSession()
+    : { data: { session: null } };
+  if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
+  if (!API_ORIGIN) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
+
+  const response = await fetch(`${API_ORIGIN}${path}`, {
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+    },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(body?.detail ?? `요청 실패 (${response.status})`, response.status);
+  }
+  return response.blob();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabase();
   const { data } = supabase
@@ -61,6 +81,7 @@ const realApi = {
     remove: (id: string) => request<void>(`/v1/projects/${id}`, { method: "DELETE" }),
     download: (id: string) =>
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/output-url`),
+    downloadFile: (id: string) => requestBlob(`/v1/projects/${id}/output`),
     outputUrl: (id: string) =>
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/output-url`),
     sourceUrl: (id: string) =>

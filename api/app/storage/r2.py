@@ -160,6 +160,13 @@ class R2Storage:
             self.client.download_file, self.bucket, key, destination
         )
 
+    async def open_object_stream(self, key: str) -> Any:
+        """Return a botocore StreamingBody for ``key`` (caller must read/close)."""
+        response = await asyncio.to_thread(
+            self.client.get_object, Bucket=self.bucket, Key=key
+        )
+        return response["Body"]
+
     async def upload_file(
         self, source: str, key: str, content_type: str = "application/octet-stream"
     ) -> None:
