@@ -8,6 +8,7 @@ import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode, uploadSourceFile } from "@/lib/api";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi, forceDownload } from "@/lib/demo-api";
+import { preferStableMediaUrl } from "@/lib/media-url";
 import {
   extractLocalStep12,
   extractLocalStep12FromUrl,
@@ -79,7 +80,7 @@ export default function NewDubPage() {
     }
     if (nextProject.status === "completed" && !outputUrl) {
       const { url } = await api.projects.download(project.id);
-      setOutputUrl(url);
+      setOutputUrl((prev) => preferStableMediaUrl(prev, url));
       window.dispatchEvent(new Event("credits-changed"));
     }
   }, [project, outputUrl]);

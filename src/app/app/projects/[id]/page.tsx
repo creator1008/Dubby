@@ -9,8 +9,9 @@ import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode } from "@/lib/api";
 import { downloadAndShare } from "@/lib/mobile";
 import { retranslateLocalSegments } from "@/lib/local-step12";
-import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
+import { formatQualityWarning, preferStableMediaUrl } from "@/lib/media-url";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 
 function snapshotSourceTexts(rows: Segment[]) {
@@ -19,6 +20,7 @@ function snapshotSourceTexts(rows: Segment[]) {
 
 function ProjectEditor() {
   const text = useAppDictionary();
+  const { locale } = useLocale();
   const projectId = useSearchParams().get("id");
   const [project, setProject] = useState<Project | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -47,13 +49,17 @@ function ProjectEditor() {
     if (nextProject.source_key) {
       void api.projects
         .sourceUrl(projectId)
-        .then(({ url }) => setSourceUrl(url))
+        .then(({ url }) =>
+          setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
+        )
         .catch(() => setSourceUrl(null));
     }
     if (nextProject.status === "completed") {
       void api.projects
         .outputUrl(projectId)
-        .then(({ url }) => setOutputUrl(url))
+        .then(({ url }) =>
+          setOutputUrl((prev) => preferStableMediaUrl(prev, url)),
+        )
         .catch(() => setOutputUrl(null));
     } else {
       setOutputUrl(null);
@@ -234,8 +240,13 @@ function ProjectEditor() {
       {project.quality_warnings.length > 0 && (
         <div className="app-panel" role="status">
           <strong>{text.qualityWarning}</strong>
+          <p className="muted" style={{ margin: "0.35rem 0 0.75rem" }}>
+            {text.qualityWarningHint}
+          </p>
           <ul>
-            {project.quality_warnings.map((warning) => <li key={warning}>{warning}</li>)}
+            {project.quality_warnings.map((warning) => (
+              <li key={warning}>{formatQualityWarning(warning, locale)}</li>
+            ))}
           </ul>
         </div>
       )}

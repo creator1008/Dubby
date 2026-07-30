@@ -185,9 +185,3 @@ def safe_slot_seconds(start_ms: int, end_ms: int, next_start_ms: int | None) -> 
     """Never let a clip extend into the next transcript segment."""
     safe_end = min(end_ms, next_start_ms) if next_start_ms is not None else end_ms
     return slot_seconds(start_ms, safe_end)
-
-
-def safe_slot_seconds(start_ms: int, end_ms: int, next_start_ms: int | None) -> float:
-    """Never let a clip extend into the next transcript segment."""
-    safe_end = min(end_ms, next_start_ms) if next_start_ms is not None else end_ms
-    return slot_seconds(start_ms, safe_end)
