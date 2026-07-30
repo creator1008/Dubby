@@ -10,7 +10,53 @@ import type {
   Segment,
 } from "@/lib/ui-types";
 
-const API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "").replace(/\/$/, "");
+const API_ORIGIN_STORAGE_KEY = "dubby.apiOrigin";
+const BUILTIN_API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "").replace(
+  /\/$/,
+  "",
+);
+
+function normalizeApiOrigin(value: string | null | undefined): string | null {
+  const raw = (value || "").trim().replace(/\/$/, "");
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve API origin: ?api=… / localStorage override, else build-time env. */
+export function getApiOrigin(): string {
+  if (typeof window !== "undefined") {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fromQuery = normalizeApiOrigin(params.get("api"));
+      if (fromQuery) {
+        window.localStorage.setItem(API_ORIGIN_STORAGE_KEY, fromQuery);
+        return fromQuery;
+      }
+      const fromStorage = normalizeApiOrigin(
+        window.localStorage.getItem(API_ORIGIN_STORAGE_KEY),
+      );
+      if (fromStorage) return fromStorage;
+    } catch {
+      /* ignore storage / URL errors */
+    }
+  }
+  return BUILTIN_API_ORIGIN;
+}
+
+function apiUnreachableMessage(): string {
+  const origin = getApiOrigin() || "(미설정)";
+  return (
+    `API 서버(${origin})에 연결할 수 없습니다(Failed to fetch). ` +
+    "PC에서 uvicorn·cloudflared가 켜져 있는지 확인하고, " +
+    "터널 URL이 바뀌었다면 ?api=https://….trycloudflare.com 으로 열어 저장하세요."
+  );
+}
 
 export class ApiError extends Error {
   constructor(
@@ -27,12 +73,13 @@ async function requestBlob(path: string): Promise<Blob> {
     ? await supabase.auth.getSession()
     : { data: { session: null } };
   if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
-  if (!API_ORIGIN) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
+  const apiOrigin = getApiOrigin();
+  if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
 
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
   try {
-    const response = await fetch(`${API_ORIGIN}${path}`, {
+    const response = await fetch(`${apiOrigin}${path}`, {
       headers: {
         Authorization: `Bearer ${data.session.access_token}`,
       },
@@ -52,6 +99,9 @@ async function requestBlob(path: string): Promise<Blob> {
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new ApiError("다운로드 시간이 초과되었습니다. 다시 시도해 주세요.", 408);
     }
+    if (err instanceof TypeError) {
+      throw new ApiError(apiUnreachableMessage(), 0);
+    }
     throw new ApiError(
       err instanceof Error ? err.message : "다운로드에 실패했습니다.",
       0,
@@ -67,16 +117,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ? await supabase.auth.getSession()
     : { data: { session: null } };
   if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
-  if (!API_ORIGIN) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
+  const apiOrigin = getApiOrigin();
+  if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
 
-  const response = await fetch(`${API_ORIGIN}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${data.session.access_token}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiOrigin}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${data.session.access_token}`,
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...init?.headers,
+      },
+    });
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new ApiError(apiUnreachableMessage(), 0);
+    }
+    throw err;
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new ApiError(body?.detail ?? `요청 실패 (${response.status})`, response.status);
