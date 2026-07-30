@@ -154,10 +154,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <header className="app-topbar">
-        <Link href="/" className="brand-mark">
-          Dubby
-        </Link>
+      {/*
+        Keep nav OUTSIDE the blurred topbar. backdrop-filter creates a containing
+        block so position:fixed children stick to the header on mobile WebKit.
+      */}
+      <div className="app-chrome">
+        <header className="app-topbar">
+          <Link href="/" className="brand-mark">
+            Dubby
+          </Link>
+          {session && (
+            <button
+              ref={triggerRef}
+              type="button"
+              className="account-menu-trigger account-menu-trigger-header"
+              aria-expanded={menuOpen}
+              aria-controls={menuId}
+              aria-haspopup="menu"
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span className="account-menu-trigger-name">{displayName}</span>
+            </button>
+          )}
+        </header>
         <nav className="app-nav" aria-label="Main">
           {session && (
             <span className="credits-pill" aria-label={text.credits}>
@@ -193,22 +212,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
         </nav>
-        {session && (
-          <div className="app-topbar-end">
-            <button
-              ref={triggerRef}
-              type="button"
-              className="account-menu-trigger account-menu-trigger-header"
-              aria-expanded={menuOpen}
-              aria-controls={menuId}
-              aria-haspopup="menu"
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <span className="account-menu-trigger-name">{displayName}</span>
-            </button>
-          </div>
-        )}
-      </header>
+      </div>
       <div className="app-main">{children}</div>
       {menuPortal}
       <PwaInstallPrompt
