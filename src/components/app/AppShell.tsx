@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!menuOpen) return;
-    // Defer outside-dismiss so the opening tap does not immediately close.
+    // Longer defer on touch devices so the opening tap cannot instantly dismiss.
     let remove: (() => void) | undefined;
     const timer = window.setTimeout(() => {
       const onPointerDown = (event: PointerEvent) => {
@@ -121,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         document.removeEventListener("pointerdown", onPointerDown);
         document.removeEventListener("keydown", onKeyDown);
       };
-    }, 0);
+    }, 320);
     return () => {
       window.clearTimeout(timer);
       remove?.();
@@ -143,8 +143,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const onAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+
   const menuPopover =
-    menuOpen && portalReady && menuPlacement
+    menuOpen && portalReady
       ? createPortal(
           <div
             ref={popoverRef}
@@ -153,13 +155,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             role="menu"
             style={{
               position: "fixed",
-              top: menuPlacement.top,
-              bottom: menuPlacement.bottom,
-              left: menuPlacement.left,
+              top: menuPlacement?.top,
+              bottom: menuPlacement?.bottom ?? (menuPlacement?.top == null ? 72 : undefined),
+              left: menuPlacement?.left ?? 8,
               right: "auto",
             }}
           >
-            {pathname.startsWith("/admin") ? (
+            <Link
+              href="/app/billing"
+              className="account-menu-item"
+              role="menuitem"
+              onClick={() => setMenuOpen(false)}
+            >
+              {text.topUpCredits}
+            </Link>
+            {onAdmin ? (
               <Link
                 href="/app"
                 className="account-menu-item"
@@ -169,26 +179,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {text.exitAdmin}
               </Link>
             ) : (
-              <>
+              isAdminSession(session) && (
                 <Link
-                  href="/app/billing"
+                  href="/admin"
                   className="account-menu-item"
                   role="menuitem"
                   onClick={() => setMenuOpen(false)}
                 >
-                  {text.topUpCredits}
+                  {text.adminTitle}
                 </Link>
-                {isAdminSession(session) && (
-                  <Link
-                    href="/admin"
-                    className="account-menu-item"
-                    role="menuitem"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    {text.adminTitle}
-                  </Link>
-                )}
-              </>
+              )
             )}
             <button
               type="button"
@@ -252,7 +252,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 aria-expanded={menuOpen}
                 aria-controls={menuId}
                 aria-haspopup="menu"
-                onClick={() => {
+                onClick={(event) => {
+                  event.stopPropagation();
                   if (menuOpen) {
                     setMenuOpen(false);
                     return;

@@ -76,9 +76,17 @@ async def create_job(
 
 @router.get("/projects/{project_id}/jobs", response_model=list[JobOut])
 async def list_jobs(project_id: UUID, user: CurrentUser, repo: Repo) -> list[JobOut]:
-    if await repo.get_project(user.id, project_id) is None:
-        raise NotFoundError("Project not found")
-    rows = await repo.list_jobs(user.id, project_id)
+    owned = await repo.get_project(user.id, project_id)
+    if owned is None:
+        if not user.is_admin:
+            raise NotFoundError("Project not found")
+        project = await repo.get_project_for_worker(project_id)
+        if project is None:
+            raise NotFoundError("Project not found")
+        owner_id = UUID(str(project["owner_id"]))
+        rows = await repo.list_jobs(owner_id, project_id)
+    else:
+        rows = await repo.list_jobs(user.id, project_id)
     return [JobOut.model_validate(r) for r in rows]
 
 

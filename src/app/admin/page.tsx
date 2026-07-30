@@ -378,7 +378,7 @@ export default function AdminPage() {
                       completedDubs.map((project) => (
                         <Link
                           key={project.id}
-                          href={`/app/projects/${project.id}`}
+                          href={`/app/projects/_/?id=${encodeURIComponent(project.id)}`}
                           className="admin-usage-row admin-dub-history-row"
                         >
                           <span>{project.title}</span>

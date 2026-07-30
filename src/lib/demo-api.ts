@@ -34,6 +34,46 @@ export async function saveBlobDownload(blob: Blob, filename: string): Promise<vo
     type: blob.type || "video/mp4",
   });
 
+  const triggerAnchorDownload = () => {
+    const objectUrl = URL.createObjectURL(file);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = safeName;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  };
+
+  // Prefer File System Access when available (desktop Chromium).
+  const win = window as Window & {
+    showSaveFilePicker?: (options?: {
+      suggestedName?: string;
+      types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+    }) => Promise<FileSystemFileHandle>;
+  };
+  if (typeof win.showSaveFilePicker === "function") {
+    try {
+      const handle = await win.showSaveFilePicker({
+        suggestedName: safeName,
+        types: [
+          {
+            description: "Video",
+            accept: { "video/mp4": [".mp4"] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      // Fall through to share / anchor.
+    }
+  }
+
   const nav = navigator as Navigator & {
     canShare?: (data?: ShareData) => boolean;
   };
@@ -44,22 +84,14 @@ export async function saveBlobDownload(blob: Blob, filename: string): Promise<vo
         title: "Dubby",
         text: safeName,
       });
+      return;
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
-      throw err;
+      // Share can reject for large videos — fall through to <a download>.
     }
-    return;
   }
 
-  const objectUrl = URL.createObjectURL(file);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = safeName;
-  anchor.rel = "noopener";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+  triggerAnchorDownload();
 }
 
 /** Force a file save even when the URL redirects cross-origin. */

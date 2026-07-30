@@ -881,10 +881,11 @@ body {
 
 .account-menu-popover-portal {
   position: fixed;
-  z-index: 4000;
+  z-index: 5000;
   top: auto;
   right: auto;
   margin: 0;
+  pointer-events: auto;
 }
 
 .account-menu-item {
@@ -1501,10 +1502,13 @@ body {
   }
 
   .app-nav .account-menu-trigger {
-    max-width: 4.25rem;
+    max-width: 5.5rem;
+    min-width: 2.75rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .app-nav .account-menu-trigger::after {

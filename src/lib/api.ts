@@ -29,16 +29,36 @@ async function requestBlob(path: string): Promise<Blob> {
   if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
   if (!API_ORIGIN) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
 
-  const response = await fetch(`${API_ORIGIN}${path}`, {
-    headers: {
-      Authorization: `Bearer ${data.session.access_token}`,
-    },
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new ApiError(body?.detail ?? `요청 실패 (${response.status})`, response.status);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  try {
+    const response = await fetch(`${API_ORIGIN}${path}`, {
+      headers: {
+        Authorization: `Bearer ${data.session.access_token}`,
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const detail =
+        typeof body?.detail === "string"
+          ? body.detail
+          : `요청 실패 (${response.status})`;
+      throw new ApiError(detail, response.status);
+    }
+    return await response.blob();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("다운로드 시간이 초과되었습니다. 다시 시도해 주세요.", 408);
+    }
+    throw new ApiError(
+      err instanceof Error ? err.message : "다운로드에 실패했습니다.",
+      0,
+    );
+  } finally {
+    window.clearTimeout(timer);
   }
-  return response.blob();
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

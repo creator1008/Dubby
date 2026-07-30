@@ -28,6 +28,14 @@ from ..storage.r2 import sanitize_filename
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
 
+async def _resolve_project(user: CurrentUser, repo: Repo, project_id: UUID):
+    """Owner-scoped project, or any project when the caller is an admin."""
+    row = await repo.get_project(user.id, project_id)
+    if row is None and user.is_admin:
+        row = await repo.get_project_for_worker(project_id)
+    return row
+
+
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(user: CurrentUser, repo: Repo) -> list[ProjectOut]:
     rows = await repo.list_projects(user.id)
@@ -52,7 +60,7 @@ async def create_project(
 
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(project_id: UUID, user: CurrentUser, repo: Repo) -> ProjectOut:
-    row = await repo.get_project(user.id, project_id)
+    row = await _resolve_project(user, repo, project_id)
     if row is None:
         raise NotFoundError("Project not found")
     return ProjectOut.model_validate(row)
@@ -136,7 +144,7 @@ async def get_source_url(
     project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
 ) -> DownloadUrlResponse:
     """Presigned GET for the uploaded source video (Before preview)."""
-    row = await repo.get_project(user.id, project_id)
+    row = await _resolve_project(user, repo, project_id)
     if row is None:
         raise NotFoundError("Project not found")
     source_key = row.get("source_key")
@@ -152,7 +160,7 @@ async def get_voice_removed_url(
     project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
 ) -> DownloadUrlResponse:
     """Presigned GET for the speech-scrubbed preview built during extract."""
-    row = await repo.get_project(user.id, project_id)
+    row = await _resolve_project(user, repo, project_id)
     if row is None:
         raise NotFoundError("Project not found")
     source_key = row.get("source_key")
@@ -170,7 +178,7 @@ async def get_voice_removed_url(
 async def get_output_url(
     project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
 ) -> DownloadUrlResponse:
-    row = await repo.get_project(user.id, project_id)
+    row = await _resolve_project(user, repo, project_id)
     if row is None:
         raise NotFoundError("Project not found")
     if row.get("status") != "completed":
@@ -197,7 +205,7 @@ async def download_output_file(
     PWA when using iframe or target=_blank. Authenticated same-origin fetch →
     blob download keeps the editor screen.
     """
-    row = await repo.get_project(user.id, project_id)
+    row = await _resolve_project(user, repo, project_id)
     if row is None:
         raise NotFoundError("Project not found")
     if row.get("status") != "completed":

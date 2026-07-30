@@ -25,9 +25,13 @@ router = APIRouter(prefix="/v1/projects/{project_id}/segments", tags=["segments"
 async def list_segments(
     project_id: UUID, user: CurrentUser, repo: Repo
 ) -> list[SegmentOut]:
-    if await repo.get_project(user.id, project_id) is None:
-        raise NotFoundError("Project not found")
-    rows = await repo.list_segments(user.id, project_id)
+    owned = await repo.get_project(user.id, project_id)
+    if owned is None:
+        if not user.is_admin or await repo.get_project_for_worker(project_id) is None:
+            raise NotFoundError("Project not found")
+        rows = await repo.list_segments_for_worker(project_id)
+    else:
+        rows = await repo.list_segments(user.id, project_id)
     return [SegmentOut.model_validate(r) for r in rows]
 
 
