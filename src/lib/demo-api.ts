@@ -10,9 +10,11 @@ import {
   deleteLocalRun,
   gcOrphanLocalRuns,
   getLocalPipelineOrigin,
+  retranslateLocalSegments,
   type LocalStep12Result,
 } from "@/lib/local-step12";
 import { getSupabase } from "@/lib/supabase";
+import { isDubLangCode } from "@/lib/languages";
 
 /** Append local API download hint; never mutate signed cloud object URLs. */
 export function withDownloadAttachment(url: string, filename: string): string {
@@ -646,6 +648,42 @@ export const demoApi = {
         if (!row) continue;
         row.target_text = update.target_text;
         if (update.source_text !== undefined) row.source_text = update.source_text;
+      }
+      persist();
+      return clone(rows);
+    },
+    retranslate: async (
+      projectId: string,
+      updates: Array<Pick<Segment, "id" | "source_text">>,
+    ) => {
+      const project = await requireOwnedProject(projectId);
+      if (!isDubLangCode(project.source_lang) || !isDubLangCode(project.target_lang)) {
+        throw new Error("지원하지 않는 언어 코드입니다.");
+      }
+      const st = loadState();
+      const rows = st.segments[projectId] ?? [];
+      const payload = updates.flatMap((update) => {
+        const row = rows.find((r) => r.id === update.id);
+        if (!row) return [];
+        row.source_text = update.source_text;
+        return [
+          {
+            idx: row.idx,
+            start_ms: row.start_ms,
+            end_ms: row.end_ms,
+            source_text: update.source_text,
+          },
+        ];
+      });
+      const translations = await retranslateLocalSegments(
+        project.source_lang,
+        project.target_lang,
+        payload,
+      );
+      const byIdx = new Map(translations.map((row) => [row.idx, row.target_text]));
+      for (const row of rows) {
+        const target = byIdx.get(row.idx);
+        if (target !== undefined) row.target_text = target;
       }
       persist();
       return clone(rows);

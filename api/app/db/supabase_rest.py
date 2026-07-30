@@ -27,6 +27,15 @@ _PROJECT_SELECT = (
     "lipsync_output_key,quality_warnings,error,created_at,updated_at"
 )
 _JOB_SELECT = "id,project_id,kind,status,progress,message,error,created_at,updated_at"
+# Soft-delete marker used when hard DELETE fails because credit_ledger is
+# append-only and ON DELETE SET NULL cannot mutate ledger rows.
+_PROJECT_DELETED_SENTINEL = "__deleted__"
+
+
+def _is_live_project(row: Row) -> bool:
+    return row.get("error") != _PROJECT_DELETED_SENTINEL
+
+
 _PROJECT_PATCHABLE = {
     "title",
     "source_lang",
@@ -105,7 +114,7 @@ class SupabaseRestRepository(Repository):
             },
         )
         resp.raise_for_status()
-        return resp.json()
+        return [row for row in resp.json() if _is_live_project(row)]
 
     async def create_project(
         self,
@@ -147,11 +156,16 @@ class SupabaseRestRepository(Repository):
         )
         resp.raise_for_status()
         rows = resp.json()
-        return rows[0] if rows else None
+        if not rows:
+            return None
+        row = rows[0]
+        return row if _is_live_project(row) else None
 
     async def update_project(
         self, owner_id: UUID, project_id: UUID, fields: dict[str, Any]
     ) -> Row | None:
+        if await self.get_project(owner_id, project_id) is None:
+            return None
         payload = {k: v for k, v in fields.items() if k in _PROJECT_PATCHABLE}
         if not payload:
             return await self.get_project(owner_id, project_id)
@@ -170,13 +184,45 @@ class SupabaseRestRepository(Repository):
         return rows[0] if rows else None
 
     async def delete_project(self, owner_id: UUID, project_id: UUID) -> bool:
+        existing = await self.get_project(owner_id, project_id)
+        if existing is None:
+            # Already soft-deleted or missing.
+            resp = await self.client.get(
+                "/projects",
+                params={
+                    "select": "id,error",
+                    "owner_id": f"eq.{owner_id}",
+                    "id": f"eq.{project_id}",
+                    "limit": "1",
+                },
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+            return bool(rows) and rows[0].get("error") == _PROJECT_DELETED_SENTINEL
+
         resp = await self.client.delete(
             "/projects",
             params={"owner_id": f"eq.{owner_id}", "id": f"eq.{project_id}"},
-            headers={"Prefer": "return=representation"},
+            headers={"Prefer": "return=minimal"},
         )
+        if resp.status_code in (200, 204):
+            return True
+        if resp.status_code == 400 and "credit_ledger_is_immutable" in resp.text:
+            # Append-only ledger blocks ON DELETE SET NULL; hide the project instead.
+            soft = await self.client.patch(
+                "/projects",
+                params={
+                    "select": "id",
+                    "owner_id": f"eq.{owner_id}",
+                    "id": f"eq.{project_id}",
+                },
+                headers={"Prefer": "return=representation"},
+                json={"error": _PROJECT_DELETED_SENTINEL, "status": "failed"},
+            )
+            soft.raise_for_status()
+            return bool(soft.json())
         resp.raise_for_status()
-        return bool(resp.json())
+        return False
 
     # --- segments -------------------------------------------------------------
 
