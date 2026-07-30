@@ -764,16 +764,32 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(10px);
 }
 
+.app-topbar-end {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-left: auto;
+}
+
 @media (min-width: 768px) {
   .app-topbar {
     padding: 1rem 2rem;
+  }
+
+  .app-topbar .app-nav {
+    margin-left: auto;
+  }
+
+  .app-topbar-end {
+    margin-left: 0.5rem;
   }
 }
 
@@ -854,6 +870,21 @@ body {
   white-space: nowrap;
   background: rgba(255, 255, 255, 0.72);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.account-menu-trigger-header {
+  position: relative;
+  z-index: 70;
+}
+
+.account-menu-trigger-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
 }
 
 .account-menu-trigger::after {
@@ -865,27 +896,42 @@ body {
   content: " ▴";
 }
 
-.account-menu-popover {
-  position: absolute;
-  z-index: 120;
-  top: calc(100% + 0.55rem);
-  right: 0;
-  display: grid;
-  width: min(16rem, calc(100vw - 1.5rem));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 0.85rem;
-  background: #fff;
-  box-shadow: 0 18px 45px rgb(17 44 54 / 18%);
+.account-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.75rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  background: rgb(17 44 54 / 42%);
 }
 
-.account-menu-popover-portal {
-  position: fixed;
-  z-index: 5000;
-  top: auto;
-  right: auto;
-  margin: 0;
-  pointer-events: auto;
+.account-menu-sheet {
+  display: grid;
+  width: min(100%, 24rem);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 18px 45px rgb(17 44 54 / 22%);
+}
+
+.account-menu-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-menu-sheet-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .account-menu-item {
@@ -893,8 +939,8 @@ body {
   align-items: center;
   justify-content: flex-start;
   width: 100%;
-  min-height: 3rem;
-  padding: 0.75rem 0.9rem;
+  min-height: 3.15rem;
+  padding: 0.85rem 0.95rem;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -911,9 +957,23 @@ body {
   border-bottom: 0;
 }
 
-.account-menu-item:hover {
+.account-menu-item:hover,
+.account-menu-item:active {
   color: var(--teal-deep);
   background: var(--surface-soft);
+}
+
+@media (min-width: 768px) {
+  .account-menu-overlay {
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 4.5rem 1.25rem 1.25rem;
+    background: rgb(17 44 54 / 28%);
+  }
+
+  .account-menu-sheet {
+    width: min(100%, 18rem);
+  }
 }
 
 .project-item-row {
@@ -1444,8 +1504,22 @@ body {
 
 @media (max-width: 767px) {
   .app-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 80;
     align-items: center;
     gap: 0.5rem;
+    padding-top: calc(0.75rem + env(safe-area-inset-top));
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  .app-topbar-end {
+    justify-content: flex-end;
+  }
+
+  .account-menu-trigger-header {
+    max-width: min(58vw, 14rem);
+    min-height: 2.75rem;
   }
 
   .app-nav {
@@ -1463,14 +1537,12 @@ body {
     overflow: visible;
     background: rgba(243, 247, 249, 0.96);
     border-top: 1px solid var(--line);
-    /* backdrop-filter clips absolute children on mobile WebKit */
     backdrop-filter: none;
   }
 
   .app-nav .btn-ghost,
   .app-nav .header-new-dub,
   .app-nav a,
-  .app-nav .account-menu-trigger,
   .app-nav .credits-pill {
     min-height: 2.75rem;
     min-width: 2.75rem;
@@ -1499,35 +1571,6 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .app-nav .account-menu-trigger {
-    max-width: 5.5rem;
-    min-width: 2.75rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .app-nav .account-menu-trigger::after {
-    content: none;
-  }
-
-  .app-nav .account-menu {
-    position: relative;
-    z-index: 60;
-  }
-
-  .account-menu-popover,
-  .account-menu-popover-portal {
-    width: min(16rem, calc(100vw - 1.25rem));
-  }
-
-  .account-menu-item {
-    min-height: 3.15rem;
-    font-size: 0.95rem;
   }
 
   .app-main {
