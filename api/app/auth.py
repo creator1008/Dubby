@@ -59,7 +59,13 @@ class JwtVerifier:
 
     def verify(self, token: str) -> AuthenticatedUser:
         try:
-            if self._settings.supabase_jwt_secret:
+            header = jwt.get_unverified_header(token)
+            alg = str(header.get("alg") or "")
+            # Modern Supabase projects sign with ES256/RS256 via JWKS. Prefer that
+            # whenever the token says so — even if a legacy HS256 secret is set
+            # (operators sometimes paste the JWKS kid into SUPABASE_JWT_SECRET).
+            use_hs256 = bool(self._settings.supabase_jwt_secret) and alg == "HS256"
+            if use_hs256:
                 claims = jwt.decode(
                     token,
                     self._settings.supabase_jwt_secret,
@@ -78,7 +84,7 @@ class JwtVerifier:
                 )
         except jwt.ExpiredSignatureError as exc:
             raise UnauthorizedError("Token expired") from exc
-        except (jwt.InvalidTokenError, jwt.PyJWKClientError) as exc:
+        except (jwt.InvalidTokenError, jwt.PyJWKClientError, jwt.DecodeError) as exc:
             logger.debug("JWT rejected: %s", exc)
             raise UnauthorizedError("Invalid token") from exc
 
