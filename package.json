@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "dev:step12": "cd api && uvicorn app.local_step12:app --reload --port 8002",
     "build": "node scripts/write-pwa-manifest.cjs && next build",
     "test": "vitest run",

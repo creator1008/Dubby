@@ -34,11 +34,11 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: "true"
+          NEXT_PUBLIC_SITE_URL: "https://creator1008.github.io/Dubby"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_API_ORIGIN: ${{ secrets.NEXT_PUBLIC_API_ORIGIN }}
-          NEXT_PUBLIC_LOCAL_PIPELINE: ${{ secrets.NEXT_PUBLIC_LOCAL_PIPELINE }}
-          NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN: ${{ secrets.NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN }}
+          NEXT_PUBLIC_LOCAL_PIPELINE: "false"
 
       - name: Add .nojekyll
         run: touch out/.nojekyll
