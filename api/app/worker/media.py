@@ -272,13 +272,17 @@ def merge_speech_ranges(
 
 def speech_mask_expression(
     ranges_ms: list[tuple[int, int]],
-    fade_seconds: float = 0.06,
-    leading_padding_seconds: float = 0.16,
-    trailing_padding_seconds: float = 0.08,
+    fade_seconds: float = 0.08,
+    leading_padding_seconds: float = 0.28,
+    trailing_padding_seconds: float = 0.24,
 ) -> str:
-    """FFmpeg volume mask active only during language recognized by ASR."""
+    """FFmpeg volume mask active only during language recognized by ASR.
+
+    Padding is intentionally generous so short leftover syllables at phrase
+    edges are scrubbed in the voice-removed bed.
+    """
     masks: list[str] = []
-    for start_ms, end_ms in merge_speech_ranges(ranges_ms):
+    for start_ms, end_ms in merge_speech_ranges(ranges_ms, max_gap_ms=400):
         start = max(0.0, start_ms / 1000 - leading_padding_seconds)
         end = end_ms / 1000 + trailing_padding_seconds
         fade_in_start = max(0.0, start - fade_seconds)

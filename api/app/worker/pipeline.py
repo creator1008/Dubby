@@ -60,11 +60,9 @@ from .timing import (
 )
 from .utterance_pipeline import (
     UtteranceChunk,
-    align_document_translation,
     build_breath_utterances,
     dedupe_boundary_overlaps,
     merge_dangling_chunks,
-    place_long_units_by_timestamps,
 )
 
 logger = logging.getLogger("dubby.worker.pipeline")
@@ -495,7 +493,7 @@ async def run_transcribe(ctx: JobContext) -> None:
             quality_warnings.append("overlapping_speakers_use_default_voice")
 
         await ctx.report(0.72, "translate")
-        full_source = " ".join(c.text.strip() for c in chunks if c.text.strip())
+        full_source = "\n".join(c.text.strip() for c in chunks if c.text.strip())
         document_translation = await _with_retries(
             ctx,
             lambda: engine.translate_document(
@@ -505,27 +503,36 @@ async def run_transcribe(ctx: JobContext) -> None:
             ),
             step="translate",
         )
-        aligned = align_document_translation(chunks, document_translation)
-        chunks, aligned = place_long_units_by_timestamps(chunks, aligned)
-        if len(speaker_assignments) != len(chunks):
-            speaker_assignments = [
-                (c.speaker_id or "speaker_0", False) for c in chunks
-            ]
+        align_items = [(i, c.text) for i, c in enumerate(chunks)]
+        translations = await _with_retries(
+            ctx,
+            lambda: engine.align_translation_to_segments(
+                align_items,
+                document_translation,
+                str(project["source_lang"]),
+                str(project["target_lang"]),
+            ),
+            step="align_translations",
+        )
 
         drafts = [
             SegmentDraft(start_ms=c.start_ms, end_ms=c.end_ms, text=c.text)
             for c in chunks
         ]
-        translations = {i: text for i, text in enumerate(aligned)}
 
         await ctx.report(0.85, "voice_removed_preview")
         try:
+            segment_bounds = [(c.start_ms, c.end_ms) for c in chunks]
+            scrub_ranges = voice_removal_ranges(
+                list(transcribe_result.speech_ranges),
+                segment_bounds,
+            )
             await _build_and_upload_voice_removed(
                 ctx,
                 engine,
                 source_path=source_path,
                 source_key=str(project["source_key"]),
-                speech_ranges=list(transcribe_result.speech_ranges),
+                speech_ranges=scrub_ranges,
                 scratch=scratch,
             )
         except Exception as exc:  # noqa: BLE001 - preview must not fail extract
@@ -538,7 +545,7 @@ async def run_transcribe(ctx: JobContext) -> None:
                 "start_ms": d.start_ms,
                 "end_ms": d.end_ms,
                 "source_text": d.text,
-                "target_text": translations.get(i, ""),
+                "target_text": (translations.get(i) or "").strip(),
                 "speaker_id": speaker_assignments[i][0]
                 if i < len(speaker_assignments)
                 else None,

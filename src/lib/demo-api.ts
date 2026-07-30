@@ -28,14 +28,44 @@ export function withDownloadAttachment(url: string, filename: string): string {
 
 /** Force a file save even when the URL redirects cross-origin. */
 export async function forceDownload(url: string, filename: string): Promise<void> {
+  const safeName =
+    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
+  // Presigned R2/S3 URLs usually lack browser CORS for fetch(); open directly.
+  // ResponseContentDisposition=attachment on the API presign triggers download.
+  const isSignedObject = /[?&](X-Amz-Signature|Signature|X-Amz-Credential)=/i.test(
+    url,
+  );
+  if (isSignedObject) {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = safeName;
+    anchor.rel = "noopener";
+    anchor.target = "_blank";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
+
   const downloadUrl = withDownloadAttachment(url, filename);
-  const response = await fetch(downloadUrl, { redirect: "follow" });
+  let response: Response;
+  try {
+    response = await fetch(downloadUrl, { redirect: "follow" });
+  } catch {
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = safeName;
+    anchor.rel = "noopener";
+    anchor.target = "_blank";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
   if (!response.ok) {
     throw new Error(`다운로드 실패 (${response.status})`);
   }
   const blob = await response.blob();
-  const safeName =
-    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
   const file = new File([blob], safeName, {
     type: blob.type || "video/mp4",
   });

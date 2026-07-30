@@ -153,8 +153,7 @@ def test_transcribe_mock_end_to_end(tmp_path: Path) -> None:
         assert seg["idx"] == i
         assert seg["end_ms"] > seg["start_ms"]
         assert seg["source_text"].startswith("Mock segment")
-        assert seg["target_text"]
-    assert any("[en]" in seg["target_text"] for seg in repo.segments)
+        assert seg["target_text"].startswith("[en] ")
 
     messages = [m for _, m in repo.progress_log]
     for expected in (

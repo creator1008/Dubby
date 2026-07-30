@@ -125,5 +125,23 @@ def voice_removal_ranges(
 ) -> list[tuple[int, int]]:
     """Resolve selective voice-removal ranges from word and segment timestamps."""
     if not saved_ranges:
-        return merge_speech_ranges(segment_bounds)
-    return cover_recognized_phrase_boundaries(saved_ranges, segment_bounds)
+        covered = merge_speech_ranges(segment_bounds)
+    else:
+        covered = cover_recognized_phrase_boundaries(saved_ranges, segment_bounds)
+    return harden_voice_removal_ranges(covered)
+
+
+def harden_voice_removal_ranges(
+    ranges_ms: list[tuple[int, int]],
+    *,
+    lead_ms: int = 280,
+    trail_ms: int = 240,
+    merge_gap_ms: int = 420,
+) -> list[tuple[int, int]]:
+    """Widen and coalesce ranges so short leftover syllables are scrubbed."""
+    expanded = [
+        (max(0, start - lead_ms), end + trail_ms)
+        for start, end in ranges_ms
+        if end > start
+    ]
+    return merge_speech_ranges(expanded, max_gap_ms=merge_gap_ms)

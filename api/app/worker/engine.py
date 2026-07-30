@@ -67,6 +67,15 @@ class Engine(ABC):
     ) -> str: ...
 
     @abstractmethod
+    async def align_translation_to_segments(
+        self,
+        items: list[tuple[int, str]],
+        document_translation: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> dict[int, str]: ...
+
+    @abstractmethod
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str
     ) -> str: ...
@@ -246,6 +255,17 @@ class RealEngine(Engine):
     ) -> str:
         return await self.openai.translate_document(
             source_text, source_lang, target_lang
+        )
+
+    async def align_translation_to_segments(
+        self,
+        items: list[tuple[int, str]],
+        document_translation: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> dict[int, str]:
+        return await self.openai.align_translation_to_segments(
+            items, document_translation, source_lang, target_lang
         )
 
     async def adjust_translation(
@@ -497,6 +517,16 @@ class MockEngine(Engine):
     ) -> str:
         del source_lang
         return f"[{target_lang}] {source_text}"
+
+    async def align_translation_to_segments(
+        self,
+        items: list[tuple[int, str]],
+        document_translation: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> dict[int, str]:
+        del document_translation, source_lang
+        return {idx: f"[{target_lang}] {text}" for idx, text in items}
 
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str

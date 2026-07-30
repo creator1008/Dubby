@@ -16,10 +16,7 @@ from ..schemas import (
     SegmentsRetranslateRequest,
 )
 from ..worker.openai_client import OpenAIClient
-from ..worker.utterance_pipeline import (
-    UtteranceChunk,
-    align_document_translation,
-)
+from ..worker.utterance_pipeline import UtteranceChunk
 
 router = APIRouter(prefix="/v1/projects/{project_id}/segments", tags=["segments"])
 
@@ -115,20 +112,22 @@ async def retranslate_segments(
     except Exception:
         pass
 
-    full_source = " ".join(c.text for c in chunks)
+    full_source = "\n".join(c.text for c in chunks)
     document = await client.translate_document(
         full_source,
         str(project["source_lang"]),
         str(project["target_lang"]),
     )
-    aligned = align_document_translation(chunks, document)
-    # Keep existing timing windows on retranslate (no word tokens).
-    if len(aligned) != len(chunks):
-        raise BadRequestError("Translation alignment failed")
+    aligned_map = await client.align_translation_to_segments(
+        [(i, c.text) for i, c in enumerate(chunks)],
+        document,
+        str(project["source_lang"]),
+        str(project["target_lang"]),
+    )
 
     updates: list[tuple[UUID, str, str | None]] = []
-    for seg_id, chunk, target in zip(ordered_ids, chunks, aligned):
-        clean_target = (target or "").strip()
+    for index, (seg_id, chunk) in enumerate(zip(ordered_ids, chunks)):
+        clean_target = (aligned_map.get(index) or "").strip()
         if not clean_target:
             raise BadRequestError(f"Translation missing for segment {seg_id}")
         updates.append((seg_id, clean_target, chunk.text))

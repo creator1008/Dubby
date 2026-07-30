@@ -415,6 +415,77 @@ class OpenAIClient:
             )
         return text
 
+    async def align_translation_to_segments(
+        self,
+        items: list[tuple[int, str]],
+        document_translation: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> dict[int, str]:
+        """Split a full-document translation onto source idxs without bleed."""
+        if not items:
+            return {}
+        src = LANGUAGE_NAMES.get(source_lang, source_lang)
+        tgt = LANGUAGE_NAMES.get(target_lang, target_lang)
+        if source_lang == target_lang:
+            return {idx: text for idx, text in items}
+        body = {
+            "model": self._settings.translation_model,
+            "temperature": 0,
+            "response_format": _TRANSLATION_SCHEMA,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"You align a complete {tgt} dubbing translation onto "
+                        f"numbered {src} source segments. Rules: each idx gets "
+                        "ONLY the meaning of that source line; never continue a "
+                        "previous sentence into the next idx; never borrow words "
+                        "from neighbors; keep natural spoken phrasing; cover the "
+                        "whole document translation without dropping content. "
+                        "Return JSON "
+                        '{"translations":[{"idx":0,"text":"..."}]}.'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "full_translation": document_translation,
+                            "segments": [
+                                {"idx": idx, "source_text": text}
+                                for idx, text in items
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self._base}/chat/completions",
+                    headers={**self._headers, "Content-Type": "application/json"},
+                    json=body,
+                )
+        except httpx.HTTPError as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                f"translation alignment failed: {exc}",
+                retryable=True,
+            ) from exc
+        _raise_for_status(resp, errors.TRANSLATION_FAILED)
+        try:
+            content = resp.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                "unexpected alignment response shape",
+                retryable=True,
+            ) from exc
+        return parse_translation_content(content, [idx for idx, _ in items])
+
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str
     ) -> str:
