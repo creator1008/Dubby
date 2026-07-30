@@ -145,12 +145,12 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     uploadAndExtract: "1. 파일 업로드 및 자막 추출",
     batchCreateDub: "더빙 영상 일괄 생성",
     batchCreateDubHelp:
-      "자막 추출 → 더빙 음성 생성 → 최종 영상 생성을 한 번에 진행합니다.",
+      "자막 추출 → 더빙 음성·최종 영상 생성을 한 번에 진행합니다.",
     batchCreating: "일괄 생성 중…",
     batchCreateDone: "더빙 영상 일괄 생성을 완료했습니다.",
-    batchCreateDemoOnly:
-      "더빙 영상 일괄 생성은 로컬 파이프라인 모드에서만 사용할 수 있습니다.",
-    localProcessing: "로컬 미디어 처리",
+    batchStageTranscribe: "자막 추출 중…",
+    batchStageDub: "더빙 영상 생성 중…",
+    localProcessing: "처리 진행",
     verifySegments: "2. 음성 타임스탬프·텍스트 검증",
     verifySegmentsHelp:
       "화자 변경 또는 시간 간격으로 분절된 구간의 시작 시점과 음성을 확인하세요. 최종 영상 생성 후에도 자막을 수정하고 더빙 음성을 다시 만들 수 있습니다.",
@@ -349,12 +349,12 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     uploadAndExtract: "1. Upload file and extract subtitles",
     batchCreateDub: "Create dubbed video in one go",
     batchCreateDubHelp:
-      "Runs subtitle extraction, dubbed voice, and final video creation together.",
+      "Runs subtitle extraction then dubbing/final video creation together.",
     batchCreating: "Creating in one go…",
     batchCreateDone: "Finished creating the dubbed video.",
-    batchCreateDemoOnly:
-      "One-go dubbing is available only in local pipeline mode.",
-    localProcessing: "Local media processing",
+    batchStageTranscribe: "Extracting subtitles…",
+    batchStageDub: "Creating dubbed video…",
+    localProcessing: "Processing",
     verifySegments: "2. Verify speech timestamps and text",
     verifySegmentsHelp:
       "Check speech and start times for segments cut at speaker changes or time intervals. You can edit subtitles and regenerate dubbed voice even after creating the final video.",
@@ -553,12 +553,12 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     uploadAndExtract: "1. Tải tệp và trích xuất phụ đề",
     batchCreateDub: "Tạo video lồng tiếng một lần",
     batchCreateDubHelp:
-      "Chạy trích xuất phụ đề, tạo giọng lồng tiếng và video cuối cùng cùng lúc.",
+      "Chạy trích xuất phụ đề rồi tạo video lồng tiếng cuối cùng cùng lúc.",
     batchCreating: "Đang tạo một lần…",
     batchCreateDone: "Đã hoàn tất tạo video lồng tiếng.",
-    batchCreateDemoOnly:
-      "Tạo một lần chỉ dùng được ở chế độ pipeline cục bộ.",
-    localProcessing: "Xử lý phương tiện cục bộ",
+    batchStageTranscribe: "Đang trích xuất phụ đề…",
+    batchStageDub: "Đang tạo video lồng tiếng…",
+    localProcessing: "Đang xử lý",
     verifySegments: "2. Kiểm tra mốc thời gian và văn bản",
     verifySegmentsHelp:
       "Kiểm tra âm thanh và thời điểm bắt đầu của đoạn cắt theo người nói hoặc khoảng thời gian. Bạn vẫn có thể sửa phụ đề và tạo lại giọng lồng tiếng sau khi làm video cuối.",

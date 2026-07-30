@@ -257,39 +257,126 @@ export default function NewDubPage() {
     return { project: nextProject, result };
   };
 
+  const waitForServerJob = async (
+    projectId: string,
+    kind: "transcribe" | "dub",
+    stageLabel: string,
+  ) => {
+    setLocalStage(stageLabel);
+    const started = Date.now();
+    const timeoutMs = 45 * 60 * 1000;
+    while (Date.now() - started < timeoutMs) {
+      const [nextProject, nextJobs] = await Promise.all([
+        api.projects.get(projectId),
+        api.jobs.list(projectId),
+      ]);
+      setProject(nextProject);
+      setJobs(nextJobs);
+      if (nextProject.source_key) {
+        void api.projects
+          .sourceUrl(projectId)
+          .then(({ url }) =>
+            setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
+          )
+          .catch(() => undefined);
+      }
+      const job = nextJobs.find((row) => row.kind === kind);
+      if (job?.status === "failed" || nextProject.status === "failed") {
+        throw new Error(
+          job?.error || nextProject.error || `${kind} 작업이 실패했습니다.`,
+        );
+      }
+      if (kind === "transcribe") {
+        if (
+          job?.status === "completed" ||
+          nextProject.status === "ready_for_edit" ||
+          nextProject.status === "completed"
+        ) {
+          const nextSegments = await api.segments.list(projectId);
+          setSegments(nextSegments);
+          baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+          return { project: nextProject, segments: nextSegments };
+        }
+      } else if (
+        job?.status === "completed" ||
+        nextProject.status === "completed"
+      ) {
+        if (nextProject.status === "completed") {
+          const { url } = await api.projects.download(projectId);
+          setOutputUrl((prev) => preferStableMediaUrl(prev, url));
+        }
+        const nextSegments = await api.segments.list(projectId).catch(() => segments);
+        setSegments(nextSegments);
+        return { project: nextProject, segments: nextSegments };
+      }
+      const progress =
+        typeof job?.progress === "number"
+          ? ` ${Math.round(job.progress * 100)}%`
+          : "";
+      setLocalStage(
+        `${stageLabel}${progress}${job?.message ? ` · ${job.message}` : ""}`,
+      );
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    }
+    throw new Error(`${kind} 작업 대기 시간이 초과되었습니다.`);
+  };
+
   const onBatchCreate = async () => {
     const trimmedUrl = validateExtractInput();
     if (trimmedUrl === null) return;
-    if (!isDemoMode) {
-      setError(text.batchCreateDemoOnly);
-      return;
-    }
     setUploading(true);
     setUploadPct(0);
     setError(null);
     setMessage(null);
     setOutputUrl(null);
     try {
-      const extracted = await runExtract(trimmedUrl);
-      if (!extracted.localRunId) {
-        throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
+      if (isDemoMode) {
+        const extracted = await runExtract(trimmedUrl);
+        if (!extracted.localRunId) {
+          throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
+        }
+        if (!extracted.segments.length) {
+          throw new Error(text.noSubtitlesYet);
+        }
+        const dubbed = await runLocalDubVoice(
+          extracted.project,
+          extracted.segments,
+          extracted.localRunId,
+        );
+        const { result } = await runLocalRender(
+          extracted.project,
+          dubbed,
+          extracted.localRunId,
+        );
+        setMessage(
+          result.warnings.length
+            ? `${text.batchCreateDone} ${result.warnings.join(" ")}`
+            : text.batchCreateDone,
+        );
+        return;
       }
-      if (!extracted.segments.length) {
+
+      const extracted = await runExtract(trimmedUrl);
+      const transcribed = await waitForServerJob(
+        extracted.project.id,
+        "transcribe",
+        text.batchStageTranscribe,
+      );
+      if (!transcribed.segments.length) {
         throw new Error(text.noSubtitlesYet);
       }
-      const dubbed = await runLocalDubVoice(
-        extracted.project,
-        extracted.segments,
-        extracted.localRunId,
+      setLocalStage(text.batchStageDub);
+      await api.jobs.create(extracted.project.id, "dub");
+      window.dispatchEvent(new Event("credits-changed"));
+      const dubbed = await waitForServerJob(
+        extracted.project.id,
+        "dub",
+        text.batchStageDub,
       );
-      const { result } = await runLocalRender(
-        extracted.project,
-        dubbed,
-        extracted.localRunId,
-      );
+      const warnings = dubbed.project.quality_warnings ?? [];
       setMessage(
-        result.warnings.length
-          ? `${text.batchCreateDone} ${result.warnings.join(" ")}`
+        warnings.length
+          ? `${text.batchCreateDone} ${warnings.join(" ")}`
           : text.batchCreateDone,
       );
     } catch (err) {
