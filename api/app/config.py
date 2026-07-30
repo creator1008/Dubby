@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     # Segments per translation request; smaller batches keep local-quality cohesion.
     translation_batch_size: int = Field(default=12, ge=1, le=200)
     translation_timing_tolerance: float = Field(default=0.22, ge=0.0, le=1.0)
+    # When true, LLM may rewrite spoken lines to fit slots — can invent words not
+    # present in editor target_text. Keep false so TTS === subtitle text.
+    translation_timing_rewrite: bool = False
     speech_segment_max_seconds: float = Field(default=6.0, ge=1.0, le=30.0)
 
     # --- ElevenLabs (voice clone + TTS) ----------------------------------------

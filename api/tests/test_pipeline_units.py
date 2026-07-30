@@ -256,7 +256,18 @@ def test_build_ass_target_mode() -> None:
     assert "Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,Hello" in doc
     assert "World" in doc
     assert ",2,60,60,160,1" in doc
+    assert "Noto Sans,56," in doc
     assert doc.startswith("[Script Info]")
+
+
+def test_rewrite_diverges_detects_invented_words() -> None:
+    from app.worker.pipeline import _rewrite_diverges
+
+    assert not _rewrite_diverges("I'm going to eliminate you", "I'll eliminate you")
+    assert _rewrite_diverges(
+        "it's clear",
+        "it's clear. I'm going to eliminate you for Minji's sake",
+    )
 
 
 def test_build_ass_source_mode_skips_empty() -> None:

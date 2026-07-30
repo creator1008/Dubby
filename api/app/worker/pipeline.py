@@ -274,6 +274,27 @@ def _apply_corrected_texts(
         )
     return out
 
+
+def _rewrite_diverges(original: str, rewritten: str) -> bool:
+    """True when a timing rewrite likely invents or drops meaning."""
+    import re
+
+    def tokens(value: str) -> set[str]:
+        return {t.lower() for t in re.findall(r"[A-Za-z0-9\uac00-\ud7af]+", value)}
+
+    src = tokens(original)
+    dst = tokens(rewritten)
+    if not src or not dst:
+        return True
+    # Too many brand-new tokens → invented speech not in the editor line.
+    novel = dst - src
+    if len(novel) >= max(2, len(src) // 2):
+        return True
+    # Collapsed to almost nothing relative to source.
+    if len(dst) < max(1, len(src) // 3):
+        return True
+    return False
+
 async def _upload_speech_ranges(
     ctx: JobContext,
     source_key: str,
@@ -773,6 +794,10 @@ async def run_dub(ctx: JobContext) -> None:
         )
 
         async def _maybe_rewrite(item: dict) -> dict:
+            # Critical consistency: spoken audio must match editor target_text.
+            # LLM timing rewrites invent/omit words; fit with tempo only.
+            if not ctx.settings.translation_timing_rewrite:
+                return item
             ratio = item["clip_s"] / item["slot_s"] if item["slot_s"] > 0 else 1.0
             # Residual rubberband covers moderate mismatch; only rewrite when
             # still badly off after synthesis-time speed.
@@ -792,8 +817,16 @@ async def run_dub(ctx: JobContext) -> None:
                         ),
                         step="timing_rewrite",
                     )
+                    # Reject rewrites that drift too far from the editor line.
+                    original = str(item["text"]).strip()
+                    rewritten = str(text or "").strip()
+                    if not rewritten or _rewrite_diverges(original, rewritten):
+                        quality_warnings.append(
+                            f"segment_{item['seg']['idx']}:timing_rewrite_rejected"
+                        )
+                        return item
                     speak_speed = initial_speak_speed(
-                        text,
+                        rewritten,
                         slot_s,
                         target_lang,
                         min_speed=0.7,
@@ -801,7 +834,7 @@ async def run_dub(ctx: JobContext) -> None:
                     )
                     await _with_retries(
                         ctx,
-                        lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                        lambda t=rewritten, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
                             t,
                             v,
                             p,
@@ -814,7 +847,7 @@ async def run_dub(ctx: JobContext) -> None:
                     clip_s = await engine.clip_duration_seconds(str(raw))
                     item = {
                         **item,
-                        "text": text,
+                        "text": rewritten,
                         "clip_s": clip_s,
                         "speak_speed": speak_speed,
                     }
@@ -867,7 +900,20 @@ async def run_dub(ctx: JobContext) -> None:
 
         ass_path: str | None = None
         subtitle_mode = str(project.get("subtitle_mode") or "none")
-        ass_text = build_ass(segments, subtitle_mode)  # type: ignore[arg-type]
+        # Burn only lines that were actually synthesized — never orphan text.
+        spoken_by_idx = {
+            int(item["seg"]["idx"]): str(item["text"]).strip()
+            for item in refined
+            if str(item.get("text") or "").strip()
+        }
+        ass_rows: list[dict] = []
+        for row in segments:
+            copied = dict(row)
+            idx = int(row["idx"])
+            if subtitle_mode == "target":
+                copied["target_text"] = spoken_by_idx.get(idx, "")
+            ass_rows.append(copied)
+        ass_text = build_ass(ass_rows, subtitle_mode)  # type: ignore[arg-type]
         if ass_text is not None:
             await ctx.report(0.85, "burn_subtitles")
             ass_file = scratch / "subtitles.ass"

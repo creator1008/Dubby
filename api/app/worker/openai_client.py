@@ -493,7 +493,9 @@ class OpenAIClient:
         instruction = (
             f"{direction.capitalize()} this {LANGUAGE_NAMES.get(target_lang, target_lang)} "
             f"dubbing line to speak naturally in about {target_seconds:.2f} seconds. "
-            "Preserve meaning, names, numbers, and emotional tone. Return only the line."
+            "CRITICAL: keep the SAME meaning and the SAME content words. "
+            "Do not add new clauses, names, or ideas that are not already in the line. "
+            "Do not finish a neighboring sentence. Return only the rewritten line."
         )
         body = {
             "model": self._settings.translation_model,
