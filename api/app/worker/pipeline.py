@@ -37,9 +37,9 @@ from ..storage import R2Storage
 from . import errors
 from .engine import create_engine
 from .diarization import (
+    SpeakerTurn,
     assign_speakers,
     create_diarization_provider,
-    split_speaker_turns,
 )
 from .dub_quality import (
     matched_loudness_gain,
@@ -57,6 +57,14 @@ from .timing import (
     safe_slot_seconds,
     slot_seconds,
     speak_speed_for_slot,
+)
+from .utterance_pipeline import (
+    UtteranceChunk,
+    align_document_translation,
+    build_breath_utterances,
+    dedupe_boundary_overlaps,
+    merge_dangling_chunks,
+    place_long_units_by_timestamps,
 )
 
 logger = logging.getLogger("dubby.worker.pipeline")
@@ -211,6 +219,63 @@ def _speech_ranges_key(ctx: JobContext, source_key: str) -> str:
     return ctx.storage.meta_key_for_source(source_key, "speech_ranges.json")
 
 
+def _voice_removed_key(ctx: JobContext, source_key: str) -> str:
+    return ctx.storage.meta_key_for_source(source_key, "voice_removed.mp4")
+
+
+async def _build_and_upload_voice_removed(
+    ctx: JobContext,
+    engine: object,
+    *,
+    source_path: Path,
+    source_key: str,
+    speech_ranges: list[tuple[int, int]],
+    scratch: Path,
+) -> None:
+    """Mux a speech-scrubbed preview video for the editor Before pane."""
+    if not speech_ranges:
+        return
+    full_wav = scratch / "preview_audio.wav"
+    await engine.extract_audio(str(source_path), str(full_wav))  # type: ignore[attr-defined]
+    stems_dir = scratch / "preview_stems"
+    stems_dir.mkdir(exist_ok=True)
+    _vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))  # type: ignore[attr-defined]
+    selective_bed = scratch / "preview_speech_removed.wav"
+    await engine.remove_recognized_speech(  # type: ignore[attr-defined]
+        str(full_wav),
+        no_vocals,
+        speech_ranges,
+        str(selective_bed),
+    )
+    voice_removed = scratch / "voice_removed.mp4"
+    await engine.mux(str(source_path), str(selective_bed), str(voice_removed), None)  # type: ignore[attr-defined]
+    await _upload_output(
+        ctx,
+        voice_removed,
+        _voice_removed_key(ctx, source_key),
+        "video/mp4",
+    )
+
+
+def _apply_corrected_texts(
+    chunks: list[UtteranceChunk], corrected: dict[int, str]
+) -> list[UtteranceChunk]:
+    out: list[UtteranceChunk] = []
+    for index, chunk in enumerate(chunks):
+        text = (corrected.get(index) or chunk.text or "").strip()
+        if not text:
+            continue
+        out.append(
+            UtteranceChunk(
+                start_ms=chunk.start_ms,
+                end_ms=chunk.end_ms,
+                text=text,
+                speaker_id=chunk.speaker_id,
+                words=chunk.words,
+            )
+        )
+    return out
+
 async def _upload_speech_ranges(
     ctx: JobContext,
     source_key: str,
@@ -290,8 +355,8 @@ async def run_transcribe(ctx: JobContext) -> None:
             lambda: engine.transcribe(str(asr_audio), str(project["source_lang"])),
             step="asr",
         )
-        drafts = transcribe_result.drafts
-        if not drafts:
+        drafts = list(transcribe_result.drafts)
+        if not drafts and not transcribe_result.words:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
         await _upload_speech_ranges(
             ctx,
@@ -300,60 +365,172 @@ async def run_transcribe(ctx: JobContext) -> None:
             scratch,
         )
 
-        speaker_assignments: list[tuple[str | None, bool]] = [
-            (None, False) for _ in drafts
-        ]
+        speaker_turns: list[tuple[int, int, str, str]] | None = None
         quality_warnings: list[str] = []
         if bool(project.get("diarization_enabled")):
             provider = create_diarization_provider(ctx.settings)
             if provider is None:
-                quality_warnings.append("diarization_provider_unavailable_single_speaker_fallback")
+                quality_warnings.append(
+                    "diarization_provider_unavailable_single_speaker_fallback"
+                )
             else:
                 await ctx.report(0.55, "diarization")
                 turns = await _with_retries(
                     ctx, lambda: provider.diarize(str(asr_audio)), step="diarization"
                 )
-                timed_turns = split_speaker_turns(
-                    turns,
-                    round(ctx.settings.speech_segment_max_seconds * 1000),
-                )
-                if timed_turns:
-                    drafts = [
-                        SegmentDraft(turn.start_ms, turn.end_ms, turn.text)
-                        for turn in timed_turns
-                    ]
-                    speaker_assignments = [
-                        (turn.speaker_id, False) for turn in timed_turns
-                    ]
-                else:
-                    speaker_assignments = assign_speakers(
-                        [(d.start_ms, d.end_ms) for d in drafts], turns
-                    )
-                if any(overlap for _, overlap in speaker_assignments):
-                    quality_warnings.append("overlapping_speakers_use_default_voice")
+                speaker_turns = [
+                    (turn.start_ms, turn.end_ms, turn.speaker_id, turn.text)
+                    for turn in turns
+                    if turn.end_ms > turn.start_ms
+                ] or None
 
-        await ctx.report(0.65, "translate")
-        items = [
-            (i, d.text, slot_seconds(d.start_ms, d.end_ms))
-            for i, d in enumerate(drafts)
-        ]
-        translations: dict[int, str] = {}
-        batch = ctx.settings.translation_batch_size
-        for offset in range(0, len(items), batch):
-            chunk = items[offset : offset + batch]
-            translations.update(
-                await _with_retries(
-                    ctx,
-                    lambda c=chunk: engine.translate_batch(
-                        c,
-                        str(project["source_lang"]),
-                        str(project["target_lang"]),
-                    ),
-                    step="translate",
-                )
+        await ctx.report(0.58, "segment_timing")
+        # Breath/pause chunking on word timestamps (local high-quality path).
+        # Never fall back to even time-slicing of diarization turns.
+        if transcribe_result.words:
+            chunks = build_breath_utterances(
+                list(transcribe_result.words),
+                speaker_turns,
+                breath_pause_ms=650,
+                max_duration_ms=max(
+                    8000, round(ctx.settings.speech_segment_max_seconds * 1000 * 3)
+                ),
+                soft_pause_ms=400,
             )
-            done = min(offset + batch, len(items))
-            await ctx.report(0.65 + 0.25 * done / len(items), "translate")
+            if not chunks:
+                chunks = [
+                    UtteranceChunk(
+                        start_ms=draft.start_ms,
+                        end_ms=draft.end_ms,
+                        text=draft.text,
+                        speaker_id="speaker_0",
+                        words=(),
+                    )
+                    for draft in drafts
+                ]
+            chunks = merge_dangling_chunks(
+                chunks,
+                max_gap_ms=1500,
+                max_duration_ms=13000,
+            )
+        else:
+            # Mock / segment-only ASR: keep Whisper drafts (already filtered).
+            chunks = [
+                UtteranceChunk(
+                    start_ms=draft.start_ms,
+                    end_ms=draft.end_ms,
+                    text=draft.text,
+                    speaker_id="speaker_0",
+                    words=(),
+                )
+                for draft in drafts
+            ]
+            if speaker_turns:
+                # Prefer diarization turn text/timing when word tokens are absent.
+                rebuilt: list[UtteranceChunk] = []
+                for start, end, speaker, text in speaker_turns:
+                    clean = (text or "").strip()
+                    if end <= start:
+                        continue
+                    rebuilt.append(
+                        UtteranceChunk(
+                            start_ms=start,
+                            end_ms=end,
+                            text=clean or " ",
+                            speaker_id=speaker or "speaker_0",
+                            words=(),
+                        )
+                    )
+                # Only replace when turns carry usable transcript text.
+                if rebuilt and any(c.text.strip() for c in rebuilt):
+                    chunks = [
+                        UtteranceChunk(
+                            start_ms=c.start_ms,
+                            end_ms=c.end_ms,
+                            text=c.text.strip(),
+                            speaker_id=c.speaker_id,
+                            words=(),
+                        )
+                        for c in rebuilt
+                        if c.text.strip()
+                    ]
+        if not chunks:
+            raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
+
+        chunks = dedupe_boundary_overlaps(chunks)
+
+        await ctx.report(0.62, "correct_asr")
+        correction_items = [(i, c.text) for i, c in enumerate(chunks) if c.text.strip()]
+        try:
+            corrected = await _with_retries(
+                ctx,
+                lambda: engine.correct_transcript(
+                    correction_items, str(project["source_lang"])
+                ),
+                step="correct_asr",
+            )
+            chunks = _apply_corrected_texts(chunks, corrected)
+        except PipelineError as exc:
+            logger.warning("ASR correction skipped: %s", exc)
+            quality_warnings.append("asr_correction_skipped")
+
+        chunks = dedupe_boundary_overlaps(chunks)
+        if not chunks:
+            raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
+
+        speaker_assignments: list[tuple[str | None, bool]] = [
+            (c.speaker_id or "speaker_0", False) for c in chunks
+        ]
+        if bool(project.get("diarization_enabled")) and speaker_turns is None:
+            speaker_assignments = [(None, False) for _ in chunks]
+        elif speaker_turns and all(not text.strip() for *_, text in speaker_turns):
+            speaker_assignments = assign_speakers(
+                [(c.start_ms, c.end_ms) for c in chunks],
+                [
+                    SpeakerTurn(start, end, speaker, text)
+                    for start, end, speaker, text in speaker_turns
+                ],
+            )
+        if any(overlap for _, overlap in speaker_assignments):
+            quality_warnings.append("overlapping_speakers_use_default_voice")
+
+        await ctx.report(0.72, "translate")
+        full_source = " ".join(c.text.strip() for c in chunks if c.text.strip())
+        document_translation = await _with_retries(
+            ctx,
+            lambda: engine.translate_document(
+                full_source,
+                str(project["source_lang"]),
+                str(project["target_lang"]),
+            ),
+            step="translate",
+        )
+        aligned = align_document_translation(chunks, document_translation)
+        chunks, aligned = place_long_units_by_timestamps(chunks, aligned)
+        if len(speaker_assignments) != len(chunks):
+            speaker_assignments = [
+                (c.speaker_id or "speaker_0", False) for c in chunks
+            ]
+
+        drafts = [
+            SegmentDraft(start_ms=c.start_ms, end_ms=c.end_ms, text=c.text)
+            for c in chunks
+        ]
+        translations = {i: text for i, text in enumerate(aligned)}
+
+        await ctx.report(0.85, "voice_removed_preview")
+        try:
+            await _build_and_upload_voice_removed(
+                ctx,
+                engine,
+                source_path=source_path,
+                source_key=str(project["source_key"]),
+                speech_ranges=list(transcribe_result.speech_ranges),
+                scratch=scratch,
+            )
+        except Exception as exc:  # noqa: BLE001 - preview must not fail extract
+            logger.warning("voice-removed preview skipped: %s", exc)
+            quality_warnings.append("voice_removed_preview_skipped")
 
         rows: list[Row] = [
             {
@@ -362,8 +539,12 @@ async def run_transcribe(ctx: JobContext) -> None:
                 "end_ms": d.end_ms,
                 "source_text": d.text,
                 "target_text": translations.get(i, ""),
-                "speaker_id": speaker_assignments[i][0],
-                "speaker_overlap": speaker_assignments[i][1],
+                "speaker_id": speaker_assignments[i][0]
+                if i < len(speaker_assignments)
+                else None,
+                "speaker_overlap": speaker_assignments[i][1]
+                if i < len(speaker_assignments)
+                else False,
             }
             for i, d in enumerate(drafts)
         ]

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { FileUploader } from "@/components/app/FileUploader";
 import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
+import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode, uploadSourceFile } from "@/lib/api";
 import { useVoiceConsent } from "@/lib/consent";
@@ -51,7 +52,9 @@ export default function NewDubPage() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [voiceRemovedUrl, setVoiceRemovedUrl] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [translationPreviewOpen, setTranslationPreviewOpen] = useState(false);
 
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +80,12 @@ export default function NewDubPage() {
       if (Object.keys(baselineSourceRef.current).length === 0) {
         baselineSourceRef.current = snapshotSourceTexts(nextSegments);
       }
+      void api.projects
+        .voiceRemovedUrl(project.id)
+        .then(({ url }) =>
+          setVoiceRemovedUrl((prev) => preferStableMediaUrl(prev, url)),
+        )
+        .catch(() => undefined);
     }
     if (nextProject.status === "completed" && !outputUrl) {
       const { url } = await api.projects.download(project.id);
@@ -295,6 +304,12 @@ export default function NewDubPage() {
           const nextSegments = await api.segments.list(projectId);
           setSegments(nextSegments);
           baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+          void api.projects
+            .voiceRemovedUrl(projectId)
+            .then(({ url }) =>
+              setVoiceRemovedUrl((prev) => preferStableMediaUrl(prev, url)),
+            )
+            .catch(() => undefined);
           return { project: nextProject, segments: nextSegments };
         }
       } else if (
@@ -796,6 +811,14 @@ export default function NewDubPage() {
                 <button
                   type="button"
                   className="btn-ghost"
+                  disabled={segments.length === 0}
+                  onClick={() => setTranslationPreviewOpen(true)}
+                >
+                  {text.viewTranslation}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
                   disabled={editorLocked || retranslating || segments.length === 0}
                   onClick={() => void onRetranslate()}
                 >
@@ -843,9 +866,11 @@ export default function NewDubPage() {
             <h2 className="panel-inline-title">{text.beforeAfter}</h2>
             {sourceUrl ? (
               <BeforeAfterPlayer
-                beforeSrc={sourceUrl}
+                beforeSrc={voiceRemovedUrl ?? sourceUrl}
                 afterSrc={outputUrl ?? ""}
-                beforeLabel={text.beforeOriginal}
+                beforeLabel={
+                  voiceRemovedUrl ? text.beforeVoiceRemoved : text.beforeOriginal
+                }
                 afterLabel={text.afterDubbed}
                 segments={segments}
                 subtitleMode={project.subtitle_mode}
@@ -853,6 +878,13 @@ export default function NewDubPage() {
             ) : (
               <p className="muted">{text.loadingSource}</p>
             )}
+            <TranslationPreviewModal
+              open={translationPreviewOpen}
+              segments={segments}
+              sourceLang={project.source_lang}
+              targetLang={project.target_lang}
+              onClose={() => setTranslationPreviewOpen(false)}
+            />
             {!outputUrl && (
               <p className="muted" style={{ marginTop: "0.75rem" }}>
                 {project.status === "completed" && hasDubVoice

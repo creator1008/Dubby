@@ -143,6 +143,25 @@ async def get_source_url(
     return DownloadUrlResponse(url=url, expires_in=expires_in)
 
 
+@router.get("/{project_id}/voice-removed-url", response_model=DownloadUrlResponse)
+async def get_voice_removed_url(
+    project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
+) -> DownloadUrlResponse:
+    """Presigned GET for the speech-scrubbed preview built during extract."""
+    row = await repo.get_project(user.id, project_id)
+    if row is None:
+        raise NotFoundError("Project not found")
+    source_key = row.get("source_key")
+    if not source_key:
+        raise NotFoundError("Source not uploaded yet")
+    key = storage.meta_key_for_source(str(source_key), "voice_removed.mp4")
+    if await storage.head_object(key) is None:
+        raise NotFoundError("Voice-removed preview not available yet")
+    expires_in = get_settings().download_expires_seconds
+    url = await storage.presign_get(key, expires_in=expires_in)
+    return DownloadUrlResponse(url=url, expires_in=expires_in)
+
+
 @router.get("/{project_id}/output-url", response_model=DownloadUrlResponse)
 async def get_output_url(
     project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage

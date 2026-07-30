@@ -112,8 +112,8 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     whisper_model: str = "whisper-1"
     translation_model: str = "gpt-4o-mini"
-    # Segments per translation request; keeps prompts well under limits.
-    translation_batch_size: int = Field(default=40, ge=1, le=200)
+    # Segments per translation request; smaller batches keep local-quality cohesion.
+    translation_batch_size: int = Field(default=12, ge=1, le=200)
     translation_timing_tolerance: float = Field(default=0.22, ge=0.0, le=1.0)
     speech_segment_max_seconds: float = Field(default=6.0, ge=1.0, le=30.0)
 

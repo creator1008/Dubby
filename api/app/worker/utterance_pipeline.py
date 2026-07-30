@@ -619,6 +619,99 @@ def allocate_target_parts(
     return _split_text_by_weights(target, weights)
 
 
+def _boundary_overlap_chars(left: str, right: str) -> int:
+    """Longest suffix of ``left`` that equals a prefix of ``right`` (min 2 chars)."""
+    a = (left or "").strip()
+    b = (right or "").strip()
+    if not a or not b:
+        return 0
+    max_n = min(len(a), len(b))
+    for n in range(max_n, 1, -1):
+        if a.endswith(b[:n]):
+            return n
+    return 0
+
+
+def dedupe_boundary_overlaps(chunks: list[UtteranceChunk]) -> list[UtteranceChunk]:
+    """Remove duplicated phrase tails/heads between consecutive ASR chunks.
+
+    Whisper often repeats a clause across a breath boundary (e.g. both chunks
+    contain ``놀라는데``). Keep timing; trim the repeated prefix from the next
+    chunk, or merge when the next text is fully contained in the previous.
+    """
+    if not chunks:
+        return []
+    result: list[UtteranceChunk] = [chunks[0]]
+    for nxt in chunks[1:]:
+        prev = result[-1]
+        prev_text = prev.text.strip()
+        nxt_text = nxt.text.strip()
+        if not nxt_text:
+            continue
+        if not prev_text:
+            result.append(nxt)
+            continue
+        # Identical or fully redundant next scrap → extend previous window.
+        compact_prev = re.sub(r"\s+", "", prev_text)
+        compact_nxt = re.sub(r"\s+", "", nxt_text)
+        if compact_nxt == compact_prev or (
+            compact_nxt
+            and compact_prev.endswith(compact_nxt)
+            and len(compact_nxt) >= 2
+        ):
+            result[-1] = UtteranceChunk(
+                start_ms=prev.start_ms,
+                end_ms=max(prev.end_ms, nxt.end_ms),
+                text=prev_text,
+                speaker_id=prev.speaker_id,
+                words=tuple([*prev.words, *nxt.words]) if prev.words or nxt.words else (),
+            )
+            continue
+        overlap = _boundary_overlap_chars(prev_text, nxt_text)
+        if overlap >= 2:
+            trimmed = nxt_text[overlap:].lstrip(" ,،、")
+            if not trimmed:
+                result[-1] = UtteranceChunk(
+                    start_ms=prev.start_ms,
+                    end_ms=max(prev.end_ms, nxt.end_ms),
+                    text=prev_text,
+                    speaker_id=prev.speaker_id,
+                    words=tuple([*prev.words, *nxt.words])
+                    if prev.words or nxt.words
+                    else (),
+                )
+                continue
+            nxt = UtteranceChunk(
+                start_ms=nxt.start_ms,
+                end_ms=nxt.end_ms,
+                text=trimmed,
+                speaker_id=nxt.speaker_id,
+                words=nxt.words,
+            )
+        result.append(nxt)
+    return result
+
+
+def align_document_translation(
+    chunks: list[UtteranceChunk],
+    document_translation: str,
+) -> list[str]:
+    """Lay one full-document translation onto timed source chunks by weight."""
+    if not chunks:
+        return []
+    fine = [
+        FineUtterance(
+            parent_idx=index,
+            start_ms=chunk.start_ms,
+            end_ms=chunk.end_ms,
+            source_text=chunk.text,
+            words=chunk.words,
+        )
+        for index, chunk in enumerate(chunks)
+    ]
+    return allocate_target_parts(document_translation, fine)
+
+
 def _split_text_by_weights(text: str, weights: list[int]) -> list[str]:
     """Split ``text`` into ``len(weights)`` pieces proportional to ``weights``."""
     target = (text or "").strip()

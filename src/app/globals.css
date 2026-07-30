@@ -1946,3 +1946,42 @@ body {
   flex: 1;
   min-height: 2.85rem;
 }
+
+.translation-preview-modal {
+  width: min(100% - 2rem, 720px);
+  max-height: min(88vh, 900px);
+  display: grid;
+  gap: 0.85rem;
+  overflow: hidden;
+}
+
+.translation-preview-help {
+  margin: 0;
+}
+
+.translation-preview-list {
+  display: grid;
+  gap: 0.75rem;
+  overflow: auto;
+  max-height: min(58vh, 620px);
+  padding-right: 0.25rem;
+}
+
+.translation-preview-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+}
+
+.translation-preview-source,
+.translation-preview-target {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.translation-preview-target {
+  opacity: 0.92;
+  font-weight: 500;
+}

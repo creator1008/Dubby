@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -17,7 +17,9 @@ import httpx
 from ..config import Settings
 from ..languages import LANGUAGE_NAMES
 from . import errors
+from .asr_quality import parse_whisper_words, refine_whisper_drafts
 from .errors import PipelineError
+from .utterance_pipeline import TimedToken
 
 logger = logging.getLogger("dubby.worker.openai")
 
@@ -46,42 +48,29 @@ class SegmentDraft:
 class TranscribeResult:
     drafts: list[SegmentDraft]
     speech_ranges: list[tuple[int, int]]
+    words: list[TimedToken] = field(default_factory=list)
 
 
 # --- parsing (pure) -------------------------------------------------------------
 
 
 def parse_whisper_segments(payload: dict) -> list[SegmentDraft]:
-    """verbose_json response -> ordered, non-empty segment drafts.
+    """verbose_json response -> filtered, non-overlapping segment drafts.
 
-    Guarantees the DB constraints: start_ms >= 0 and end_ms > start_ms.
+    Applies local_step12 hallucination filters and long-segment regrouping.
+    Guarantees start_ms >= 0 and end_ms > start_ms.
     """
-    drafts: list[SegmentDraft] = []
-    for seg in payload.get("segments") or []:
-        text = str(seg.get("text", "")).strip()
-        if not text:
-            continue
-        start_ms = max(0, int(round(float(seg.get("start", 0.0)) * 1000)))
-        end_ms = int(round(float(seg.get("end", 0.0)) * 1000))
-        if end_ms <= start_ms:
-            end_ms = start_ms + 1
-        drafts.append(SegmentDraft(start_ms=start_ms, end_ms=end_ms, text=text))
-    return drafts
+    return [
+        SegmentDraft(start_ms=start, end_ms=end, text=text)
+        for start, end, text in refine_whisper_drafts(payload)
+    ]
 
 
 def parse_whisper_word_ranges(payload: dict) -> list[tuple[int, int]]:
     """Word timestamps -> merged voiced ranges (tight gaps only)."""
     from .media import merge_speech_ranges
 
-    ranges: list[tuple[int, int]] = []
-    for word in payload.get("words") or []:
-        if word.get("start") is None or word.get("end") is None:
-            continue
-        text = str(word.get("word", "")).strip()
-        start_ms = max(0, int(round(float(word["start"]) * 1000)))
-        end_ms = int(round(float(word["end"]) * 1000))
-        if text and end_ms > start_ms:
-            ranges.append((start_ms, end_ms))
+    ranges = [(word.start_ms, word.end_ms) for word in parse_whisper_words(payload)]
     merged = merge_speech_ranges(ranges, max_gap_ms=120)
     if merged:
         return merged
@@ -126,7 +115,11 @@ def parse_translation_content(content: str, expected_idxs: list[int]) -> dict[in
 
 
 def build_translation_messages(
-    items: list[tuple[int, str, float]], source_lang: str, target_lang: str
+    items: list[tuple[int, str, float]],
+    source_lang: str,
+    target_lang: str,
+    *,
+    document_context: str | None = None,
 ) -> list[dict]:
     src = LANGUAGE_NAMES.get(source_lang, source_lang)
     tgt = LANGUAGE_NAMES.get(target_lang, target_lang)
@@ -137,17 +130,19 @@ def build_translation_messages(
         "write natural native spoken language for voice-over; retain all "
         "required diacritics; spell numbers and abbreviations as they should "
         "be spoken; never merge, split, drop, or reorder segments; return one "
-        "translation per idx."
+        "translation per idx. Use the full transcript context so pronouns, "
+        "names, tense, and register stay consistent across segments — but still "
+        "translate each idx independently without borrowing words from neighbors."
     )
-    user = json.dumps(
-        {
-            "segments": [
-                {"idx": idx, "text": text, "target_seconds": round(seconds, 2)}
-                for idx, text, seconds in items
-            ]
-        },
-        ensure_ascii=False,
-    )
+    payload: dict[str, object] = {
+        "segments": [
+            {"idx": idx, "text": text, "target_seconds": round(seconds, 2)}
+            for idx, text, seconds in items
+        ]
+    }
+    if document_context and document_context.strip():
+        payload["full_transcript"] = document_context.strip()
+    user = json.dumps(payload, ensure_ascii=False)
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -201,6 +196,8 @@ class OpenAIClient:
             "language": language,
             "response_format": "verbose_json",
             "timestamp_granularities[]": ["word", "segment"],
+            # Deterministic decoding — matches local_step12 quality path.
+            "temperature": "0",
         }
         file_bytes = Path(audio_path).read_bytes()
         files = {"file": (Path(audio_path).name, file_bytes, "audio/mpeg")}
@@ -221,6 +218,7 @@ class OpenAIClient:
         return TranscribeResult(
             drafts=parse_whisper_segments(payload),
             speech_ranges=parse_whisper_word_ranges(payload),
+            words=parse_whisper_words(payload),
         )
 
     async def translate_batch(
@@ -228,12 +226,19 @@ class OpenAIClient:
         items: list[tuple[int, str, float]],
         source_lang: str,
         target_lang: str,
+        *,
+        document_context: str | None = None,
     ) -> dict[int, str]:
         body = {
             "model": self._settings.translation_model,
-            "messages": build_translation_messages(items, source_lang, target_lang),
+            "messages": build_translation_messages(
+                items,
+                source_lang,
+                target_lang,
+                document_context=document_context,
+            ),
             "response_format": _TRANSLATION_SCHEMA,
-            "temperature": 0.2,
+            "temperature": 0.1,
         }
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -259,6 +264,157 @@ class OpenAIClient:
             ) from exc
         return parse_translation_content(content, [idx for idx, _, _ in items])
 
+    async def correct_transcript(
+        self,
+        items: list[tuple[int, str]],
+        language: str,
+    ) -> dict[int, str]:
+        """Context-aware ASR proofreading; returns corrected text per idx."""
+        if not items:
+            return {}
+        lang = LANGUAGE_NAMES.get(language, language)
+        body = {
+            "model": self._settings.translation_model,
+            "temperature": 0,
+            "response_format": _TRANSLATION_SCHEMA,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"You proofread {lang} ASR (speech-to-text) subtitles for "
+                        "dubbing. Fix clear recognition errors using full context "
+                        "(wrong homophones, truncated words, nonsense). Remove "
+                        "duplicated phrases that were repeated across neighboring "
+                        "idxs. Do not rewrite style or add new meaning. Keep each "
+                        "idx as its own subtitle line. Return JSON "
+                        '{"translations":[{"idx":0,"text":"..."}]} — use the same '
+                        "idxs; field name is translations but values are corrected "
+                        "source lines."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "full_transcript": "\n".join(
+                                f"[{idx}] {text}" for idx, text in items
+                            ),
+                            "segments": [
+                                {"idx": idx, "text": text} for idx, text in items
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self._base}/chat/completions",
+                    headers={**self._headers, "Content-Type": "application/json"},
+                    json=body,
+                )
+        except httpx.HTTPError as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                f"ASR correction failed: {exc}",
+                retryable=True,
+            ) from exc
+        _raise_for_status(resp, errors.TRANSLATION_FAILED)
+        try:
+            content = resp.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                "unexpected ASR-correction response shape",
+                retryable=True,
+            ) from exc
+        return parse_translation_content(content, [idx for idx, _ in items])
+
+    async def translate_document(
+        self,
+        source_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> str:
+        """Translate the full corrected transcript as one coherent dubbing script."""
+        src = LANGUAGE_NAMES.get(source_lang, source_lang)
+        tgt = LANGUAGE_NAMES.get(target_lang, target_lang)
+        cleaned = (source_text or "").strip()
+        if not cleaned:
+            return ""
+        if source_lang == target_lang:
+            return cleaned
+        schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "document_translation",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"translation": {"type": "string"}},
+                    "required": ["translation"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+        body = {
+            "model": self._settings.translation_model,
+            "temperature": 0.1,
+            "response_format": schema,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"Translate this complete {src} transcript into natural "
+                        f"spoken {tgt} for voice-over dubbing. Preserve narrative "
+                        "flow, character names, tone, and pronouns consistently. "
+                        "Do not add narrator notes or timestamps. Return JSON "
+                        '{"translation":"..."}.'
+                    ),
+                },
+                {"role": "user", "content": cleaned},
+            ],
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self._base}/chat/completions",
+                    headers={**self._headers, "Content-Type": "application/json"},
+                    json=body,
+                )
+        except httpx.HTTPError as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                f"document translation failed: {exc}",
+                retryable=True,
+            ) from exc
+        _raise_for_status(resp, errors.TRANSLATION_FAILED)
+        try:
+            content = resp.json()["choices"][0]["message"]["content"]
+            data = json.loads(content)
+            text = str(data["translation"]).strip()
+        except (
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                "unexpected document-translation response shape",
+                retryable=True,
+            ) from exc
+        if not text:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                "document translation was empty",
+                retryable=True,
+            )
+        return text
+
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str
     ) -> str:
@@ -274,7 +430,7 @@ class OpenAIClient:
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": text},
             ],
-            "temperature": 0.2,
+            "temperature": 0.1,
         }
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -291,11 +447,10 @@ class OpenAIClient:
             ) from exc
         _raise_for_status(resp, errors.TRANSLATION_FAILED)
         try:
-            result = str(resp.json()["choices"][0]["message"]["content"]).strip()
+            return str(resp.json()["choices"][0]["message"]["content"]).strip()
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise PipelineError(
-                errors.TRANSLATION_FAILED, "unexpected timing rewrite response", retryable=True
+                errors.TRANSLATION_FAILED,
+                "unexpected timing-rewrite response shape",
+                retryable=True,
             ) from exc
-        if not result:
-            raise PipelineError(errors.TRANSLATION_FAILED, "timing rewrite was empty")
-        return result

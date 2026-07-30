@@ -163,6 +163,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     noSourceTextEdits: "원본 텍스트 수정내역이 없습니다.",
     retranslateDone: "수정된 원본 텍스트로 다시 번역했습니다.",
     retranslating: "다시 번역 중…",
+    viewTranslation: "번역보기",
+    viewTranslationTitle: "원본 · 번역 미리보기",
+    viewTranslationHelp:
+      "문맥 보정된 원본과 통번역 결과 쌍입니다. 품질을 확인한 뒤 필요하면 구간을 수정하고 다시번역하세요.",
     renderFinalVideo: "3. 최종 더빙 영상 생성",
     rerenderFinalVideo: "최종 더빙 영상 다시 생성",
     createDubVoice: "2. 더빙 음성 생성",
@@ -367,6 +371,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     noSourceTextEdits: "No edits to the source text.",
     retranslateDone: "Retranslated from the edited source text.",
     retranslating: "Retranslating…",
+    viewTranslation: "View translation",
+    viewTranslationTitle: "Source · translation preview",
+    viewTranslationHelp:
+      "Context-corrected source paired with the full-document translation. Edit segments and retranslate if needed.",
     renderFinalVideo: "3. Create final dubbed video",
     rerenderFinalVideo: "Recreate final dubbed video",
     createDubVoice: "2. Create dubbed voice",
@@ -571,6 +579,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     noSourceTextEdits: "Không có chỉnh sửa văn bản gốc.",
     retranslateDone: "Đã dịch lại từ văn bản gốc đã chỉnh sửa.",
     retranslating: "Đang dịch lại…",
+    viewTranslation: "Xem bản dịch",
+    viewTranslationTitle: "Xem trước gốc · bản dịch",
+    viewTranslationHelp:
+      "Nguồn đã hiệu chỉnh ngữ cảnh ghép với bản dịch toàn văn. Sửa đoạn rồi dịch lại nếu cần.",
     renderFinalVideo: "3. Tạo video lồng tiếng cuối",
     rerenderFinalVideo: "Tạo lại video lồng tiếng cuối",
     createDubVoice: "2. Tạo giọng lồng tiếng",

@@ -621,6 +621,10 @@ export const demoApi = {
         expires_in: 3600,
       };
     },
+    voiceRemovedUrl: async (id: string) => {
+      await requireOwnedProject(id);
+      throw new Error("보이스 제거 미리보기가 아직 없습니다.");
+    },
     sourceFromUrl: async (id: string, url: string) => {
       const project = await requireOwnedProject(id);
       project.status = "uploaded";

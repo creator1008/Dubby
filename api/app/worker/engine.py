@@ -48,8 +48,23 @@ class Engine(ABC):
 
     @abstractmethod
     async def translate_batch(
-        self, items: list[tuple[int, str, float]], source_lang: str, target_lang: str
+        self,
+        items: list[tuple[int, str, float]],
+        source_lang: str,
+        target_lang: str,
+        *,
+        document_context: str | None = None,
     ) -> dict[int, str]: ...
+
+    @abstractmethod
+    async def correct_transcript(
+        self, items: list[tuple[int, str]], language: str
+    ) -> dict[int, str]: ...
+
+    @abstractmethod
+    async def translate_document(
+        self, source_text: str, source_lang: str, target_lang: str
+    ) -> str: ...
 
     @abstractmethod
     async def adjust_translation(
@@ -207,9 +222,31 @@ class RealEngine(Engine):
         return await self.openai.transcribe(asr_audio_path, language)
 
     async def translate_batch(
-        self, items: list[tuple[int, str, float]], source_lang: str, target_lang: str
+        self,
+        items: list[tuple[int, str, float]],
+        source_lang: str,
+        target_lang: str,
+        *,
+        document_context: str | None = None,
     ) -> dict[int, str]:
-        return await self.openai.translate_batch(items, source_lang, target_lang)
+        return await self.openai.translate_batch(
+            items,
+            source_lang,
+            target_lang,
+            document_context=document_context,
+        )
+
+    async def correct_transcript(
+        self, items: list[tuple[int, str]], language: str
+    ) -> dict[int, str]:
+        return await self.openai.correct_transcript(items, language)
+
+    async def translate_document(
+        self, source_text: str, source_lang: str, target_lang: str
+    ) -> str:
+        return await self.openai.translate_document(
+            source_text, source_lang, target_lang
+        )
 
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str
@@ -439,9 +476,27 @@ class MockEngine(Engine):
         )
 
     async def translate_batch(
-        self, items: list[tuple[int, str, float]], source_lang: str, target_lang: str
+        self,
+        items: list[tuple[int, str, float]],
+        source_lang: str,
+        target_lang: str,
+        *,
+        document_context: str | None = None,
     ) -> dict[int, str]:
+        del source_lang, document_context
         return {idx: f"[{target_lang}] {text}" for idx, text, _ in items}
+
+    async def correct_transcript(
+        self, items: list[tuple[int, str]], language: str
+    ) -> dict[int, str]:
+        del language
+        return {idx: text for idx, text in items}
+
+    async def translate_document(
+        self, source_text: str, source_lang: str, target_lang: str
+    ) -> str:
+        del source_lang
+        return f"[{target_lang}] {source_text}"
 
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str

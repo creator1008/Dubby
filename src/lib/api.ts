@@ -65,6 +65,10 @@ const realApi = {
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/output-url`),
     sourceUrl: (id: string) =>
       request<{ url: string; expires_in: number }>(`/v1/projects/${id}/source-url`),
+    voiceRemovedUrl: (id: string) =>
+      request<{ url: string; expires_in: number }>(
+        `/v1/projects/${id}/voice-removed-url`,
+      ),
     sourceFromUrl: (id: string, url: string) =>
       request<Project>(`/v1/projects/${id}/source-from-url`, {
         method: "POST",

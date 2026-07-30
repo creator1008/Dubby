@@ -93,11 +93,16 @@ def build_audio_extract_cmd(
 
 
 def build_asr_audio_cmd(settings: Settings, source: str, mp3_out: str) -> list[str]:
-    """Compact mono MP3 that stays under the Whisper API's 25 MB cap."""
+    """Compact mono MP3 that stays under the Whisper API's 25 MB cap.
+
+    Matches local_step12 speech band-limiting (highpass/lowpass) before 16 kHz
+    downsample so Whisper sees cleaner dialogue and fewer music hallucinations.
+    """
     return [
         settings.ffmpeg_path, "-y", "-nostdin",
         "-i", source,
         "-vn",
+        "-af", "highpass=f=60,lowpass=f=7800",
         "-acodec", "libmp3lame",
         "-ar", "16000",
         "-ac", "1",
@@ -412,7 +417,8 @@ def build_mux_cmd(
         ]
     cmd += [
         "-c:a", "aac",
-        "-b:a", "192k",
+        "-b:a", "256k",
+        "-ar", "48000",
         "-movflags", "+faststart",
         "-shortest",
         output_mp4,

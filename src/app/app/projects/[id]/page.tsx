@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
+import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode } from "@/lib/api";
 import { downloadAndShare } from "@/lib/mobile";
@@ -26,7 +27,9 @@ function ProjectEditor() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [voiceRemovedUrl, setVoiceRemovedUrl] = useState<string | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [translationPreviewOpen, setTranslationPreviewOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,6 +56,18 @@ function ProjectEditor() {
           setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
         )
         .catch(() => setSourceUrl(null));
+      if (
+        nextProject.status === "ready_for_edit" ||
+        nextProject.status === "completed" ||
+        nextProject.status === "dubbing"
+      ) {
+        void api.projects
+          .voiceRemovedUrl(projectId)
+          .then(({ url }) =>
+            setVoiceRemovedUrl((prev) => preferStableMediaUrl(prev, url)),
+          )
+          .catch(() => undefined);
+      }
     }
     if (nextProject.status === "completed") {
       void api.projects
@@ -281,9 +296,11 @@ function ProjectEditor() {
           <h2 className="panel-inline-title">{text.beforeAfter}</h2>
           {sourceUrl ? (
             <BeforeAfterPlayer
-              beforeSrc={sourceUrl}
+              beforeSrc={voiceRemovedUrl ?? sourceUrl}
               afterSrc={outputUrl ?? ""}
-              beforeLabel={text.beforeOriginal}
+              beforeLabel={
+                voiceRemovedUrl ? text.beforeVoiceRemoved : text.beforeOriginal
+              }
               afterLabel={text.afterDubbed}
               segments={segments}
               subtitleMode={project.subtitle_mode}
@@ -291,6 +308,13 @@ function ProjectEditor() {
           ) : (
             <p className="muted">{text.noSourceVideo}</p>
           )}
+          <TranslationPreviewModal
+            open={translationPreviewOpen}
+            segments={segments}
+            sourceLang={project.source_lang}
+            targetLang={project.target_lang}
+            onClose={() => setTranslationPreviewOpen(false)}
+          />
         </div>
 
         <div className="app-panel">
@@ -366,6 +390,14 @@ function ProjectEditor() {
                 onClick={() => void save().catch((err: Error) => setError(err.message))}
               >
                 {text.saveSubtitles}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={segments.length === 0}
+                onClick={() => setTranslationPreviewOpen(true)}
+              >
+                {text.viewTranslation}
               </button>
               <button
                 type="button"

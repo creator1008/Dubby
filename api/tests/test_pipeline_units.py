@@ -274,15 +274,53 @@ def test_parse_whisper_segments_orders_and_clamps() -> None:
     payload = {
         "segments": [
             {"start": 0.0, "end": 2.5, "text": " Hello "},
-            {"start": 2.5, "end": 2.5, "text": "tiny"},  # zero-length -> +1ms
+            {"start": 2.5, "end": 2.5, "text": "tiny"},  # zero-length dropped
             {"start": 3.0, "end": 4.0, "text": "   "},  # empty -> dropped
+            {
+                "start": 4.0,
+                "end": 5.0,
+                "text": "World",
+                "no_speech_prob": 0.1,
+                "avg_logprob": -0.2,
+                "compression_ratio": 1.2,
+            },
         ]
     }
     drafts = parse_whisper_segments(payload)
     assert len(drafts) == 2
     assert drafts[0].start_ms == 0 and drafts[0].end_ms == 2500
     assert drafts[0].text == "Hello"
-    assert drafts[1].end_ms == drafts[1].start_ms + 1
+    assert drafts[1].text == "World"
+
+
+def test_parse_whisper_drops_hallucinated_loop() -> None:
+    from app.worker.asr_quality import whisper_segment_is_hallucination
+
+    segment = {
+        "start": 0.0,
+        "end": 2.0,
+        "text": "la la la la la la",
+        "compression_ratio": 3.0,
+        "no_speech_prob": 0.1,
+        "avg_logprob": -0.1,
+    }
+    assert whisper_segment_is_hallucination(segment)
+    assert parse_whisper_segments({"segments": [segment]}) == []
+
+
+def test_build_translation_messages_include_document_context() -> None:
+    from app.worker.openai_client import build_translation_messages
+    import json
+
+    messages = build_translation_messages(
+        [(0, "안녕", 1.5)],
+        "ko",
+        "en",
+        document_context="[0] 안녕\n[1] 친구야",
+    )
+    user = json.loads(messages[1]["content"])
+    assert user["full_transcript"].startswith("[0]")
+    assert "consistent" in messages[0]["content"] or "context" in messages[0]["content"]
 
 
 def test_parse_translation_content_roundtrip() -> None:
