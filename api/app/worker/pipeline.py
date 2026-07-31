@@ -545,24 +545,9 @@ async def run_transcribe(ctx: JobContext) -> None:
             for c in chunks
         ]
 
-        await ctx.report(0.85, "voice_removed_preview")
-        try:
-            segment_bounds = [(c.start_ms, c.end_ms) for c in chunks]
-            scrub_ranges = voice_removal_ranges(
-                list(transcribe_result.speech_ranges),
-                segment_bounds,
-            )
-            await _build_and_upload_voice_removed(
-                ctx,
-                engine,
-                source_path=source_path,
-                source_key=str(project["source_key"]),
-                speech_ranges=scrub_ranges,
-                scratch=scratch,
-            )
-        except Exception as exc:  # noqa: BLE001 - preview must not fail extract
-            logger.warning("voice-removed preview skipped: %s", exc)
-            quality_warnings.append("voice_removed_preview_skipped")
+        # Skip voice-removed preview video: a second Demucs + mux pass was the
+        # slowest part of extract and is unused once Before uses the original.
+        await ctx.report(0.85, "prepare_segments")
 
         rows: list[Row] = [
             {
