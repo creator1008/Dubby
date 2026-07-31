@@ -25,6 +25,11 @@ function markHealthy(origin: string): string {
   return origin;
 }
 
+/** Drop the in-memory healthy-origin cache (e.g. before a periodic re-check). */
+export function invalidateApiOriginCache(): void {
+  healthyOriginCache = null;
+}
+
 function normalizeApiOrigin(value: string | null | undefined): string | null {
   const raw = (value || "").trim().replace(/\/$/, "");
   if (!raw) return null;
@@ -34,6 +39,15 @@ function normalizeApiOrigin(value: string | null | undefined): string | null {
     return url.origin;
   } catch {
     return null;
+  }
+}
+
+function forgetApiOrigin(): void {
+  healthyOriginCache = null;
+  try {
+    window.localStorage.removeItem(API_ORIGIN_STORAGE_KEY);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -51,8 +65,12 @@ export function getApiOrigin(): string {
   if (typeof window !== "undefined") {
     try {
       const params = new URLSearchParams(window.location.search);
-      const fromQuery = normalizeApiOrigin(params.get("api"));
-      if (fromQuery) return rememberApiOrigin(fromQuery);
+      if (params.get("api") === "clear") {
+        forgetApiOrigin();
+      } else {
+        const fromQuery = normalizeApiOrigin(params.get("api"));
+        if (fromQuery) return rememberApiOrigin(fromQuery);
+      }
       const fromStorage = normalizeApiOrigin(
         window.localStorage.getItem(API_ORIGIN_STORAGE_KEY),
       );
@@ -64,22 +82,33 @@ export function getApiOrigin(): string {
   return BUILTIN_API_ORIGIN;
 }
 
-/** Pull the latest tunnel URL published to GitHub Pages (no rebuild required for clients that already cache this file fetch). */
-export async function fetchPublishedApiOrigin(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
+async function readOriginPointer(url: string): Promise<string | null> {
   try {
-    const response = await fetch(
-      `${withBasePath("/api-origin.json")}?t=${Date.now()}`,
-      { cache: "no-store" },
-    );
+    const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) return null;
     const body = (await response.json()) as { api_origin?: string };
-    const origin = normalizeApiOrigin(body.api_origin);
-    if (!origin) return null;
-    return rememberApiOrigin(origin);
+    return normalizeApiOrigin(body.api_origin);
   } catch {
     return null;
   }
+}
+
+/**
+ * Pull the latest tunnel URL. Prefer GitHub raw (updates seconds after push)
+ * then the Pages copy (may lag until the static deploy finishes).
+ */
+export async function fetchPublishedApiOrigin(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const stamp = Date.now();
+  const candidates = [
+    `https://raw.githubusercontent.com/creator1008/Dubby/main/public/api-origin.json?t=${stamp}`,
+    `${withBasePath("/api-origin.json")}?t=${stamp}`,
+  ];
+  for (const url of candidates) {
+    const origin = await readOriginPointer(url);
+    if (origin) return rememberApiOrigin(origin);
+  }
+  return null;
 }
 
 async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
@@ -91,7 +120,9 @@ async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
       cache: "no-store",
       signal: controller.signal,
     });
-    return response.ok;
+    if (!response.ok) return false;
+    const text = await response.text();
+    return text.includes('"status"') && text.includes("ok");
   } catch {
     return false;
   } finally {
@@ -118,19 +149,17 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
     return markHealthy(current);
   }
 
+  // Stale localStorage/build-time tunnel — drop it so the UI stops showing
+  // the dead cake-washing URL while we look up the published pointer.
+  if (current) forgetApiOrigin();
+
   const published = await fetchPublishedApiOrigin();
-  if (
-    published &&
-    published !== current &&
-    (await healthOk(published, timeoutMs))
-  ) {
+  if (published && (await healthOk(published, timeoutMs))) {
     return markHealthy(published);
   }
 
-  // Also try build-time origin if localStorage pointed at a stale tunnel.
   if (
     BUILTIN_API_ORIGIN &&
-    BUILTIN_API_ORIGIN !== current &&
     BUILTIN_API_ORIGIN !== published &&
     (await healthOk(BUILTIN_API_ORIGIN, timeoutMs))
   ) {
@@ -145,8 +174,8 @@ function apiUnreachableMessage(): string {
   const origin = getApiOrigin() || "(미설정)";
   return (
     `API 서버(${origin})에 연결할 수 없습니다(Failed to fetch). ` +
-    "PC에서 `bash scripts/keep-api-tunnel.sh` 로 터널을 다시 열어 주세요. " +
-    "이미 새 터널이 배포됐다면 화면을 새로고침하면 자동으로 주소를 갱신합니다."
+    "PC에서 `bash scripts/keep-api-tunnel.sh` 로 터널을 다시 연 뒤, " +
+    "폰에서 화면을 새로고침하세요. 주소가 바뀌면 ?api=https://….trycloudflare.com 링크를 한 번 열면 저장됩니다."
   );
 }
 

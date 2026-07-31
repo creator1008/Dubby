@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, ensureApiOrigin } from "@/lib/api";
+import { api, ensureApiOrigin, invalidateApiOriginCache } from "@/lib/api";
 import { LanguageSwitcher } from "@/components/landing/LanguageSwitcher";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
@@ -41,12 +41,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setInstallAvailable(shouldOfferPwaInstall());
   }, []);
 
-  // Refresh API tunnel URL from Pages-hosted api-origin.json when the
+  // Refresh API tunnel URL from the published pointer when the
   // build-time / localStorage origin is dead (common with quick tunnels).
   useEffect(() => {
-    void ensureApiOrigin().catch(() => {
-      /* surface on the next API call */
-    });
+    const refresh = () => {
+      invalidateApiOriginCache();
+      void ensureApiOrigin().catch(() => {
+        /* surface on the next API call */
+      });
+    };
+    refresh();
+    const id = window.setInterval(refresh, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {

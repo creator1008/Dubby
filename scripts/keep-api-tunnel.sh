@@ -68,17 +68,29 @@ start_tunnel() {
     exit 1
   fi
   local code=000
-  for _ in $(seq 1 20); do
-    # Prefer dual-stack; local resolvers sometimes lack A records briefly.
+  local host="${url#https://}"
+  for _ in $(seq 1 25); do
+    # Local resolvers (ISP/router) often lag or omit A records for new
+    # trycloudflare hostnames — probe via public DNS + --resolve.
+    local a4=""
+    a4="$(nslookup "$host" 1.1.1.1 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | grep -vE '^(1\.1\.1\.1|8\.8\.8\.8)$' | head -1 || true)"
+    if [[ -n "$a4" ]]; then
+      code="$(curl --resolve "$host:443:$a4" -sS -m 12 -o /tmp/dubby-hz.json -w '%{http_code}' "$url/healthz" 2>/dev/null || echo 000)"
+      if [[ "$code" == "200" ]] && grep -q '"status"' /tmp/dubby-hz.json 2>/dev/null; then
+        break
+      fi
+    fi
     code="$(curl -sS -m 12 -o /tmp/dubby-hz.json -w '%{http_code}' "$url/healthz" 2>/dev/null || echo 000)"
-    [[ "$code" == "200" ]] && break
+    if [[ "$code" == "200" ]] && grep -q '"status"' /tmp/dubby-hz.json 2>/dev/null; then
+      break
+    fi
     code="$(curl -6 -sS -m 12 -o /tmp/dubby-hz.json -w '%{http_code}' "$url/healthz" 2>/dev/null || echo 000)"
-    [[ "$code" == "200" ]] && break
-    code="$(curl -4 -sS -m 12 -o /tmp/dubby-hz.json -w '%{http_code}' "$url/healthz" 2>/dev/null || echo 000)"
-    [[ "$code" == "200" ]] && break
+    if [[ "$code" == "200" ]] && grep -q '"status"' /tmp/dubby-hz.json 2>/dev/null; then
+      break
+    fi
     sleep 2
   done
-  if [[ "$code" != "200" ]]; then
+  if [[ "$code" != "200" ]] || ! grep -q '"status"' /tmp/dubby-hz.json 2>/dev/null; then
     echo "ERROR: tunnel health failed ($code)"
     tail -n 40 "$LOG" || true
     exit 1
