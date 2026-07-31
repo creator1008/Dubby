@@ -7,6 +7,7 @@ import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode, uploadSourceFile } from "@/lib/api";
+import { formatPipelineError } from "@/lib/job-labels";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
 import { preferStableMediaUrl } from "@/lib/media-url";
@@ -292,7 +293,9 @@ export default function NewDubPage() {
       const job = nextJobs.find((row) => row.kind === kind);
       if (job?.status === "failed" || nextProject.status === "failed") {
         throw new Error(
-          job?.error || nextProject.error || `${kind} 작업이 실패했습니다.`,
+          formatPipelineError(
+            job?.error || nextProject.error || `${kind} 작업이 실패했습니다.`,
+          ),
         );
       }
       if (kind === "transcribe") {

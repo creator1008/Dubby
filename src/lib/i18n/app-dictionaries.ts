@@ -110,7 +110,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     fileTooLarge: "파일이 너무 큽니다.",
     selectAnotherFile: "다른 파일 선택",
     dropFile: "탭하여 영상·오디오 선택",
-    fileHint: "갤러리 또는 파일 · MP4 권장 · 모바일은 짧은 클립 권장",
+    fileHint: "갤러리 또는 파일 · MP4 권장 · 최대 10분 · 모바일은 짧은 클립 권장",
     newDubDescription:
       "실제 오디오 추출과 화자·시간 간격 기반 음성 타임스탬프를 검증합니다.",
     fileAndSubtitle: "1. 파일 선택 및 자막 추출",
@@ -120,7 +120,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLink: "영상 링크",
     videoLinkPlaceholder: "https://www.youtube.com/watch?v=… 또는 MP4 URL",
     videoLinkHint:
-      "YouTube · Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM 링크 (최대 500MB)",
+      "YouTube · Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM 링크 (최대 10분 · 500MB)",
     fetchingLink: "링크에서 영상 가져오는 중",
     linkAndExtract: "1. 링크로 가져오기 및 자막 추출",
     selectVideoFile: "영상 파일을 선택해 주세요.",

@@ -103,3 +103,53 @@ export function jobMessageLabel(message: string | null | undefined, locale: Loca
   }
   return MESSAGE_LABELS[locale][message] ?? message;
 }
+
+const PIPELINE_ERROR_KO: Record<string, string> = {
+  source_too_long: "영상이 너무 깁니다. 현재 최대 10분(600초)까지 자막 추출할 수 있습니다.",
+  source_too_large: "파일이 너무 큽니다. 최대 500MB까지 업로드할 수 있습니다.",
+  source_unsupported_container: "지원하지 않는 영상 형식입니다. MP4를 사용해 주세요.",
+  source_no_audio: "영상에 오디오가 없습니다.",
+  probe_failed: "영상 정보를 읽지 못했습니다. 다른 파일로 다시 시도해 주세요.",
+  worker_timeout: "작업 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+};
+
+const PIPELINE_ERROR_EN: Record<string, string> = {
+  source_too_long: "Video is too long. Subtitle extraction supports up to 10 minutes (600s).",
+  source_too_large: "File is too large. Maximum upload size is 500MB.",
+  source_unsupported_container: "Unsupported media format. Please use MP4.",
+  source_no_audio: "This media has no audio track.",
+  probe_failed: "Could not read media info. Try another file.",
+  worker_timeout: "The job timed out. Please try again shortly.",
+};
+
+const PIPELINE_ERROR_VI: Record<string, string> = {
+  source_too_long: "Video quá dài. Hiện chỉ hỗ trợ trích xuất phụ đề tối đa 10 phút (600 giây).",
+  source_too_large: "File quá lớn. Giới hạn tải lên là 500MB.",
+  source_unsupported_container: "Định dạng không hỗ trợ. Hãy dùng MP4.",
+  source_no_audio: "Media không có âm thanh.",
+  probe_failed: "Không đọc được thông tin media. Thử file khác.",
+  worker_timeout: "Công việc bị quá thời gian. Vui lòng thử lại sau.",
+};
+
+/** Map worker error strings like ``source_too_long: …`` to user-facing copy. */
+export function formatPipelineError(
+  error: string | null | undefined,
+  locale: Locale = "ko",
+): string {
+  const raw = (error || "").trim();
+  if (!raw) {
+    return locale === "en"
+      ? "The job failed."
+      : locale === "vi"
+        ? "Công việc thất bại."
+        : "작업이 실패했습니다.";
+  }
+  const code = raw.split(":", 1)[0]?.trim() || raw;
+  const table =
+    locale === "en"
+      ? PIPELINE_ERROR_EN
+      : locale === "vi"
+        ? PIPELINE_ERROR_VI
+        : PIPELINE_ERROR_KO;
+  return table[code] ?? raw;
+}
