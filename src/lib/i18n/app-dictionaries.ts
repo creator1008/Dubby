@@ -321,7 +321,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     fileTooLarge: "The file is too large.",
     selectAnotherFile: "Choose another file",
     dropFile: "Tap to choose video or audio",
-    fileHint: "Gallery or files · MP4 recommended · shorter clips work better on mobile",
+    fileHint: "Gallery or files · MP4 recommended · max 10 min · shorter clips work better on mobile",
     newDubDescription:
       "Verify real audio extraction and speaker/time-interval speech timestamps.",
     fileAndSubtitle: "1. Select file and extract subtitles",
@@ -331,7 +331,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLink: "Video link",
     videoLinkPlaceholder: "https://www.youtube.com/watch?v=… or MP4 URL",
     videoLinkHint:
-      "YouTube · Facebook · TikTok page URLs, or direct MP4/WebM links (max 500MB)",
+      "YouTube · Facebook · TikTok page URLs, or direct MP4/WebM links (max 10 min · 500MB)",
     fetchingLink: "Fetching video from link",
     linkAndExtract: "1. Fetch link and extract subtitles",
     selectVideoFile: "Please choose a video file.",
@@ -532,7 +532,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     fileTooLarge: "Tệp quá lớn.",
     selectAnotherFile: "Chọn tệp khác",
     dropFile: "Chạm để chọn video hoặc âm thanh",
-    fileHint: "Thư viện hoặc tệp · khuyến nghị MP4 · clip ngắn hơn trên mobile",
+    fileHint: "Thư viện hoặc tệp · khuyến nghị MP4 · tối đa 10 phút · clip ngắn hơn trên mobile",
     newDubDescription:
       "Kiểm tra trích xuất âm thanh và mốc thời gian theo người nói/khoảng thời gian.",
     fileAndSubtitle: "1. Chọn tệp và trích xuất phụ đề",
@@ -542,7 +542,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLink: "Liên kết video",
     videoLinkPlaceholder: "https://www.youtube.com/watch?v=… hoặc URL MP4",
     videoLinkHint:
-      "URL trang YouTube · Facebook · TikTok, hoặc liên kết MP4/WebM trực tiếp (tối đa 500MB)",
+      "URL trang YouTube · Facebook · TikTok, hoặc liên kết MP4/WebM trực tiếp (tối đa 10 phút · 500MB)",
     fetchingLink: "Đang lấy video từ liên kết",
     linkAndExtract: "1. Lấy liên kết và trích xuất phụ đề",
     selectVideoFile: "Hãy chọn một tệp video.",
