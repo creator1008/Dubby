@@ -67,6 +67,35 @@ export class ApiError extends Error {
   }
 }
 
+/** Lightweight reachability check used before long extract/dub flows. */
+export async function pingApi(timeoutMs = 8000): Promise<void> {
+  const apiOrigin = getApiOrigin();
+  if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${apiOrigin}/healthz`, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new ApiError(apiUnreachableMessage(), 0);
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(apiUnreachableMessage(), 0);
+    }
+    if (err instanceof TypeError) {
+      throw new ApiError(apiUnreachableMessage(), 0);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 async function requestBlob(path: string): Promise<Blob> {
   const supabase = getSupabase();
   const { data } = supabase
@@ -111,6 +140,10 @@ async function requestBlob(path: string): Promise<Blob> {
   }
 }
 
+async function sleep(ms: number) {
+  await new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const supabase = getSupabase();
   const { data } = supabase
@@ -120,28 +153,44 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const apiOrigin = getApiOrigin();
   if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
 
-  let response: Response;
-  try {
-    response = await fetch(`${apiOrigin}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${data.session.access_token}`,
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
-        ...init?.headers,
-      },
-    });
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new ApiError(apiUnreachableMessage(), 0);
+  const method = (init?.method || "GET").toUpperCase();
+  const retries = method === "GET" || method === "HEAD" ? 3 : 2;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(`${apiOrigin}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${data.session.access_token}`,
+          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...init?.headers,
+        },
+      });
+    } catch (err) {
+      lastError = err;
+      if (err instanceof TypeError && attempt < retries) {
+        await sleep(700 * attempt);
+        continue;
+      }
+      if (err instanceof TypeError) {
+        throw new ApiError(apiUnreachableMessage(), 0);
+      }
+      throw err;
     }
-    throw err;
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new ApiError(body?.detail ?? `요청 실패 (${response.status})`, response.status);
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
   }
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    throw new ApiError(body?.detail ?? `요청 실패 (${response.status})`, response.status);
+  if (lastError instanceof TypeError) {
+    throw new ApiError(apiUnreachableMessage(), 0);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  throw lastError instanceof Error
+    ? lastError
+    : new ApiError(apiUnreachableMessage(), 0);
 }
 
 const realApi = {

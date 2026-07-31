@@ -6,7 +6,7 @@ import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
-import { ApiError, api, isDemoMode, uploadSourceFile } from "@/lib/api";
+import { ApiError, api, isDemoMode, pingApi, uploadSourceFile } from "@/lib/api";
 import { formatPipelineError } from "@/lib/job-labels";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
@@ -126,6 +126,10 @@ export default function NewDubPage() {
   };
 
   const runExtract = async (trimmedUrl: string) => {
+    if (!isDemoMode) {
+      setLocalStage("API 연결 확인 중…");
+      await pingApi();
+    }
     const projectTitle =
       title.trim() ||
       (inputMode === "file" && file
