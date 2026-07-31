@@ -2560,9 +2560,8 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
         selective_bed,
     )
 
-    # Keep the intermediate selectively voice-removed video for inspection.
-    voice_removed = work_dir / "voice_removed.mp4"
-    _mux_video(source, selective_bed, voice_removed)
+    # Selective bed is required for the final mix; skip the inspection
+    # voice_removed.mp4 mux (slow and unused in the mobile editor).
 
     fitted_dir = work_dir / "fitted_dub"
     fitted_dir.mkdir(exist_ok=True)
