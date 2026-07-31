@@ -82,8 +82,8 @@ class Settings(BaseSettings):
     scratch_dir: str = ""
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
-    # Source validation limits (MVP): <= 10 minutes, <= 500 MB.
-    max_source_duration_seconds: float = 600.0
+    # Source validation limits (MVP): <= 30 minutes, <= 500 MB.
+    max_source_duration_seconds: float = 1800.0
     max_source_bytes: int = 500 * 1024 * 1024
     # ffprobe format names accepted for source videos (comma separated).
     allowed_source_containers: str = "mp4,mov,m4a,3gp,3g2,mj2,matroska,webm"

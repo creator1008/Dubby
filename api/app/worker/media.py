@@ -458,7 +458,7 @@ def parse_probe_output(payload: str, size_bytes: int) -> MediaInfo:
 
 
 def validate_source(info: MediaInfo, settings: Settings) -> None:
-    """MVP guardrails: container allow-list, <= 10 min, <= 500 MB, has audio."""
+    """MVP guardrails: container allow-list, <= 30 min, <= 500 MB, has audio."""
     if info.size_bytes > settings.max_source_bytes:
         raise PipelineError(
             errors.SOURCE_TOO_LARGE,

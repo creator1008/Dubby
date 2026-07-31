@@ -105,7 +105,7 @@ export function jobMessageLabel(message: string | null | undefined, locale: Loca
 }
 
 const PIPELINE_ERROR_KO: Record<string, string> = {
-  source_too_long: "영상이 너무 깁니다. 현재 최대 10분(600초)까지 자막 추출할 수 있습니다.",
+  source_too_long: "영상이 너무 깁니다. 현재 최대 30분(1800초)까지 자막 추출할 수 있습니다.",
   source_too_large: "파일이 너무 큽니다. 최대 500MB까지 업로드할 수 있습니다.",
   source_unsupported_container: "지원하지 않는 영상 형식입니다. MP4를 사용해 주세요.",
   source_no_audio: "영상에 오디오가 없습니다.",
@@ -114,7 +114,7 @@ const PIPELINE_ERROR_KO: Record<string, string> = {
 };
 
 const PIPELINE_ERROR_EN: Record<string, string> = {
-  source_too_long: "Video is too long. Subtitle extraction supports up to 10 minutes (600s).",
+  source_too_long: "Video is too long. Subtitle extraction supports up to 30 minutes (1800s).",
   source_too_large: "File is too large. Maximum upload size is 500MB.",
   source_unsupported_container: "Unsupported media format. Please use MP4.",
   source_no_audio: "This media has no audio track.",
@@ -123,7 +123,7 @@ const PIPELINE_ERROR_EN: Record<string, string> = {
 };
 
 const PIPELINE_ERROR_VI: Record<string, string> = {
-  source_too_long: "Video quá dài. Hiện chỉ hỗ trợ trích xuất phụ đề tối đa 10 phút (600 giây).",
+  source_too_long: "Video quá dài. Hiện chỉ hỗ trợ trích xuất phụ đề tối đa 30 phút (1800 giây).",
   source_too_large: "File quá lớn. Giới hạn tải lên là 500MB.",
   source_unsupported_container: "Định dạng không hỗ trợ. Hãy dùng MP4.",
   source_no_audio: "Media không có âm thanh.",
