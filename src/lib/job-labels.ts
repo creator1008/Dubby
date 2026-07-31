@@ -111,6 +111,8 @@ const PIPELINE_ERROR_KO: Record<string, string> = {
   source_no_audio: "영상에 오디오가 없습니다.",
   probe_failed: "영상 정보를 읽지 못했습니다. 다른 파일로 다시 시도해 주세요.",
   worker_timeout: "작업 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+  "[Errno 11001] getaddrinfo failed":
+    "서버 네트워크(DNS) 오류로 작업이 중단되었습니다. 잠시 후 다시 추출해 주세요.",
 };
 
 const PIPELINE_ERROR_EN: Record<string, string> = {
@@ -120,6 +122,8 @@ const PIPELINE_ERROR_EN: Record<string, string> = {
   source_no_audio: "This media has no audio track.",
   probe_failed: "Could not read media info. Try another file.",
   worker_timeout: "The job timed out. Please try again shortly.",
+  "[Errno 11001] getaddrinfo failed":
+    "A server network (DNS) error stopped the job. Please retry shortly.",
 };
 
 const PIPELINE_ERROR_VI: Record<string, string> = {
@@ -129,6 +133,8 @@ const PIPELINE_ERROR_VI: Record<string, string> = {
   source_no_audio: "Media không có âm thanh.",
   probe_failed: "Không đọc được thông tin media. Thử file khác.",
   worker_timeout: "Công việc bị quá thời gian. Vui lòng thử lại sau.",
+  "[Errno 11001] getaddrinfo failed":
+    "Lỗi mạng (DNS) máy chủ làm dừng công việc. Vui lòng thử lại sau.",
 };
 
 /** Map worker error strings like ``source_too_long: …`` to user-facing copy. */
@@ -144,12 +150,22 @@ export function formatPipelineError(
         ? "Công việc thất bại."
         : "작업이 실패했습니다.";
   }
-  const code = raw.split(":", 1)[0]?.trim() || raw;
   const table =
     locale === "en"
       ? PIPELINE_ERROR_EN
       : locale === "vi"
         ? PIPELINE_ERROR_VI
         : PIPELINE_ERROR_KO;
+  if (/getaddrinfo failed|Errno 11001/i.test(raw)) {
+    return (
+      table["[Errno 11001] getaddrinfo failed"] ??
+      (locale === "en"
+        ? "A server network (DNS) error stopped the job. Please retry shortly."
+        : locale === "vi"
+          ? "Lỗi mạng (DNS) máy chủ làm dừng công việc. Vui lòng thử lại sau."
+          : "서버 네트워크(DNS) 오류로 작업이 중단되었습니다. 잠시 후 다시 추출해 주세요.")
+    );
+  }
+  const code = raw.split(":", 1)[0]?.trim() || raw;
   return table[code] ?? raw;
 }

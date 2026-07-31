@@ -6,7 +6,7 @@ import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
-import { api, isDemoMode, uploadSourceFile } from "@/lib/api";
+import { ApiError, api, isDemoMode, uploadSourceFile } from "@/lib/api";
 import { formatPipelineError } from "@/lib/job-labels";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
@@ -275,65 +275,82 @@ export default function NewDubPage() {
     setLocalStage(stageLabel);
     const started = Date.now();
     const timeoutMs = 45 * 60 * 1000;
+    let networkFailStreak = 0;
     while (Date.now() - started < timeoutMs) {
-      const [nextProject, nextJobs] = await Promise.all([
-        api.projects.get(projectId),
-        api.jobs.list(projectId),
-      ]);
-      setProject(nextProject);
-      setJobs(nextJobs);
-      if (nextProject.source_key) {
-        void api.projects
-          .sourceUrl(projectId)
-          .then(({ url }) =>
-            setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
-          )
-          .catch(() => undefined);
-      }
-      const job = nextJobs.find((row) => row.kind === kind);
-      if (job?.status === "failed" || nextProject.status === "failed") {
-        throw new Error(
-          formatPipelineError(
-            job?.error || nextProject.error || `${kind} 작업이 실패했습니다.`,
-          ),
-        );
-      }
-      if (kind === "transcribe") {
-        if (
-          job?.status === "completed" ||
-          nextProject.status === "ready_for_edit" ||
-          nextProject.status === "completed"
-        ) {
-          const nextSegments = await api.segments.list(projectId);
-          setSegments(nextSegments);
-          baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+      try {
+        const [nextProject, nextJobs] = await Promise.all([
+          api.projects.get(projectId),
+          api.jobs.list(projectId),
+        ]);
+        networkFailStreak = 0;
+        setError(null);
+        setProject(nextProject);
+        setJobs(nextJobs);
+        if (nextProject.source_key) {
           void api.projects
-            .voiceRemovedUrl(projectId)
+            .sourceUrl(projectId)
             .then(({ url }) =>
-              setVoiceRemovedUrl((prev) => preferStableMediaUrl(prev, url)),
+              setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
             )
             .catch(() => undefined);
+        }
+        const job = nextJobs.find((row) => row.kind === kind);
+        if (job?.status === "failed" || nextProject.status === "failed") {
+          throw new Error(
+            formatPipelineError(
+              job?.error || nextProject.error || `${kind} 작업이 실패했습니다.`,
+            ),
+          );
+        }
+        if (kind === "transcribe") {
+          if (
+            job?.status === "completed" ||
+            nextProject.status === "ready_for_edit" ||
+            nextProject.status === "completed"
+          ) {
+            const nextSegments = await api.segments.list(projectId);
+            setSegments(nextSegments);
+            baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+            void api.projects
+              .voiceRemovedUrl(projectId)
+              .then(({ url }) =>
+                setVoiceRemovedUrl((prev) => preferStableMediaUrl(prev, url)),
+              )
+              .catch(() => undefined);
+            return { project: nextProject, segments: nextSegments };
+          }
+        } else if (
+          job?.status === "completed" ||
+          nextProject.status === "completed"
+        ) {
+          if (nextProject.status === "completed") {
+            const { url } = await api.projects.download(projectId);
+            setOutputUrl((prev) => preferStableMediaUrl(prev, url));
+          }
+          const nextSegments = await api.segments
+            .list(projectId)
+            .catch(() => segments);
+          setSegments(nextSegments);
           return { project: nextProject, segments: nextSegments };
         }
-      } else if (
-        job?.status === "completed" ||
-        nextProject.status === "completed"
-      ) {
-        if (nextProject.status === "completed") {
-          const { url } = await api.projects.download(projectId);
-          setOutputUrl((prev) => preferStableMediaUrl(prev, url));
-        }
-        const nextSegments = await api.segments.list(projectId).catch(() => segments);
-        setSegments(nextSegments);
-        return { project: nextProject, segments: nextSegments };
+        const progress =
+          typeof job?.progress === "number"
+            ? ` ${Math.round(job.progress * 100)}%`
+            : "";
+        setLocalStage(
+          `${stageLabel}${progress}${job?.message ? ` · ${job.message}` : ""}`,
+        );
+      } catch (err) {
+        // Cloudflare quick tunnels briefly drop; keep polling instead of failing the job.
+        const isNetwork =
+          (err instanceof ApiError && err.status === 0) ||
+          (err instanceof TypeError) ||
+          (err instanceof Error && /Failed to fetch|네트워크|연결할 수 없습니다/i.test(err.message));
+        if (!isNetwork) throw err;
+        networkFailStreak += 1;
+        if (networkFailStreak >= 15) throw err;
+        setLocalStage(`${stageLabel} · 연결 재시도 중…`);
       }
-      const progress =
-        typeof job?.progress === "number"
-          ? ` ${Math.round(job.progress * 100)}%`
-          : "";
-      setLocalStage(
-        `${stageLabel}${progress}${job?.message ? ` · ${job.message}` : ""}`,
-      );
       await new Promise((resolve) => window.setTimeout(resolve, 2000));
     }
     throw new Error(`${kind} 작업 대기 시간이 초과되었습니다.`);
