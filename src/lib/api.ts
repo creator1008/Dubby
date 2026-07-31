@@ -1,3 +1,4 @@
+import { withBasePath } from "@/lib/base-path";
 import { demoApi, isDemoMode } from "@/lib/demo-api";
 import { getSupabase } from "@/lib/supabase";
 import type {
@@ -15,6 +16,14 @@ const BUILTIN_API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "").replace(
   /\/$/,
   "",
 );
+const HEALTHY_ORIGIN_TTL_MS = 45_000;
+
+let healthyOriginCache: { origin: string; checkedAt: number } | null = null;
+
+function markHealthy(origin: string): string {
+  healthyOriginCache = { origin, checkedAt: Date.now() };
+  return origin;
+}
 
 function normalizeApiOrigin(value: string | null | undefined): string | null {
   const raw = (value || "").trim().replace(/\/$/, "");
@@ -28,16 +37,22 @@ function normalizeApiOrigin(value: string | null | undefined): string | null {
   }
 }
 
+function rememberApiOrigin(origin: string): string {
+  try {
+    window.localStorage.setItem(API_ORIGIN_STORAGE_KEY, origin);
+  } catch {
+    /* ignore */
+  }
+  return origin;
+}
+
 /** Resolve API origin: ?api=… / localStorage override, else build-time env. */
 export function getApiOrigin(): string {
   if (typeof window !== "undefined") {
     try {
       const params = new URLSearchParams(window.location.search);
       const fromQuery = normalizeApiOrigin(params.get("api"));
-      if (fromQuery) {
-        window.localStorage.setItem(API_ORIGIN_STORAGE_KEY, fromQuery);
-        return fromQuery;
-      }
+      if (fromQuery) return rememberApiOrigin(fromQuery);
       const fromStorage = normalizeApiOrigin(
         window.localStorage.getItem(API_ORIGIN_STORAGE_KEY),
       );
@@ -49,12 +64,89 @@ export function getApiOrigin(): string {
   return BUILTIN_API_ORIGIN;
 }
 
+/** Pull the latest tunnel URL published to GitHub Pages (no rebuild required for clients that already cache this file fetch). */
+export async function fetchPublishedApiOrigin(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const response = await fetch(
+      `${withBasePath("/api-origin.json")}?t=${Date.now()}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as { api_origin?: string };
+    const origin = normalizeApiOrigin(body.api_origin);
+    if (!origin) return null;
+    return rememberApiOrigin(origin);
+  } catch {
+    return null;
+  }
+}
+
+async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${origin}/healthz`, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * Prefer a live API origin. If the cached/build-time tunnel is dead, refresh
+ * from public/api-origin.json (kept current by scripts/keep-api-tunnel.sh).
+ */
+export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
+  const cached = healthyOriginCache;
+  if (
+    cached &&
+    Date.now() - cached.checkedAt < HEALTHY_ORIGIN_TTL_MS &&
+    cached.origin
+  ) {
+    return cached.origin;
+  }
+
+  const current = getApiOrigin();
+  if (current && (await healthOk(current, timeoutMs))) {
+    return markHealthy(current);
+  }
+
+  const published = await fetchPublishedApiOrigin();
+  if (
+    published &&
+    published !== current &&
+    (await healthOk(published, timeoutMs))
+  ) {
+    return markHealthy(published);
+  }
+
+  // Also try build-time origin if localStorage pointed at a stale tunnel.
+  if (
+    BUILTIN_API_ORIGIN &&
+    BUILTIN_API_ORIGIN !== current &&
+    BUILTIN_API_ORIGIN !== published &&
+    (await healthOk(BUILTIN_API_ORIGIN, timeoutMs))
+  ) {
+    return markHealthy(rememberApiOrigin(BUILTIN_API_ORIGIN));
+  }
+
+  healthyOriginCache = null;
+  throw new ApiError(apiUnreachableMessage(), 0);
+}
+
 function apiUnreachableMessage(): string {
   const origin = getApiOrigin() || "(미설정)";
   return (
     `API 서버(${origin})에 연결할 수 없습니다(Failed to fetch). ` +
-    "PC에서 uvicorn·cloudflared가 켜져 있는지 확인하고, " +
-    "터널 URL이 바뀌었다면 ?api=https://….trycloudflare.com 으로 열어 저장하세요."
+    "PC에서 `bash scripts/keep-api-tunnel.sh` 로 터널을 다시 열어 주세요. " +
+    "이미 새 터널이 배포됐다면 화면을 새로고침하면 자동으로 주소를 갱신합니다."
   );
 }
 
@@ -69,31 +161,7 @@ export class ApiError extends Error {
 
 /** Lightweight reachability check used before long extract/dub flows. */
 export async function pingApi(timeoutMs = 8000): Promise<void> {
-  const apiOrigin = getApiOrigin();
-  if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${apiOrigin}/healthz`, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new ApiError(apiUnreachableMessage(), 0);
-    }
-  } catch (err) {
-    if (err instanceof ApiError) throw err;
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(apiUnreachableMessage(), 0);
-    }
-    if (err instanceof TypeError) {
-      throw new ApiError(apiUnreachableMessage(), 0);
-    }
-    throw err;
-  } finally {
-    window.clearTimeout(timer);
-  }
+  await ensureApiOrigin(timeoutMs);
 }
 
 async function requestBlob(path: string): Promise<Blob> {
@@ -102,8 +170,7 @@ async function requestBlob(path: string): Promise<Blob> {
     ? await supabase.auth.getSession()
     : { data: { session: null } };
   if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
-  const apiOrigin = getApiOrigin();
-  if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
+  const apiOrigin = await ensureApiOrigin();
 
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
@@ -150,8 +217,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ? await supabase.auth.getSession()
     : { data: { session: null } };
   if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
-  const apiOrigin = getApiOrigin();
-  if (!apiOrigin) throw new ApiError("API 주소가 설정되지 않았습니다.", 500);
+  let apiOrigin = await ensureApiOrigin();
 
   const method = (init?.method || "GET").toUpperCase();
   const retries = method === "GET" || method === "HEAD" ? 3 : 2;
@@ -170,6 +236,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch (err) {
       lastError = err;
       if (err instanceof TypeError && attempt < retries) {
+        // Tunnel URL may have rotated — refresh once mid-retry.
+        healthyOriginCache = null;
+        try {
+          apiOrigin = await ensureApiOrigin();
+        } catch {
+          /* keep previous origin */
+        }
         await sleep(700 * attempt);
         continue;
       }

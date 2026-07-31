@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api } from "@/lib/api";
+import { api, ensureApiOrigin } from "@/lib/api";
 import { LanguageSwitcher } from "@/components/landing/LanguageSwitcher";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isAdminSession, useAuthSession } from "@/components/app/AuthBoundary";
@@ -39,6 +39,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setInstallAvailable(shouldOfferPwaInstall());
+  }, []);
+
+  // Refresh API tunnel URL from Pages-hosted api-origin.json when the
+  // build-time / localStorage origin is dead (common with quick tunnels).
+  useEffect(() => {
+    void ensureApiOrigin().catch(() => {
+      /* surface on the next API call */
+    });
   }, []);
 
   useEffect(() => {
