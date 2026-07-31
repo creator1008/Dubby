@@ -119,6 +119,7 @@ async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
+      headers: tunnelExtraHeaders(origin),
     });
     if (!response.ok) return false;
     const text = await response.text();
@@ -128,6 +129,14 @@ async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+/** Extra headers for free tunnel providers that show an interstitial page. */
+function tunnelExtraHeaders(origin: string): Record<string, string> {
+  if (/loca\.lt$/i.test(origin) || /localtunnel\.me$/i.test(origin)) {
+    return { "Bypass-Tunnel-Reminder": "1" };
+  }
+  return {};
 }
 
 /**
@@ -207,6 +216,7 @@ async function requestBlob(path: string): Promise<Blob> {
     const response = await fetch(`${apiOrigin}${path}`, {
       headers: {
         Authorization: `Bearer ${data.session.access_token}`,
+        ...tunnelExtraHeaders(apiOrigin),
       },
       signal: controller.signal,
     });
@@ -259,6 +269,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         headers: {
           Authorization: `Bearer ${data.session.access_token}`,
           ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...tunnelExtraHeaders(apiOrigin),
           ...init?.headers,
         },
       });

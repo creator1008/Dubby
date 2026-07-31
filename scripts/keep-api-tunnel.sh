@@ -108,22 +108,20 @@ write_origin_file() {
   "updated_at": "$now"
 }
 EOF
-  # Keep local frontend env in sync for developers.
-  if [[ -f "$ROOT/.env" ]]; then
-    if rg -q '^NEXT_PUBLIC_API_ORIGIN=' "$ROOT/.env"; then
-      python - <<PY
+  # Keep local frontend env in sync for developers (relative path — Windows Python
+  # cannot open Git-Bash style /d/Coding/... absolute paths).
+  if [[ -f .env ]]; then
+    python - <<PY
 from pathlib import Path
 import re
-p = Path(r"$ROOT/.env")
+url = "$url"
+p = Path(".env")
 text = p.read_text(encoding="utf-8")
-text2, n = re.subn(r"(?m)^NEXT_PUBLIC_API_ORIGIN=.*$", "NEXT_PUBLIC_API_ORIGIN=$url", text, count=1)
+text2, n = re.subn(r"(?m)^NEXT_PUBLIC_API_ORIGIN=.*$", f"NEXT_PUBLIC_API_ORIGIN={url}", text, count=1)
 if n == 0:
-    text2 = text.rstrip() + "\nNEXT_PUBLIC_API_ORIGIN=$url\n"
+    text2 = text.rstrip() + f"\nNEXT_PUBLIC_API_ORIGIN={url}\n"
 p.write_text(text2, encoding="utf-8")
 PY
-    else
-      printf '\nNEXT_PUBLIC_API_ORIGIN=%s\n' "$url" >>"$ROOT/.env"
-    fi
   fi
 }
 
