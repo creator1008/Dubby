@@ -34,7 +34,9 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: "true"
-          NEXT_PUBLIC_SITE_URL: "https://creator1008.github.io/Dubby"
+          DUBBY_CUSTOM_DOMAIN: "true"
+          NEXT_PUBLIC_BASE_PATH: ""
+          NEXT_PUBLIC_SITE_URL: "https://dubbyai.com"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           NEXT_PUBLIC_API_ORIGIN: ${{ secrets.NEXT_PUBLIC_API_ORIGIN }}
@@ -42,6 +44,9 @@ jobs:
 
       - name: Add .nojekyll
         run: touch out/.nojekyll
+
+      - name: Ensure CNAME for custom domain
+        run: echo dubbyai.com > out/CNAME
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

@@ -82,40 +82,29 @@ python -m app.worker.runner
 ## GitHub Pages 배포
 
 `main`에 push하면 GitHub Actions가 정적 사이트를 빌드해
-[GitHub Pages](https://creator1008.github.io/Dubby/)에 배포합니다.
+커스텀 도메인 [https://dubbyai.com](https://dubbyai.com) 에 배포합니다.
+(레거시: `https://creator1008.github.io/Dubby/`)
+
+도메인·API 터널 설정은 [docs/CUSTOM_DOMAIN.md](docs/CUSTOM_DOMAIN.md) 를 보세요.
 
 1. 저장소 **Settings → Pages → Build and deployment → Source** 를
    **GitHub Actions** 로 설정합니다.
-   (`Deploy from a branch`로 바꾸면 `/login`, `/app` 등이 404가 납니다.)
-2. `main`에 push하거나 Actions에서 **Deploy GitHub Pages** 워크플로를
-   수동 실행합니다.
-3. 배포 URL: `https://creator1008.github.io/Dubby/`
+2. **Settings → Pages → Custom domain** 에 `dubbyai.com` 을 넣습니다.
+3. `main`에 push하거나 Actions에서 **Deploy GitHub Pages** 를 실행합니다.
 
 ### 스마트폰에서 실행
 
-휴대폰 브라우저에서 위 URL을 열면 됩니다. 홈 화면에 추가하면 앱처럼
-전체 화면으로 실행됩니다.
+휴대폰 브라우저에서 `https://dubbyai.com` 을 열면 됩니다.
 
-- **iPhone (Safari):** 공유 → 홈 화면에 추가
-- **Android (Chrome):** 메뉴 → 앱 설치 / 홈 화면에 추가
-
-휴대폰에서 **실제 자막 추출**을 쓰려면 PC의 `local_step12` API가 공개 HTTPS로
-노출되어야 합니다. GitHub Pages(HTTPS)는 `localhost`나 LAN HTTP로 요청할 수
-없습니다.
+PC에서 API를 공개하려면 Lightsail 전까지 **Cloudflare Named Tunnel** 을 씁니다:
 
 ```bash
-# PC 터미널 1
-cd api
-uvicorn app.local_step12:app --host 0.0.0.0 --port 8002 --reload
-
-# PC 터미널 2 (예시: Cloudflare quick tunnel)
-cloudflared tunnel --url http://127.0.0.1:8002
+bash scripts/setup-named-tunnel.sh   # 최초 1회
+# uvicorn :8000 + worker 실행 후
+bash scripts/run-named-tunnel.sh
 ```
 
-나온 `https://….trycloudflare.com` 주소를 GitHub Actions secrets의
-`NEXT_PUBLIC_LOCAL_PIPELINE_ORIGIN`에 넣고, `NEXT_PUBLIC_LOCAL_PIPELINE=true`로
-설정한 뒤 Pages를 다시 배포하세요. PC의 API·터널이 켜져 있어야 휴대폰에서
-동작합니다.
+GitHub secret `NEXT_PUBLIC_API_ORIGIN` = `https://api.dubbyai.com`
 
 GitHub Pages는 프런트엔드(정적 export)만 호스팅합니다. 실제 더빙 API는
 별도 서버가 필요하며, API origin이 없으면 브라우저 데모 모드로 UI를

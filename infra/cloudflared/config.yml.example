@@ -1,0 +1,12 @@
+# Example Cloudflare Tunnel config for api.dubbyai.com → local uvicorn.
+# Generated/overwritten by scripts/setup-named-tunnel.sh — do not commit secrets.
+#
+# credentials-file points at %USERPROFILE%\.cloudflared\<TUNNEL_ID>.json
+
+tunnel: REPLACE_TUNNEL_ID
+credentials-file: REPLACE_CREDENTIALS_FILE
+
+ingress:
+  - hostname: api.dubbyai.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404

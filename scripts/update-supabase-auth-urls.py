@@ -17,11 +17,13 @@ import urllib.request
 
 PROJECT_REF = os.environ.get("SUPABASE_PROJECT_REF", "osgeahuvaazujjcwtxum")
 SITE_URL = os.environ.get(
-    "DUBBY_SITE_URL", "https://creator1008.github.io/Dubby"
+    "DUBBY_SITE_URL", "https://dubbyai.com"
 ).rstrip("/")
 REDIRECTS = [
     f"{SITE_URL}/auth/callback/",
     f"{SITE_URL}/**",
+    "https://creator1008.github.io/Dubby/auth/callback/",
+    "https://creator1008.github.io/Dubby/**",
     "http://localhost:3000/auth/callback/",
     "http://localhost:3000/**",
     "http://127.0.0.1:3000/auth/callback/",

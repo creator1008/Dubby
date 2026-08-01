@@ -56,3 +56,9 @@ api/data/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Cloudflare named tunnel local config (paths + tunnel id)
+infra/cloudflared/config.yml
+
+# Cloudflare named tunnel (contains local paths)
+infra/cloudflared/config.yml

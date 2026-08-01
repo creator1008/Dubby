@@ -1,8 +1,8 @@
-/** Repo subpath when hosted on GitHub Pages (e.g. `/Dubby`). Empty for local/root hosts. */
+/** Repo subpath when hosted on GitHub Pages project URL (e.g. `/Dubby`). Empty on custom domain. */
 export const BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
 
 /** Canonical public site origin+base (no trailing slash). Never localhost. */
-export const DEFAULT_SITE_URL = "https://creator1008.github.io/Dubby";
+export const DEFAULT_SITE_URL = "https://dubbyai.com";
 export const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_SITE_URL
 ).replace(/\/$/, "");
@@ -15,7 +15,7 @@ export function withBasePath(path: string): string {
 
 /**
  * Absolute URL for Supabase OAuth / email redirects.
- * Always uses the public GitHub Pages URL so Google login never returns to localhost.
+ * Always uses the public site URL so Google login never returns to localhost.
  */
 export function getAuthRedirectUrl(path = "/auth/callback/"): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
