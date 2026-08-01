@@ -154,6 +154,20 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
   }
 
   const current = getApiOrigin();
+  const ephemeral =
+    /\.trycloudflare\.com$/i.test(current) ||
+    /\.loca\.lt$/i.test(current) ||
+    /\.localtunnel\.me$/i.test(current);
+
+  // Quick tunnels rotate often. Prefer the published pointer over a sticky
+  // localStorage URL (e.g. cake-washing…) before spending time on health checks.
+  if (ephemeral) {
+    const published = await fetchPublishedApiOrigin();
+    if (published && (await healthOk(published, timeoutMs))) {
+      return markHealthy(published);
+    }
+  }
+
   if (current && (await healthOk(current, timeoutMs))) {
     return markHealthy(current);
   }

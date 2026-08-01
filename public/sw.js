@@ -1,5 +1,5 @@
 /* Dubby PWA service worker — network-first; never pin API origin pointer. */
-const CACHE = "dubby-v4";
+const CACHE = "dubby-v5";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
