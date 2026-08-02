@@ -82,30 +82,48 @@ export function getApiOrigin(): string {
   return BUILTIN_API_ORIGIN;
 }
 
-async function readOriginPointer(url: string): Promise<string | null> {
+async function readOriginPointer(
+  url: string,
+  timeoutMs = 4000,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
     if (!response.ok) return null;
     const body = (await response.json()) as { api_origin?: string };
     return normalizeApiOrigin(body.api_origin);
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
+function isEphemeralOrigin(origin: string): boolean {
+  return (
+    /\.trycloudflare\.com$/i.test(origin) ||
+    /\.loca\.lt$/i.test(origin) ||
+    /\.localtunnel\.me$/i.test(origin)
+  );
+}
+
 /**
- * Pull the latest tunnel URL. Prefer GitHub raw (updates seconds after push)
- * then the Pages copy (may lag until the static deploy finishes).
+ * Pull the latest tunnel URL. Prefer the same-origin Pages copy first
+ * (fast on mobile), then GitHub raw as a fallback.
  */
 export async function fetchPublishedApiOrigin(): Promise<string | null> {
   if (typeof window === "undefined") return null;
   const stamp = Date.now();
   const candidates = [
-    `https://raw.githubusercontent.com/creator1008/Dubby/main/public/api-origin.json?t=${stamp}`,
     `${withBasePath("/api-origin.json")}?t=${stamp}`,
+    `https://raw.githubusercontent.com/creator1008/Dubby/main/public/api-origin.json?t=${stamp}`,
   ];
   for (const url of candidates) {
-    const origin = await readOriginPointer(url);
+    const origin = await readOriginPointer(url, 4000);
     if (origin) return rememberApiOrigin(origin);
   }
   return null;
@@ -140,10 +158,11 @@ function tunnelExtraHeaders(origin: string): Record<string, string> {
 }
 
 /**
- * Prefer a live API origin. If the cached/build-time tunnel is dead, refresh
- * from public/api-origin.json (kept current by scripts/keep-api-tunnel.sh).
+ * Prefer a live API origin. Stable builtin/current first; published pointer
+ * only as fallback. All network waits are bounded so mobile never hangs on
+ * "API 연결 확인 중…".
  */
-export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
+export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
   const cached = healthyOriginCache;
   if (
     cached &&
@@ -154,39 +173,43 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
   }
 
   const current = getApiOrigin();
-  const ephemeral =
-    /\.trycloudflare\.com$/i.test(current) ||
-    /\.loca\.lt$/i.test(current) ||
-    /\.localtunnel\.me$/i.test(current);
+  const tried = new Set<string>();
 
-  // Quick tunnels rotate often. Prefer the published pointer over a sticky
-  // localStorage URL (e.g. cake-washing…) before spending time on health checks.
-  if (ephemeral) {
-    const published = await fetchPublishedApiOrigin();
-    if (published && (await healthOk(published, timeoutMs))) {
-      return markHealthy(published);
+  const tryOrigin = async (origin: string | null | undefined) => {
+    if (!origin || tried.has(origin)) return null;
+    tried.add(origin);
+    if (await healthOk(origin, timeoutMs)) {
+      return markHealthy(rememberApiOrigin(origin));
     }
+    return null;
+  };
+
+  // 1) Build-time / secret origin (api.dubbyai.com) — usually the right one.
+  {
+    const hit = await tryOrigin(BUILTIN_API_ORIGIN);
+    if (hit) return hit;
   }
 
-  if (current && (await healthOk(current, timeoutMs))) {
-    return markHealthy(current);
+  // 2) Non-ephemeral localStorage / ?api= override.
+  if (current && !isEphemeralOrigin(current)) {
+    const hit = await tryOrigin(current);
+    if (hit) return hit;
   }
 
-  // Stale localStorage/build-time tunnel — drop it so the UI stops showing
-  // the dead cake-washing URL while we look up the published pointer.
-  if (current) forgetApiOrigin();
-
+  // 3) Published pointer (Pages / GitHub), with fetch timeouts.
   const published = await fetchPublishedApiOrigin();
-  if (published && (await healthOk(published, timeoutMs))) {
-    return markHealthy(published);
+  {
+    const hit = await tryOrigin(published);
+    if (hit) return hit;
   }
 
-  if (
-    BUILTIN_API_ORIGIN &&
-    BUILTIN_API_ORIGIN !== published &&
-    (await healthOk(BUILTIN_API_ORIGIN, timeoutMs))
-  ) {
-    return markHealthy(rememberApiOrigin(BUILTIN_API_ORIGIN));
+  // 4) Last resort: sticky quick-tunnel URL (often dead — short timeout).
+  if (current && isEphemeralOrigin(current)) {
+    const hit = await tryOrigin(current);
+    if (hit) return hit;
+    forgetApiOrigin();
+  } else if (current) {
+    forgetApiOrigin();
   }
 
   healthyOriginCache = null;
@@ -194,11 +217,11 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
 }
 
 function apiUnreachableMessage(): string {
-  const origin = getApiOrigin() || "(미설정)";
+  const origin = getApiOrigin() || BUILTIN_API_ORIGIN || "(미설정)";
   return (
     `API 서버(${origin})에 연결할 수 없습니다(Failed to fetch). ` +
-    "PC에서 `bash scripts/keep-api-tunnel.sh` 로 터널을 다시 연 뒤, " +
-    "폰에서 화면을 새로고침하세요. 주소가 바뀌면 ?api=https://….trycloudflare.com 링크를 한 번 열면 저장됩니다."
+    "PC에서 uvicorn과 `bash scripts/run-named-tunnel.sh` 가 켜져 있는지 확인한 뒤, " +
+    "폰에서 화면을 새로고침하세요. 필요하면 ?api=https://api.dubbyai.com 으로 열어 저장하세요."
   );
 }
 
@@ -212,8 +235,21 @@ export class ApiError extends Error {
 }
 
 /** Lightweight reachability check used before long extract/dub flows. */
-export async function pingApi(timeoutMs = 8000): Promise<void> {
-  await ensureApiOrigin(timeoutMs);
+export async function pingApi(timeoutMs = 5000): Promise<void> {
+  const overall = Math.max(timeoutMs * 3, 12_000);
+  let timer: number | undefined;
+  try {
+    await Promise.race([
+      ensureApiOrigin(timeoutMs),
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => {
+          reject(new ApiError(apiUnreachableMessage(), 0));
+        }, overall);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
 }
 
 async function requestBlob(path: string): Promise<Blob> {
