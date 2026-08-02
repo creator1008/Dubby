@@ -13,13 +13,15 @@ In [Cloudflare DNS](https://dash.cloudflare.com) → `dubbyai.com` → **Records
 | --- | --- | --- | --- |
 | CNAME | `@` (or `dubbyai.com`) | `creator1008.github.io` | DNS only (grey) |
 | CNAME | `www` | `creator1008.github.io` | DNS only (grey) |
-| CNAME | `api` | `<TUNNEL_ID>.cfargotunnel.com` | DNS only (grey) |
+| CNAME | `api` | *(자동 생성)* `abcd1234-….cfargotunnel.com` | DNS only (grey) |
 
 Notes:
 
 - Cloudflare supports CNAME on the apex (`@`). Prefer that over GitHub A-record IPs.
-- The `api` CNAME is usually created automatically by  
-  `cloudflared tunnel route dns dubby-api api.dubbyai.com`.
+- **Do not invent** an `api` CNAME by hand. Never use placeholder text like `xxxx-xxxx.cfargotunnel.com`.
+- The real `api` CNAME is created by:
+  `bash scripts/setup-named-tunnel.sh`
+  (runs `cloudflared tunnel route dns dubby-api api.dubbyai.com`).
 - Keep **DNS only** (grey cloud) for `api` while using a named tunnel / later Caddy.
 
 You can delete the old Hostinger parking A records (`75.2…`, `99.83…`) once the GitHub CNAMEs are in place.
