@@ -163,20 +163,32 @@ function tunnelExtraHeaders(origin: string): Record<string, string> {
  * "API 연결 확인 중…".
  */
 export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
+  // Drop sticky quick-tunnel URLs immediately — they cause Failed to fetch on
+  // mobile long after the PC tunnel rotated.
+  let current = getApiOrigin();
+  if (current && isEphemeralOrigin(current)) {
+    forgetApiOrigin();
+    current = getApiOrigin();
+  }
+
   const cached = healthyOriginCache;
   if (
     cached &&
     Date.now() - cached.checkedAt < HEALTHY_ORIGIN_TTL_MS &&
-    cached.origin
+    cached.origin &&
+    !isEphemeralOrigin(cached.origin)
   ) {
-    return cached.origin;
+    // Re-validate cheaply; a stale cache entry should not stick across tunnel flaps.
+    if (await healthOk(cached.origin, Math.min(timeoutMs, 3000))) {
+      return markHealthy(cached.origin);
+    }
+    healthyOriginCache = null;
   }
 
-  const current = getApiOrigin();
   const tried = new Set<string>();
 
   const tryOrigin = async (origin: string | null | undefined) => {
-    if (!origin || tried.has(origin)) return null;
+    if (!origin || tried.has(origin) || isEphemeralOrigin(origin)) return null;
     tried.add(origin);
     if (await healthOk(origin, timeoutMs)) {
       return markHealthy(rememberApiOrigin(origin));
@@ -203,14 +215,7 @@ export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
     if (hit) return hit;
   }
 
-  // 4) Last resort: sticky quick-tunnel URL (often dead — short timeout).
-  if (current && isEphemeralOrigin(current)) {
-    const hit = await tryOrigin(current);
-    if (hit) return hit;
-    forgetApiOrigin();
-  } else if (current) {
-    forgetApiOrigin();
-  }
+  if (current) forgetApiOrigin();
 
   healthyOriginCache = null;
   throw new ApiError(apiUnreachableMessage(), 0);

@@ -41,9 +41,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setInstallAvailable(shouldOfferPwaInstall());
   }, []);
 
-  // Refresh API tunnel URL from the published pointer when the
-  // build-time / localStorage origin is dead (common with quick tunnels).
+  // Drop sticky quick-tunnel overrides as soon as the app shell mounts.
   useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("dubby.apiOrigin") || "";
+      if (
+        /\.trycloudflare\.com$/i.test(stored) ||
+        /\.loca\.lt$/i.test(stored) ||
+        /\.localtunnel\.me$/i.test(stored)
+      ) {
+        window.localStorage.removeItem("dubby.apiOrigin");
+        invalidateApiOriginCache();
+      }
+    } catch {
+      /* ignore */
+    }
     const refresh = () => {
       invalidateApiOriginCache();
       void ensureApiOrigin().catch(() => {
