@@ -31,6 +31,9 @@ router = APIRouter(prefix="/v1/voices", tags=["voices"])
 
 
 def _map_shared(raw: dict) -> SharedVoiceOut:
+    # Prefer use_case for the UI "Category" column (Narration, etc.).
+    use_case = str(raw.get("use_case") or "").strip()
+    category = use_case or str(raw.get("category") or "")
     return SharedVoiceOut(
         public_owner_id=str(raw.get("public_owner_id") or ""),
         voice_id=str(raw.get("voice_id") or ""),
@@ -38,7 +41,7 @@ def _map_shared(raw: dict) -> SharedVoiceOut:
         description=str(raw.get("description") or "") or None,
         gender=str(raw.get("gender") or ""),
         accent=str(raw.get("accent") or ""),
-        category=str(raw.get("category") or ""),
+        category=category,
         language=str(raw.get("language") or "") or None,
         age=str(raw.get("age") or ""),
         preview_url=str(raw.get("preview_url") or "") or None,

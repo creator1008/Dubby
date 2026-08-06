@@ -845,7 +845,7 @@ export const demoApi = {
     };
   },
 
-  voices: {
+    voices: {
     filters: async (): Promise<VoiceFilterOptions> => ({
       languages: ["en", "ko", "vi"],
       accents_by_language: {
@@ -855,7 +855,15 @@ export const demoApi = {
       },
       genders: ["male", "female", "neutral"],
       ages: ["young", "middle_aged", "old"],
-      categories: ["professional", "high_quality", "famous"],
+      categories: [
+        "narrative_story",
+        "conversational",
+        "characters_animation",
+        "social_media",
+        "entertainment",
+        "advertisement",
+        "educational",
+      ],
     }),
     library: async (): Promise<SharedVoicesPage> => ({
       voices: [

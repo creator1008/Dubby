@@ -17,6 +17,13 @@ const EMPTY_FILTERS: VoiceFilterOptions = {
   categories: [],
 };
 
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
 export default function VoiceSettingsPage() {
   const text = useAppDictionary();
   const [box, setBox] = useState<UserVoice[]>([]);
@@ -37,6 +44,48 @@ export default function VoiceSettingsPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+
+  const labelGender = useCallback(
+    (value: string) => {
+      const key = `voiceGender_${value.toLowerCase()}`;
+      return text[key] || titleCaseWords(value) || "—";
+    },
+    [text],
+  );
+
+  const labelAge = useCallback(
+    (value: string) => {
+      const key = `voiceAge_${value.toLowerCase()}`;
+      return text[key] || titleCaseWords(value) || "—";
+    },
+    [text],
+  );
+
+  const labelCategory = useCallback(
+    (value: string) => {
+      if (!value) return "—";
+      const key = `voiceCat_${value.toLowerCase()}`;
+      return text[key] || titleCaseWords(value);
+    },
+    [text],
+  );
+
+  const labelLanguage = useCallback(
+    (code: string) => {
+      const key = `voiceLang_${code.toLowerCase()}`;
+      return text[key] || code;
+    },
+    [text],
+  );
+
+  const labelAccent = useCallback(
+    (value: string) => {
+      if (!value) return "—";
+      const key = `voiceAccent_${value.toLowerCase().replace(/\s+/g, "_")}`;
+      return text[key] || titleCaseWords(value);
+    },
+    [text],
+  );
 
   const accentOptions = useMemo(() => {
     if (!language) return [];
@@ -126,10 +175,13 @@ export default function VoiceSettingsPage() {
       return;
     }
     audio.src = url;
-    void audio.play().then(() => setPlayingUrl(url)).catch(() => {
-      setMsg(text.voicePreviewFailed);
-      setPlayingUrl(null);
-    });
+    void audio
+      .play()
+      .then(() => setPlayingUrl(url))
+      .catch(() => {
+        setMsg(text.voicePreviewFailed);
+        setPlayingUrl(null);
+      });
   };
 
   const setNickname = (voiceId: string, value: string) => {
@@ -191,7 +243,11 @@ export default function VoiceSettingsPage() {
     <div className="app-panel voice-settings">
       <h1 className="panel-inline-title">{text.voiceSetting}</h1>
       <p className="voice-settings-lead">{text.voiceSettingDescription}</p>
-      {msg && <p className="form-error" role="alert">{msg}</p>}
+      {msg && (
+        <p className="form-error" role="alert">
+          {msg}
+        </p>
+      )}
 
       <section className="voice-section" aria-labelledby="my-voice-box-title">
         <h2 id="my-voice-box-title">{text.myVoiceBox}</h2>
@@ -200,41 +256,56 @@ export default function VoiceSettingsPage() {
         ) : box.length === 0 ? (
           <p className="muted">{text.voiceBoxEmpty}</p>
         ) : (
-          <ul className="voice-box-list">
+          <ul className="voice-box-grid">
             {box.map((voice) => (
-              <li key={voice.id} className="voice-box-item">
-                <div className="voice-box-meta">
+              <li key={voice.id} className="voice-box-card">
+                <div className="voice-box-card-head">
                   <strong>{voice.nickname}</strong>
-                  <span>
-                    {text.voiceGender}: {voice.gender || "—"}
-                  </span>
-                  <span>
-                    {text.voiceAccent}: {voice.accent || "—"}
-                  </span>
-                  <span>
-                    {text.voiceCategory}: {voice.category || "—"}
-                  </span>
+                  <div className="voice-icon-actions">
+                    <button
+                      type="button"
+                      className="voice-icon-btn"
+                      disabled={!voice.preview_url}
+                      aria-label={
+                        playingUrl && playingUrl === voice.preview_url
+                          ? text.voicePreviewStop
+                          : text.voicePreview
+                      }
+                      title={
+                        playingUrl && playingUrl === voice.preview_url
+                          ? text.voicePreviewStop
+                          : text.voicePreview
+                      }
+                      onClick={() => preview(voice.preview_url)}
+                    >
+                      {playingUrl && playingUrl === voice.preview_url ? "⏹" : "▶"}
+                    </button>
+                    <button
+                      type="button"
+                      className="voice-icon-btn danger"
+                      disabled={removingId === voice.id}
+                      aria-label={text.voiceRemove}
+                      title={text.voiceRemove}
+                      onClick={() => void removeFromBox(voice.id)}
+                    >
+                      ⌫
+                    </button>
+                  </div>
                 </div>
-                <div className="voice-row-actions">
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    disabled={!voice.preview_url}
-                    onClick={() => preview(voice.preview_url)}
-                  >
-                    {playingUrl && playingUrl === voice.preview_url
-                      ? text.voicePreviewStop
-                      : text.voicePreview}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-delete"
-                    disabled={removingId === voice.id}
-                    onClick={() => void removeFromBox(voice.id)}
-                  >
-                    {text.voiceRemove}
-                  </button>
-                </div>
+                <dl className="voice-box-card-meta">
+                  <div>
+                    <dt>{text.voiceGender}</dt>
+                    <dd>{labelGender(voice.gender)}</dd>
+                  </div>
+                  <div>
+                    <dt>{text.voiceAccent}</dt>
+                    <dd>{voice.accent ? labelAccent(voice.accent) : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>{text.voiceCategory}</dt>
+                    <dd>{labelCategory(voice.category)}</dd>
+                  </div>
+                </dl>
               </li>
             ))}
           </ul>
@@ -257,7 +328,7 @@ export default function VoiceSettingsPage() {
               <option value="">{text.voiceFilterAll}</option>
               {filters.languages.map((code) => (
                 <option key={code} value={code}>
-                  {code}
+                  {labelLanguage(code)}
                 </option>
               ))}
             </select>
@@ -272,7 +343,7 @@ export default function VoiceSettingsPage() {
               <option value="">{text.voiceFilterAll}</option>
               {accentOptions.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {labelAccent(item)}
                 </option>
               ))}
             </select>
@@ -286,7 +357,7 @@ export default function VoiceSettingsPage() {
               <option value="">{text.voiceFilterAll}</option>
               {filters.categories.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {labelCategory(item)}
                 </option>
               ))}
             </select>
@@ -297,7 +368,7 @@ export default function VoiceSettingsPage() {
               <option value="">{text.voiceFilterAll}</option>
               {filters.genders.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {labelGender(item)}
                 </option>
               ))}
             </select>
@@ -308,7 +379,7 @@ export default function VoiceSettingsPage() {
               <option value="">{text.voiceFilterAll}</option>
               {filters.ages.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {labelAge(item)}
                 </option>
               ))}
             </select>
@@ -325,66 +396,83 @@ export default function VoiceSettingsPage() {
               const nickname = nicknames[voice.voice_id] || "";
               const already = savedVoiceIds.has(voice.voice_id);
               const canAdd = nickname.trim().length > 0 && !already;
+              const playing =
+                !!voice.preview_url && playingUrl === voice.preview_url;
               return (
-                <li key={`${voice.public_owner_id}-${voice.voice_id}`} className="voice-library-item">
+                <li
+                  key={`${voice.public_owner_id}-${voice.voice_id}`}
+                  className="voice-library-item"
+                >
                   <div className="voice-library-main">
-                    <strong>{voice.name}</strong>
+                    <div className="voice-library-title-row">
+                      <strong>{voice.name}</strong>
+                      <div className="voice-icon-actions">
+                        <button
+                          type="button"
+                          className="voice-icon-btn"
+                          disabled={!voice.preview_url}
+                          aria-label={
+                            playing ? text.voicePreviewStop : text.voicePreview
+                          }
+                          title={
+                            playing ? text.voicePreviewStop : text.voicePreview
+                          }
+                          onClick={() => preview(voice.preview_url)}
+                        >
+                          {playing ? "⏹" : "▶"}
+                        </button>
+                        <button
+                          type="button"
+                          className="voice-icon-btn primary"
+                          disabled={!canAdd || addingId === voice.voice_id}
+                          aria-label={
+                            already
+                              ? text.voiceAlreadyAdded
+                              : text.voiceAddToAccount
+                          }
+                          title={
+                            already
+                              ? text.voiceAlreadyAdded
+                              : text.voiceAddToAccount
+                          }
+                          onClick={() => void addToBox(voice)}
+                        >
+                          {already ? "✓" : "+"}
+                        </button>
+                      </div>
+                    </div>
                     {voice.description ? (
-                      <p>{voice.description}</p>
+                      <p className="voice-library-desc">{voice.description}</p>
                     ) : null}
                     <div className="voice-library-tags">
                       <span>
-                        {text.voiceGender}: {voice.gender || "—"}
+                        {text.voiceGender}: {labelGender(voice.gender)}
                       </span>
                       {voice.accent ? (
                         <span>
-                          {text.voiceAccent}: {voice.accent}
+                          {text.voiceAccent}: {labelAccent(voice.accent)}
                         </span>
                       ) : null}
                       {voice.category ? (
                         <span>
-                          {text.voiceCategory}: {voice.category}
+                          {text.voiceCategory}: {labelCategory(voice.category)}
                         </span>
                       ) : null}
                     </div>
-                  </div>
-                  <label className="voice-nickname-field">
-                    <span>{text.voiceNickname}</span>
-                    <input
-                      type="text"
-                      maxLength={30}
-                      value={nickname}
-                      disabled={already}
-                      placeholder={text.voiceNicknamePlaceholder}
-                      onChange={(e) =>
-                        setNickname(voice.voice_id, e.target.value)
-                      }
-                    />
-                    <small>
-                      {nickname.length}/30
-                    </small>
-                  </label>
-                  <div className="voice-row-actions">
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      disabled={!voice.preview_url}
-                      onClick={() => preview(voice.preview_url)}
-                    >
-                      {playingUrl && playingUrl === voice.preview_url
-                        ? text.voicePreviewStop
-                        : text.voicePreview}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      disabled={!canAdd || addingId === voice.voice_id}
-                      onClick={() => void addToBox(voice)}
-                    >
-                      {already
-                        ? text.voiceAlreadyAdded
-                        : text.voiceAddToAccount}
-                    </button>
+                    <label className="voice-nickname-field">
+                      <span>{text.voiceNickname}</span>
+                      <input
+                        type="text"
+                        maxLength={30}
+                        value={nickname}
+                        disabled={already}
+                        placeholder={text.voiceNicknamePlaceholder}
+                        onChange={(e) =>
+                          setNickname(voice.voice_id, e.target.value)
+                        }
+                      />
+                      <small>{nickname.length}/30</small>
+                    </label>
                   </div>
                 </li>
               );

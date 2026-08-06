@@ -42,7 +42,16 @@ ACCENTS_BY_LANGUAGE: dict[str, list[str]] = {
 
 GENDER_OPTIONS = ["male", "female", "neutral"]
 AGE_OPTIONS = ["young", "middle_aged", "old"]
-CATEGORY_OPTIONS = ["professional", "high_quality", "famous"]
+# UI "Category" maps to ElevenLabs shared-voice use_cases.
+CATEGORY_OPTIONS = [
+    "narrative_story",
+    "conversational",
+    "characters_animation",
+    "social_media",
+    "entertainment",
+    "advertisement",
+    "educational",
+]
 
 
 def _headers(settings: Settings) -> dict[str, str]:
@@ -63,25 +72,26 @@ async def fetch_shared_voices(
     age: str | None = None,
     search: str | None = None,
 ) -> dict[str, Any]:
-    params: dict[str, str | int] = {
-        "page": max(0, page),
-        "page_size": min(100, max(1, page_size)),
-        "sort": "trending",
-    }
+    params: list[tuple[str, str | int]] = [
+        ("page", max(0, page)),
+        ("page_size", min(100, max(1, page_size))),
+        ("sort", "trending"),
+    ]
     if language:
-        params["language"] = language
+        params.append(("language", language))
     if accent:
         if not language:
             raise BadRequestError("Accent requires a language to be selected")
-        params["accent"] = accent
+        params.append(("accent", accent))
     if category:
-        params["category"] = category
+        # Category filter in the UI is an ElevenLabs use-case bucket.
+        params.append(("use_cases", category))
     if gender:
-        params["gender"] = gender
+        params.append(("gender", gender))
     if age:
-        params["age"] = age
+        params.append(("age", age))
     if search:
-        params["search"] = search
+        params.append(("search", search))
 
     base = settings.elevenlabs_base_url.rstrip("/")
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
