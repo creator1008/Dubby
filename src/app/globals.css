@@ -1046,40 +1046,48 @@ body {
 }
 
 .voice-settings-lead {
-  margin: 0 0 1.25rem;
+  margin: 0 0 1rem;
   color: var(--ink-soft);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .voice-section {
-  margin-top: 1.5rem;
+  margin-top: 1rem;
+}
+
+.voice-section-panel {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 0.9rem 0.95rem 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .voice-section h2 {
-  margin: 0 0 0.85rem;
+  margin: 0 0 0.7rem;
   font-family: var(--font-syne), sans-serif;
-  font-size: 1.05rem;
+  font-size: 1rem;
 }
 
 .voice-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
 }
 
 .voice-filters label {
   display: grid;
-  gap: 0.35rem;
-  font-size: 0.8rem;
+  gap: 0.25rem;
+  font-size: 0.75rem;
   font-weight: 650;
   color: var(--ink-soft);
 }
 
 .voice-filters select {
   font: inherit;
-  padding: 0.55rem 0.7rem;
-  border-radius: 0.75rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.65rem;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.9);
   color: inherit;
@@ -1095,54 +1103,46 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr));
+  gap: 0.55rem;
 }
 
 .voice-box-card {
   display: grid;
-  gap: 0.75rem;
-  padding: 1rem 1.05rem;
+  gap: 0.45rem;
+  padding: 0.7rem 0.75rem;
   border: 1px solid var(--line);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.7);
-  min-height: 8.5rem;
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .voice-box-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.65rem;
+  gap: 0.45rem;
 }
 
 .voice-box-card-head strong {
-  font-size: 1rem;
-  line-height: 1.3;
+  font-size: 0.92rem;
+  line-height: 1.25;
   word-break: break-word;
 }
 
-.voice-box-card-meta {
-  margin: 0;
-  display: grid;
-  gap: 0.35rem;
-  font-size: 0.82rem;
+.voice-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
 }
 
-.voice-box-card-meta > div {
-  display: grid;
-  grid-template-columns: 4.5rem 1fr;
-  gap: 0.35rem;
-}
-
-.voice-box-card-meta dt {
-  margin: 0;
+.voice-chip {
+  font-size: 0.72rem;
+  line-height: 1.2;
   color: var(--ink-soft);
-  font-weight: 650;
-}
-
-.voice-box-card-meta dd {
-  margin: 0;
+  background: rgba(12, 26, 36, 0.05);
+  border: 1px solid rgba(12, 26, 36, 0.06);
+  border-radius: 999px;
+  padding: 0.22rem 0.5rem;
 }
 
 .voice-library-list {
@@ -1150,65 +1150,78 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .voice-library-item {
-  padding: 1rem 1.05rem;
+  padding: 0.7rem 0.8rem;
   border: 1px solid var(--line);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.7);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.82);
 }
 
-.voice-library-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
+.voice-library-body {
+  display: grid;
+  gap: 0.65rem;
 }
 
-.voice-library-title-row strong {
-  font-size: 1.02rem;
-  line-height: 1.35;
+@media (min-width: 820px) {
+  .voice-library-body {
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 13.5rem);
+    align-items: start;
+    gap: 0.85rem;
+  }
+}
+
+.voice-library-copy strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  margin-bottom: 0.2rem;
 }
 
 .voice-library-desc {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.45rem;
   color: var(--ink-soft);
-  font-size: 0.9rem;
-  line-height: 1.5;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.voice-library-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.85rem;
-  font-size: 0.8rem;
-  color: var(--ink-soft);
-  margin-bottom: 0.75rem;
+.voice-library-side {
+  display: grid;
+  gap: 0.45rem;
+  align-content: start;
+}
+
+.voice-library-side .voice-icon-actions {
+  justify-content: flex-end;
 }
 
 .voice-icon-actions {
   display: inline-flex;
-  gap: 0.35rem;
+  gap: 0.3rem;
   flex-shrink: 0;
 }
 
 .voice-icon-btn {
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: 0.7rem;
+  width: 1.95rem;
+  height: 1.95rem;
+  border-radius: 0.6rem;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.92);
   color: inherit;
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   line-height: 1;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 .voice-icon-btn:hover:not(:disabled) {
@@ -1235,17 +1248,17 @@ body {
 
 .voice-nickname-field {
   display: grid;
-  gap: 0.35rem;
-  font-size: 0.8rem;
+  gap: 0.25rem;
+  font-size: 0.72rem;
   font-weight: 650;
   color: var(--ink-soft);
-  max-width: 22rem;
+  width: 100%;
 }
 
 .voice-nickname-field input {
   font: inherit;
-  padding: 0.55rem 0.7rem;
-  border-radius: 0.75rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.65rem;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.95);
   color: inherit;
@@ -1256,7 +1269,7 @@ body {
 }
 
 .voice-load-more {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   display: flex;
   justify-content: center;
 }

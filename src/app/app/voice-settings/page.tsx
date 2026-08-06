@@ -24,6 +24,26 @@ function titleCaseWords(value: string): string {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
+function TrashIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function VoiceSettingsPage() {
   const text = useAppDictionary();
   const [box, setBox] = useState<UserVoice[]>([]);
@@ -72,6 +92,7 @@ export default function VoiceSettingsPage() {
 
   const labelLanguage = useCallback(
     (code: string) => {
+      if (!code) return "—";
       const key = `voiceLang_${code.toLowerCase()}`;
       return text[key] || code;
     },
@@ -249,7 +270,10 @@ export default function VoiceSettingsPage() {
         </p>
       )}
 
-      <section className="voice-section" aria-labelledby="my-voice-box-title">
+      <section
+        className="voice-section voice-section-panel"
+        aria-labelledby="my-voice-box-title"
+      >
         <h2 id="my-voice-box-title">{text.myVoiceBox}</h2>
         {loadingBox ? (
           <p className="muted">{text.loading}</p>
@@ -278,7 +302,9 @@ export default function VoiceSettingsPage() {
                       }
                       onClick={() => preview(voice.preview_url)}
                     >
-                      {playingUrl && playingUrl === voice.preview_url ? "⏹" : "▶"}
+                      {playingUrl && playingUrl === voice.preview_url
+                        ? "⏹"
+                        : "▶"}
                     </button>
                     <button
                       type="button"
@@ -288,31 +314,35 @@ export default function VoiceSettingsPage() {
                       title={text.voiceRemove}
                       onClick={() => void removeFromBox(voice.id)}
                     >
-                      ⌫
+                      <TrashIcon />
                     </button>
                   </div>
                 </div>
-                <dl className="voice-box-card-meta">
-                  <div>
-                    <dt>{text.voiceGender}</dt>
-                    <dd>{labelGender(voice.gender)}</dd>
-                  </div>
-                  <div>
-                    <dt>{text.voiceAccent}</dt>
-                    <dd>{voice.accent ? labelAccent(voice.accent) : "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>{text.voiceCategory}</dt>
-                    <dd>{labelCategory(voice.category)}</dd>
-                  </div>
-                </dl>
+                <div className="voice-chip-row">
+                  <span className="voice-chip">
+                    {text.voiceLanguage}: {labelLanguage(voice.language)}
+                  </span>
+                  <span className="voice-chip">
+                    {text.voiceGender}: {labelGender(voice.gender)}
+                  </span>
+                  <span className="voice-chip">
+                    {text.voiceAccent}:{" "}
+                    {voice.accent ? labelAccent(voice.accent) : "—"}
+                  </span>
+                  <span className="voice-chip">
+                    {text.voiceCategory}: {labelCategory(voice.category)}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section className="voice-section" aria-labelledby="voice-library-title">
+      <section
+        className="voice-section voice-section-panel"
+        aria-labelledby="voice-library-title"
+      >
         <h2 id="voice-library-title">{text.voiceLibrary}</h2>
 
         <div className="voice-filters">
@@ -403,9 +433,50 @@ export default function VoiceSettingsPage() {
                   key={`${voice.public_owner_id}-${voice.voice_id}`}
                   className="voice-library-item"
                 >
-                  <div className="voice-library-main">
-                    <div className="voice-library-title-row">
+                  <div className="voice-library-body">
+                    <div className="voice-library-copy">
                       <strong>{voice.name}</strong>
+                      {voice.description ? (
+                        <p className="voice-library-desc">
+                          {voice.description}
+                        </p>
+                      ) : null}
+                      <div className="voice-chip-row">
+                        <span className="voice-chip">
+                          {text.voiceGender}: {labelGender(voice.gender)}
+                        </span>
+                        {voice.language ? (
+                          <span className="voice-chip">
+                            {text.voiceLanguage}: {labelLanguage(voice.language)}
+                          </span>
+                        ) : null}
+                        {voice.accent ? (
+                          <span className="voice-chip">
+                            {text.voiceAccent}: {labelAccent(voice.accent)}
+                          </span>
+                        ) : null}
+                        {voice.category ? (
+                          <span className="voice-chip">
+                            {text.voiceCategory}: {labelCategory(voice.category)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="voice-library-side">
+                      <label className="voice-nickname-field">
+                        <span>{text.voiceNickname}</span>
+                        <input
+                          type="text"
+                          maxLength={30}
+                          value={nickname}
+                          disabled={already}
+                          placeholder={text.voiceNicknamePlaceholder}
+                          onChange={(e) =>
+                            setNickname(voice.voice_id, e.target.value)
+                          }
+                        />
+                        <small>{nickname.length}/30</small>
+                      </label>
                       <div className="voice-icon-actions">
                         <button
                           type="button"
@@ -441,38 +512,6 @@ export default function VoiceSettingsPage() {
                         </button>
                       </div>
                     </div>
-                    {voice.description ? (
-                      <p className="voice-library-desc">{voice.description}</p>
-                    ) : null}
-                    <div className="voice-library-tags">
-                      <span>
-                        {text.voiceGender}: {labelGender(voice.gender)}
-                      </span>
-                      {voice.accent ? (
-                        <span>
-                          {text.voiceAccent}: {labelAccent(voice.accent)}
-                        </span>
-                      ) : null}
-                      {voice.category ? (
-                        <span>
-                          {text.voiceCategory}: {labelCategory(voice.category)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <label className="voice-nickname-field">
-                      <span>{text.voiceNickname}</span>
-                      <input
-                        type="text"
-                        maxLength={30}
-                        value={nickname}
-                        disabled={already}
-                        placeholder={text.voiceNicknamePlaceholder}
-                        onChange={(e) =>
-                          setNickname(voice.voice_id, e.target.value)
-                        }
-                      />
-                      <small>{nickname.length}/30</small>
-                    </label>
                   </div>
                 </li>
               );
