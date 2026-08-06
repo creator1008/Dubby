@@ -26,6 +26,7 @@ from ..voices_elevenlabs import (
     add_shared_voice_to_account,
     fetch_shared_voices,
 )
+from ..voice_translate import translate_descriptions
 
 router = APIRouter(prefix="/v1/voices", tags=["voices"])
 
@@ -71,6 +72,7 @@ async def list_voice_library(
     gender: str | None = Query(None),
     age: str | None = Query(None),
     search: str | None = Query(None, max_length=100),
+    ui_locale: str | None = Query(None, max_length=16),
 ) -> SharedVoicesOut:
     _ = user
     settings = get_settings()
@@ -91,6 +93,16 @@ async def list_voice_library(
         for v in (voices_raw or [])
         if isinstance(v, dict) and v.get("voice_id")
     ]
+    locale = (ui_locale or "en").strip().lower()
+    if locale and locale != "en" and voices:
+        originals = [v.description or "" for v in voices]
+        translated = await translate_descriptions(
+            settings, originals, ui_locale=locale
+        )
+        voices = [
+            voice.model_copy(update={"description": translated[idx] or None})
+            for idx, voice in enumerate(voices)
+        ]
     return SharedVoicesOut(
         voices=voices,
         has_more=bool(payload.get("has_more")),

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import type {
   SharedVoice,
   UserVoice,
@@ -46,6 +46,7 @@ function TrashIcon() {
 
 export default function VoiceSettingsPage() {
   const text = useAppDictionary();
+  const { locale } = useLocale();
   const [box, setBox] = useState<UserVoice[]>([]);
   const [library, setLibrary] = useState<SharedVoice[]>([]);
   const [filters, setFilters] = useState<VoiceFilterOptions>(EMPTY_FILTERS);
@@ -143,6 +144,7 @@ export default function VoiceSettingsPage() {
           category: category || undefined,
           gender: gender || undefined,
           age: age || undefined,
+          ui_locale: locale,
         });
         setLibrary((prev) =>
           replace ? result.voices : [...prev, ...result.voices],
@@ -155,7 +157,7 @@ export default function VoiceSettingsPage() {
         setLoadingLibrary(false);
       }
     },
-    [accent, age, category, gender, language, text.voiceLoadError],
+    [accent, age, category, gender, language, locale, text.voiceLoadError],
   );
 
   useEffect(() => {
@@ -320,17 +322,16 @@ export default function VoiceSettingsPage() {
                 </div>
                 <div className="voice-chip-row">
                   <span className="voice-chip">
-                    {text.voiceLanguage}: {labelLanguage(voice.language)}
+                    {labelLanguage(voice.language)}
                   </span>
                   <span className="voice-chip">
-                    {text.voiceGender}: {labelGender(voice.gender)}
+                    {labelGender(voice.gender)}
                   </span>
                   <span className="voice-chip">
-                    {text.voiceAccent}:{" "}
                     {voice.accent ? labelAccent(voice.accent) : "—"}
                   </span>
                   <span className="voice-chip">
-                    {text.voiceCategory}: {labelCategory(voice.category)}
+                    {labelCategory(voice.category)}
                   </span>
                 </div>
               </li>
@@ -443,21 +444,21 @@ export default function VoiceSettingsPage() {
                       ) : null}
                       <div className="voice-chip-row">
                         <span className="voice-chip">
-                          {text.voiceGender}: {labelGender(voice.gender)}
+                          {labelGender(voice.gender)}
                         </span>
                         {voice.language ? (
                           <span className="voice-chip">
-                            {text.voiceLanguage}: {labelLanguage(voice.language)}
+                            {labelLanguage(voice.language)}
                           </span>
                         ) : null}
                         {voice.accent ? (
                           <span className="voice-chip">
-                            {text.voiceAccent}: {labelAccent(voice.accent)}
+                            {labelAccent(voice.accent)}
                           </span>
                         ) : null}
                         {voice.category ? (
                           <span className="voice-chip">
-                            {text.voiceCategory}: {labelCategory(voice.category)}
+                            {labelCategory(voice.category)}
                           </span>
                         ) : null}
                       </div>

@@ -438,6 +438,7 @@ const realApi = {
       gender?: string;
       age?: string;
       search?: string;
+      ui_locale?: string;
     } = {}) => {
       const qs = new URLSearchParams();
       if (params.page != null) qs.set("page", String(params.page));
@@ -448,6 +449,7 @@ const realApi = {
       if (params.gender) qs.set("gender", params.gender);
       if (params.age) qs.set("age", params.age);
       if (params.search) qs.set("search", params.search);
+      if (params.ui_locale) qs.set("ui_locale", params.ui_locale);
       const query = qs.toString();
       return request<SharedVoicesPage>(
         `/v1/voices/library${query ? `?${query}` : ""}`,
