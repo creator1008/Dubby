@@ -200,6 +200,20 @@ class Repository(ABC):
     ) -> None:
         raise NotImplementedError
 
+    # --- voice box -----------------------------------------------------------
+
+    @abstractmethod
+    async def list_user_voices(self, owner_id: UUID) -> list[Row]: ...
+
+    @abstractmethod
+    async def get_user_voice(self, owner_id: UUID, voice_row_id: UUID) -> Row | None: ...
+
+    @abstractmethod
+    async def add_user_voice(self, owner_id: UUID, fields: dict[str, Any]) -> Row: ...
+
+    @abstractmethod
+    async def delete_user_voice(self, owner_id: UUID, voice_row_id: UUID) -> bool: ...
+
     # --- Stripe billing -------------------------------------------------------
 
     @abstractmethod
@@ -235,3 +249,7 @@ class ActiveJobExistsError(Exception):
 
 class InsufficientCreditsError(Exception):
     """Atomic enqueue rejected because the balance was too low."""
+
+
+class DuplicateVoiceError(Exception):
+    """Voice id or nickname already exists in the user's Voice Box."""

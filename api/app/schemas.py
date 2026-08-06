@@ -166,6 +166,68 @@ class CreditsOut(BaseModel):
     entries: list[CreditEntryOut]
 
 
+# --- Voices ------------------------------------------------------------------
+
+
+class SharedVoiceOut(BaseModel):
+    public_owner_id: str
+    voice_id: str
+    name: str
+    description: str | None = None
+    gender: str = ""
+    accent: str = ""
+    category: str = ""
+    language: str | None = None
+    age: str = ""
+    preview_url: str | None = None
+
+
+class SharedVoicesOut(BaseModel):
+    voices: list[SharedVoiceOut]
+    has_more: bool = False
+    total_count: int = 0
+    page: int = 0
+
+
+class VoiceFilterOptionsOut(BaseModel):
+    languages: list[str]
+    accents_by_language: dict[str, list[str]]
+    genders: list[str]
+    ages: list[str]
+    categories: list[str]
+
+
+class UserVoiceCreate(BaseModel):
+    voice_id: str = Field(min_length=1, max_length=120)
+    public_owner_id: str = Field(min_length=1, max_length=200)
+    nickname: str = Field(min_length=1, max_length=30)
+    name: str = Field(default="", max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    gender: str = Field(default="", max_length=40)
+    accent: str = Field(default="", max_length=80)
+    category: str = Field(default="", max_length=80)
+    language: str = Field(default="", max_length=16)
+    age: str = Field(default="", max_length=40)
+    preview_url: str | None = Field(default=None, max_length=2000)
+
+
+class UserVoiceOut(BaseModel):
+    id: UUID
+    nickname: str
+    elevenlabs_voice_id: str
+    shared_voice_id: str
+    public_owner_id: str = ""
+    name: str = ""
+    description: str = ""
+    gender: str = ""
+    accent: str = ""
+    category: str = ""
+    language: str = ""
+    age: str = ""
+    preview_url: str | None = None
+    created_at: datetime
+
+
 CheckoutKind = Literal["subscription", "credits"]
 
 

@@ -9,6 +9,9 @@ import type {
   Job,
   Project,
   Segment,
+  SharedVoicesPage,
+  UserVoice,
+  VoiceFilterOptions,
 } from "@/lib/ui-types";
 
 const API_ORIGIN_STORAGE_KEY = "dubby.apiOrigin";
@@ -424,6 +427,55 @@ const realApi = {
       request<Job>(`/v1/jobs/${jobId}/cancel`, { method: "POST" }),
   },
   credits: () => request<Credits>("/v1/credits"),
+  voices: {
+    filters: () => request<VoiceFilterOptions>("/v1/voices/filters"),
+    library: (params: {
+      page?: number;
+      page_size?: number;
+      language?: string;
+      accent?: string;
+      category?: string;
+      gender?: string;
+      age?: string;
+      search?: string;
+    } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.page != null) qs.set("page", String(params.page));
+      if (params.page_size != null) qs.set("page_size", String(params.page_size));
+      if (params.language) qs.set("language", params.language);
+      if (params.accent) qs.set("accent", params.accent);
+      if (params.category) qs.set("category", params.category);
+      if (params.gender) qs.set("gender", params.gender);
+      if (params.age) qs.set("age", params.age);
+      if (params.search) qs.set("search", params.search);
+      const query = qs.toString();
+      return request<SharedVoicesPage>(
+        `/v1/voices/library${query ? `?${query}` : ""}`,
+      );
+    },
+    box: {
+      list: () => request<UserVoice[]>("/v1/voices/box"),
+      add: (body: {
+        voice_id: string;
+        public_owner_id: string;
+        nickname: string;
+        name?: string;
+        description?: string | null;
+        gender?: string;
+        accent?: string;
+        category?: string;
+        language?: string;
+        age?: string;
+        preview_url?: string | null;
+      }) =>
+        request<UserVoice>("/v1/voices/box", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      remove: (id: string) =>
+        request<void>(`/v1/voices/box/${id}`, { method: "DELETE" }),
+    },
+  },
   checkout: (kind: "subscription" | "credits") =>
     request<{ url: string }>("/v1/billing/checkout", {
       method: "POST",
@@ -541,6 +593,7 @@ export const api: ApiShape = isDemoMode
       segments: demoApi.segments,
       jobs: demoApi.jobs,
       credits: demoApi.credits,
+      voices: demoApi.voices,
       checkout: demoApi.checkout,
     }
   : realApi;

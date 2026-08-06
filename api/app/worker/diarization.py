@@ -96,7 +96,7 @@ class OpenAIDiarizationProvider:
             )
         if response.status_code >= 400:
             raise PipelineError(
-                errors.TRANSCRIPTION_FAILED,
+                errors.ASR_FAILED,
                 f"OpenAI diarization returned {response.status_code}: "
                 f"{response.text[:300]}",
                 retryable=response.status_code == 429 or response.status_code >= 500,

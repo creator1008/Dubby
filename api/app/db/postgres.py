@@ -16,6 +16,7 @@ import asyncpg
 from ..config import Settings
 from .base import (
     ActiveJobExistsError,
+    DuplicateVoiceError,
     InsufficientCreditsError,
     Repository,
     Row,
@@ -736,3 +737,64 @@ class PostgresRepository(Repository):
             float(event.get("credit_minutes") or 0),
         )
         return bool(result)
+
+    # --- voice box ----------------------------------------------------------
+
+    _USER_VOICE_COLUMNS = (
+        "id, owner_id, nickname, elevenlabs_voice_id, shared_voice_id, "
+        "public_owner_id, name, description, gender, accent, category, "
+        "language, age, preview_url, created_at"
+    )
+
+    async def list_user_voices(self, owner_id: UUID) -> list[Row]:
+        rows = await self.pool.fetch(
+            f"SELECT {self._USER_VOICE_COLUMNS} FROM public.user_voices "
+            "WHERE owner_id = $1 ORDER BY created_at DESC",
+            owner_id,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_user_voice(self, owner_id: UUID, voice_row_id: UUID) -> Row | None:
+        row = await self.pool.fetchrow(
+            f"SELECT {self._USER_VOICE_COLUMNS} FROM public.user_voices "
+            "WHERE owner_id = $1 AND id = $2",
+            owner_id,
+            voice_row_id,
+        )
+        return dict(row) if row else None
+
+    async def add_user_voice(self, owner_id: UUID, fields: dict[str, Any]) -> Row:
+        try:
+            row = await self.pool.fetchrow(
+                "INSERT INTO public.user_voices ("
+                "owner_id, nickname, elevenlabs_voice_id, shared_voice_id, "
+                "public_owner_id, name, description, gender, accent, category, "
+                "language, age, preview_url"
+                ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) "
+                f"RETURNING {self._USER_VOICE_COLUMNS}",
+                owner_id,
+                fields["nickname"],
+                fields["elevenlabs_voice_id"],
+                fields["shared_voice_id"],
+                fields.get("public_owner_id") or "",
+                fields.get("name") or "",
+                fields.get("description") or "",
+                fields.get("gender") or "",
+                fields.get("accent") or "",
+                fields.get("category") or "",
+                fields.get("language") or "",
+                fields.get("age") or "",
+                fields.get("preview_url"),
+            )
+        except asyncpg.UniqueViolationError as exc:
+            raise DuplicateVoiceError("voice already saved or nickname taken") from exc
+        return dict(row)
+
+    async def delete_user_voice(self, owner_id: UUID, voice_row_id: UUID) -> bool:
+        result = await self.pool.execute(
+            "DELETE FROM public.user_voices WHERE owner_id = $1 AND id = $2",
+            owner_id,
+            voice_row_id,
+        )
+        return result.endswith("1")
+

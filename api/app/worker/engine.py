@@ -91,11 +91,14 @@ class Engine(ABC):
         scratch: str,
         name: str,
         ranges_ms: list[tuple[int, int]] | None = None,
+        preferred_voice_id: str | None = None,
     ) -> str:
-        """Voice id used for TTS (cloned or configured)."""
+        """Voice id used for TTS (cloned, Voice Box, or configured)."""
 
     @abstractmethod
-    async def cleanup_voice(self, voice_id: str) -> None: ...
+    async def cleanup_voice(
+        self, voice_id: str, *, protected_ids: set[str] | None = None
+    ) -> None: ...
 
     @abstractmethod
     async def tts(
@@ -289,7 +292,11 @@ class RealEngine(Engine):
         scratch: str,
         name: str,
         ranges_ms: list[tuple[int, int]] | None = None,
+        preferred_voice_id: str | None = None,
     ) -> str:
+        preferred = (preferred_voice_id or "").strip()
+        if preferred:
+            return preferred
         if self._settings.elevenlabs_voice_id:
             return self._settings.elevenlabs_voice_id
         sample = str(Path(scratch) / f"voice_sample_{name[-24:]}.mp3")
@@ -305,9 +312,14 @@ class RealEngine(Engine):
         )
         return await self.elevenlabs.create_voice(sample, name)
 
-    async def cleanup_voice(self, voice_id: str) -> None:
+    async def cleanup_voice(
+        self, voice_id: str, *, protected_ids: set[str] | None = None
+    ) -> None:
         # Never delete a voice we did not create.
-        if voice_id and voice_id != self._settings.elevenlabs_voice_id:
+        protected = set(protected_ids or ())
+        if self._settings.elevenlabs_voice_id:
+            protected.add(self._settings.elevenlabs_voice_id)
+        if voice_id and voice_id not in protected:
             await self.elevenlabs.delete_voice(voice_id)
 
     async def tts(
@@ -551,11 +563,18 @@ class MockEngine(Engine):
         scratch: str,
         name: str,
         ranges_ms: list[tuple[int, int]] | None = None,
+        preferred_voice_id: str | None = None,
     ) -> str:
         del vocals_path, scratch, ranges_ms
+        preferred = (preferred_voice_id or "").strip()
+        if preferred:
+            return preferred
         return f"mock-voice-{name[-16:]}"
 
-    async def cleanup_voice(self, voice_id: str) -> None:
+    async def cleanup_voice(
+        self, voice_id: str, *, protected_ids: set[str] | None = None
+    ) -> None:
+        del voice_id, protected_ids
         return None
 
     async def tts(

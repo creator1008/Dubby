@@ -5,7 +5,16 @@
  * Active only when NEXT_PUBLIC_API_ORIGIN is unset.
  */
 
-import type { Credits, Job, LangCode, Project, Segment } from "@/lib/ui-types";
+import type {
+  Credits,
+  Job,
+  LangCode,
+  Project,
+  Segment,
+  SharedVoicesPage,
+  UserVoice,
+  VoiceFilterOptions,
+} from "@/lib/ui-types";
 import {
   deleteLocalRun,
   gcOrphanLocalRuns,
@@ -834,6 +843,48 @@ export const demoApi = {
       balance_minutes: getUserBalance(loadState(), userId),
       entries: [],
     };
+  },
+
+  voices: {
+    filters: async (): Promise<VoiceFilterOptions> => ({
+      languages: ["en", "ko", "vi"],
+      accents_by_language: {
+        en: ["american", "british"],
+        ko: ["standard"],
+        vi: ["northern", "southern"],
+      },
+      genders: ["male", "female", "neutral"],
+      ages: ["young", "middle_aged", "old"],
+      categories: ["professional", "high_quality", "famous"],
+    }),
+    library: async (): Promise<SharedVoicesPage> => ({
+      voices: [
+        {
+          public_owner_id: "demo-owner",
+          voice_id: "demo-voice-1",
+          name: "Demo Voice",
+          description: "Sample library voice for demo mode.",
+          gender: "female",
+          accent: "american",
+          category: "professional",
+          language: "en",
+          age: "young",
+          preview_url: null,
+        },
+      ],
+      has_more: false,
+      total_count: 1,
+      page: 0,
+    }),
+    box: {
+      list: async (): Promise<UserVoice[]> => [],
+      add: async (): Promise<UserVoice> => {
+        throw new Error("데모 모드에서는 Voice Box를 저장할 수 없습니다.");
+      },
+      remove: async () => {
+        throw new Error("데모 모드에서는 Voice Box를 수정할 수 없습니다.");
+      },
+    },
   },
 
   checkout: async (): Promise<{ url: string }> => {

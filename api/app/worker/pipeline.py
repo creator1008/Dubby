@@ -197,6 +197,27 @@ async def _upload_output(
     await _with_retries(ctx, _upload, step="upload_output")
 
 
+async def _preferred_voice_id(ctx: JobContext, project: Row) -> str | None:
+    """Most recently saved My Voice Box entry for the project owner, if any."""
+    owner_raw = project.get("owner_id")
+    if not owner_raw:
+        return None
+    try:
+        owner_id = UUID(str(owner_raw))
+    except (TypeError, ValueError):
+        return None
+    try:
+        voices = await ctx.repo.list_user_voices(owner_id)
+    except Exception:  # noqa: BLE001 - dubbing should fall back to env/clone
+        logger.warning("could not load user voice box for %s", owner_id)
+        return None
+    for row in voices:
+        voice_id = str(row.get("elevenlabs_voice_id") or "").strip()
+        if voice_id:
+            return voice_id
+    return None
+
+
 async def _load_project(ctx: JobContext) -> Row:
     project = await ctx.repo.get_project_for_worker(ctx.project_id)
     if project is None:
@@ -598,6 +619,7 @@ async def run_dub(ctx: JobContext) -> None:
     engine = create_engine(ctx.settings, heartbeat=ctx.heartbeat)
     scratch = _make_scratch(ctx)
     voice_ids: set[str] = set()
+    protected_voices: set[str] = set()
     try:
         project = await _load_project(ctx)
         segments = await ctx.repo.list_segments_for_worker(ctx.project_id)
@@ -656,10 +678,15 @@ async def run_dub(ctx: JobContext) -> None:
         )
 
         await ctx.report(0.40, "voice_clone_tts")
+        box_voice = await _preferred_voice_id(ctx, project)
+        protected_voices = {box_voice} if box_voice else set()
         default_voice = await _with_retries(
             ctx,
             lambda: engine.prepare_voice(
-                vocals, str(scratch), f"dubby-{ctx.project_id}"
+                vocals,
+                str(scratch),
+                f"dubby-{ctx.project_id}",
+                preferred_voice_id=box_voice,
             ),
             step="voice_clone",
         )
@@ -690,7 +717,11 @@ async def run_dub(ctx: JobContext) -> None:
             speaker_voice = await _with_retries(
                 ctx,
                 lambda sp=speaker, rs=ranges: engine.prepare_voice(
-                    vocals, str(scratch), f"dubby-{ctx.project_id}-{sp}", rs
+                    vocals,
+                    str(scratch),
+                    f"dubby-{ctx.project_id}-{sp}",
+                    ranges_ms=rs,
+                    preferred_voice_id=box_voice,
                 ),
                 step="voice_clone",
             )
@@ -992,7 +1023,7 @@ async def run_dub(ctx: JobContext) -> None:
     finally:
         for voice_id in voice_ids:
             try:
-                await engine.cleanup_voice(voice_id)
+                await engine.cleanup_voice(voice_id, protected_ids=protected_voices)
             except Exception:  # noqa: BLE001 - cleanup must not mask the job result
                 logger.warning("could not clean up cloned voice %s", voice_id)
         _cleanup_scratch(scratch)

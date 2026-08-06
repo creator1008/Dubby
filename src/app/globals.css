@@ -1034,9 +1034,162 @@ body {
   font-size: 0.85rem !important;
 }
 
-.header-history.active {
+.header-history.active,
+.header-voice-settings.active {
   border-color: var(--teal);
   color: var(--teal-deep) !important;
+}
+
+.header-voice-settings {
+  padding: 0.45rem 0.95rem !important;
+  font-size: 0.85rem !important;
+}
+
+.voice-settings-lead {
+  margin: 0 0 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.voice-section {
+  margin-top: 1.5rem;
+}
+
+.voice-section h2 {
+  margin: 0 0 0.85rem;
+  font-family: var(--font-syne), sans-serif;
+  font-size: 1.05rem;
+}
+
+.voice-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.voice-filters label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+}
+
+.voice-filters select {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  color: inherit;
+}
+
+.voice-filters select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.voice-box-list,
+.voice-library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.voice-box-item,
+.voice-library-item {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+@media (min-width: 820px) {
+  .voice-box-item {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .voice-library-item {
+    grid-template-columns: minmax(0, 1.4fr) minmax(10rem, 0.7fr) auto;
+    align-items: start;
+  }
+}
+
+.voice-box-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  font-size: 0.88rem;
+}
+
+.voice-box-meta strong {
+  font-size: 1rem;
+}
+
+.voice-library-main strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.voice-library-main p {
+  margin: 0 0 0.55rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.voice-library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+.voice-nickname-field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+}
+
+.voice-nickname-field input {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.95);
+  color: inherit;
+}
+
+.voice-nickname-field small {
+  font-weight: 500;
+}
+
+.voice-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.voice-load-more {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.form-error {
+  color: var(--coral);
+  font-size: 0.9rem;
+  margin: 0 0 0.85rem;
 }
 
 .panel-inline-title {
@@ -1557,6 +1710,7 @@ body {
 
   .app-nav .btn-ghost,
   .app-nav .header-new-dub,
+  .app-nav .header-voice-settings,
   .app-nav a,
   .app-nav .credits-pill {
     min-height: 2.75rem;

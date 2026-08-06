@@ -16,6 +16,7 @@ import httpx
 from ..config import Settings
 from .base import (
     ActiveJobExistsError,
+    DuplicateVoiceError,
     InsufficientCreditsError,
     Repository,
     Row,
@@ -820,3 +821,82 @@ class SupabaseRestRepository(Repository):
             },
         )
         return bool(result)
+
+    # --- voice box ----------------------------------------------------------
+
+    _USER_VOICE_SELECT = (
+        "id,owner_id,nickname,elevenlabs_voice_id,shared_voice_id,public_owner_id,"
+        "name,description,gender,accent,category,language,age,preview_url,created_at"
+    )
+
+    async def list_user_voices(self, owner_id: UUID) -> list[Row]:
+        resp = await self.client.get(
+            "/user_voices",
+            params={
+                "select": self._USER_VOICE_SELECT,
+                "owner_id": f"eq.{owner_id}",
+                "order": "created_at.desc",
+            },
+        )
+        resp.raise_for_status()
+        return list(resp.json())
+
+    async def get_user_voice(self, owner_id: UUID, voice_row_id: UUID) -> Row | None:
+        resp = await self.client.get(
+            "/user_voices",
+            params={
+                "select": self._USER_VOICE_SELECT,
+                "owner_id": f"eq.{owner_id}",
+                "id": f"eq.{voice_row_id}",
+                "limit": "1",
+            },
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0] if rows else None
+
+    async def add_user_voice(self, owner_id: UUID, fields: dict[str, Any]) -> Row:
+        payload = {
+            "owner_id": str(owner_id),
+            "nickname": fields["nickname"],
+            "elevenlabs_voice_id": fields["elevenlabs_voice_id"],
+            "shared_voice_id": fields["shared_voice_id"],
+            "public_owner_id": fields.get("public_owner_id") or "",
+            "name": fields.get("name") or "",
+            "description": fields.get("description") or "",
+            "gender": fields.get("gender") or "",
+            "accent": fields.get("accent") or "",
+            "category": fields.get("category") or "",
+            "language": fields.get("language") or "",
+            "age": fields.get("age") or "",
+            "preview_url": fields.get("preview_url"),
+        }
+        resp = await self.client.post(
+            "/user_voices",
+            params={"select": self._USER_VOICE_SELECT},
+            headers={"Prefer": "return=representation"},
+            json=payload,
+        )
+        if resp.status_code in {409, 23505} or (
+            resp.status_code >= 400
+            and "duplicate" in (resp.text or "").lower()
+        ):
+            raise DuplicateVoiceError("voice already saved or nickname taken")
+        resp.raise_for_status()
+        return resp.json()[0]
+
+    async def delete_user_voice(self, owner_id: UUID, voice_row_id: UUID) -> bool:
+        resp = await self.client.delete(
+            "/user_voices",
+            params={
+                "select": "id",
+                "owner_id": f"eq.{owner_id}",
+                "id": f"eq.{voice_row_id}",
+            },
+            headers={"Prefer": "return=representation"},
+        )
+        if resp.status_code == 404:
+            return False
+        resp.raise_for_status()
+        rows = resp.json() if resp.content else []
+        return bool(rows)

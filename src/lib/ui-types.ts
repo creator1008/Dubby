@@ -72,6 +72,51 @@ export type Credits = {
   entries: CreditEntry[];
 };
 
+export type SharedVoice = {
+  public_owner_id: string;
+  voice_id: string;
+  name: string;
+  description?: string | null;
+  gender: string;
+  accent: string;
+  category: string;
+  language?: string | null;
+  age: string;
+  preview_url?: string | null;
+};
+
+export type SharedVoicesPage = {
+  voices: SharedVoice[];
+  has_more: boolean;
+  total_count: number;
+  page: number;
+};
+
+export type VoiceFilterOptions = {
+  languages: string[];
+  accents_by_language: Record<string, string[]>;
+  genders: string[];
+  ages: string[];
+  categories: string[];
+};
+
+export type UserVoice = {
+  id: string;
+  nickname: string;
+  elevenlabs_voice_id: string;
+  shared_voice_id: string;
+  public_owner_id: string;
+  name: string;
+  description: string;
+  gender: string;
+  accent: string;
+  category: string;
+  language: string;
+  age: string;
+  preview_url?: string | null;
+  created_at: string;
+};
+
 export type AdminUser = {
   id: string;
   email: string | null;

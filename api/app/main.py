@@ -17,7 +17,7 @@ from . import __version__
 from .auth import JwtVerifier
 from .config import get_settings
 from .db import create_repository
-from .routers import admin, billing, credits, health, jobs, projects, segments, uploads
+from .routers import admin, billing, credits, health, jobs, projects, segments, uploads, voices
 from .storage import R2Storage
 
 
@@ -95,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(segments.router)
     app.include_router(jobs.router)
     app.include_router(credits.router)
+    app.include_router(voices.router)
     app.include_router(billing.router)
     app.include_router(uploads.router)
     app.include_router(admin.router)
