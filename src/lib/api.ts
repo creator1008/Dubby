@@ -419,6 +419,40 @@ const realApi = {
         method: "POST",
         body: JSON.stringify({ url }),
       }),
+    /** Poll until URL ingest finishes (async ``source-from-url``). */
+    waitUntilSourceReady: async (
+      id: string,
+      opts?: {
+        timeoutMs?: number;
+        intervalMs?: number;
+        onTick?: (elapsedMs: number) => void;
+      },
+    ): Promise<Project> => {
+      const timeoutMs = opts?.timeoutMs ?? 15 * 60 * 1000;
+      const intervalMs = opts?.intervalMs ?? 2000;
+      const started = Date.now();
+      for (;;) {
+        const project = await request<Project>(`/v1/projects/${id}`);
+        if (project.source_key || project.status === "uploaded") {
+          return project;
+        }
+        if (project.status === "failed") {
+          throw new ApiError(
+            project.error || "Failed to fetch video from link.",
+            400,
+          );
+        }
+        const elapsed = Date.now() - started;
+        if (elapsed >= timeoutMs) {
+          throw new ApiError(
+            "Timed out waiting for video download from link.",
+            408,
+          );
+        }
+        opts?.onTick?.(elapsed);
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    },
   },
   segments: {
     list: (projectId: string) =>

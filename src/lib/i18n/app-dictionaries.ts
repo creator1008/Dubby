@@ -218,6 +218,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLinkHint:
       "YouTube · Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM 링크 (최대 30분 · 500MB)",
     fetchingLink: "링크에서 영상 가져오는 중",
+    fetchingLinkFailed: "링크에서 영상을 가져오지 못했습니다.",
+    fetchingLinkTimeout: "영상 가져오기 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
     linkAndExtract: "1. 링크로 가져오기 및 자막 추출",
     selectVideoFile: "영상 파일을 선택해 주세요.",
     enterVideoUrl: "영상 링크를 입력해 주세요.",
@@ -535,6 +537,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLinkHint:
       "YouTube · Facebook · TikTok page URLs, or direct MP4/WebM links (max 30 min · 500MB)",
     fetchingLink: "Fetching video from link",
+    fetchingLinkFailed: "Could not fetch the video from this link.",
+    fetchingLinkTimeout: "Fetching the video timed out. Please try again.",
     linkAndExtract: "1. Fetch link and extract subtitles",
     selectVideoFile: "Please choose a video file.",
     enterVideoUrl: "Please enter a video link.",
@@ -852,6 +856,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLinkHint:
       "URL trang YouTube · Facebook · TikTok, hoặc liên kết MP4/WebM trực tiếp (tối đa 30 phút · 500MB)",
     fetchingLink: "Đang lấy video từ liên kết",
+    fetchingLinkFailed: "Không lấy được video từ liên kết này.",
+    fetchingLinkTimeout: "Hết thời gian lấy video. Vui lòng thử lại.",
     linkAndExtract: "1. Lấy liên kết và trích xuất phụ đề",
     selectVideoFile: "Hãy chọn một tệp video.",
     enterVideoUrl: "Hãy nhập liên kết video.",

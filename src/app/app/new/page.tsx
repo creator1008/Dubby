@@ -232,7 +232,27 @@ export default function NewDubPage() {
       setLocalStage(text.fetchingLink);
       setUploadPct(20);
       await api.projects.sourceFromUrl(created.id, trimmedUrl);
-      setUploadPct(60);
+      // Ingest runs in the background (tunnel-safe). Poll until ready.
+      try {
+        const ready = await api.projects.waitUntilSourceReady(created.id, {
+          onTick: (elapsedMs) => {
+            setUploadPct(Math.min(85, 25 + Math.floor(elapsedMs / 3000)));
+            setLocalStage(text.fetchingLink);
+          },
+        });
+        if (ready.status === "failed") {
+          throw new Error(ready.error || text.fetchingLinkFailed);
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 408) {
+          throw new Error(text.fetchingLinkTimeout);
+        }
+        if (err instanceof ApiError && err.status === 400) {
+          throw new Error(err.message || text.fetchingLinkFailed);
+        }
+        throw err;
+      }
+      setUploadPct(90);
     }
 
     let nextSegments: Segment[] = [];

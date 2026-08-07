@@ -711,6 +711,13 @@ export const demoApi = {
       persist();
       return clone(project);
     },
+    waitUntilSourceReady: async (id: string) => {
+      const project = await requireOwnedProject(id);
+      if (project.status === "failed") {
+        throw new Error(project.error || "Failed to fetch video from link.");
+      }
+      return clone(project);
+    },
   },
 
   segments: {

@@ -178,43 +178,76 @@ async def source_from_url(
     repo: Repo,
     storage: Storage,
 ) -> ProjectOut:
-    """Download a remote video (direct MP4/WebM or YouTube/Facebook/TikTok) into R2."""
+    """Start remote-media ingest in the background and return immediately.
+
+    Cloudflare Tunnel / mobile browsers cancel long synchronous downloads
+    (``Failed to fetch``). Clients should poll ``GET /v1/projects/{id}`` until
+    ``status`` is ``uploaded`` (or ``failed``).
+    """
     project = await repo.get_project(user.id, project_id)
     if project is None:
         raise NotFoundError("Project not found")
 
-    settings = get_settings()
-    with tempfile.TemporaryDirectory(prefix="dubby-url-") as tmp:
-        dest_dir = Path(tmp)
-        try:
-            source = await ingest_remote_media(
-                body.url.strip(),
-                dest_dir,
-                max_bytes=settings.max_source_bytes,
-            )
-        except RemoteMediaError as exc:
-            raise BadRequestError(str(exc)) from exc
-
-        content_type = {
-            ".mp4": "video/mp4",
-            ".webm": "video/webm",
-            ".mov": "video/quicktime",
-            ".mkv": "video/x-matroska",
-            ".m4a": "audio/mp4",
-            ".mp3": "audio/mpeg",
-            ".wav": "audio/wav",
-        }.get(source.suffix.lower(), "application/octet-stream")
-        key = storage.source_key(user.id, project_id, source.name)
-        await storage.upload_file(str(source), key, content_type=content_type)
+    media_url = body.url.strip()
+    if not media_url:
+        raise BadRequestError("url is required")
 
     row = await repo.update_project(
         user.id,
         project_id,
-        {"source_key": key, "status": "uploaded"},
+        {"status": "uploading", "error": None},
     )
     if row is None:
         raise NotFoundError("Project not found")
-    return ProjectOut.model_validate(row)
+
+    owner_id = user.id
+    settings = get_settings()
+
+    async def _ingest() -> None:
+        try:
+            with tempfile.TemporaryDirectory(prefix="dubby-url-") as tmp:
+                dest_dir = Path(tmp)
+                source = await ingest_remote_media(
+                    media_url,
+                    dest_dir,
+                    max_bytes=settings.max_source_bytes,
+                )
+                content_type = {
+                    ".mp4": "video/mp4",
+                    ".webm": "video/webm",
+                    ".mov": "video/quicktime",
+                    ".mkv": "video/x-matroska",
+                    ".m4a": "audio/mp4",
+                    ".mp3": "audio/mpeg",
+                    ".wav": "audio/wav",
+                }.get(source.suffix.lower(), "application/octet-stream")
+                key = storage.source_key(owner_id, project_id, source.name)
+                await storage.upload_file(str(source), key, content_type=content_type)
+            await repo.update_project(
+                owner_id,
+                project_id,
+                {"source_key": key, "status": "uploaded", "error": None},
+            )
+        except RemoteMediaError as exc:
+            logger.warning("source-from-url failed for %s: %s", project_id, exc)
+            await repo.update_project(
+                owner_id,
+                project_id,
+                {"status": "failed", "error": str(exc)[:500]},
+            )
+        except Exception as exc:  # noqa: BLE001 - persist failure for client poll
+            logger.exception("source-from-url crashed for %s", project_id)
+            await repo.update_project(
+                owner_id,
+                project_id,
+                {
+                    "status": "failed",
+                    "error": (str(exc) or "source ingest failed")[:500],
+                },
+            )
+
+    asyncio.create_task(_ingest())
+    return ProjectOut.model_validate(await _with_dub_voices(storage, owner_id, row))
 
 
 @router.get("/{project_id}/source-url", response_model=DownloadUrlResponse)
