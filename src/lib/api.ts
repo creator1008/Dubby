@@ -169,7 +169,7 @@ function tunnelExtraHeaders(origin: string): Record<string, string> {
  * only as fallback. All network waits are bounded so mobile never hangs on
  * "API 연결 확인 중…".
  */
-export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
+export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
   // Drop sticky quick-tunnel URLs immediately — they cause Failed to fetch on
   // mobile long after the PC tunnel rotated.
   let current = getApiOrigin();
@@ -186,7 +186,7 @@ export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
     !isEphemeralOrigin(cached.origin)
   ) {
     // Re-validate cheaply; a stale cache entry should not stick across tunnel flaps.
-    if (await healthOk(cached.origin, Math.min(timeoutMs, 3000))) {
+    if (await healthOk(cached.origin, Math.min(timeoutMs, 4000))) {
       return markHealthy(cached.origin);
     }
     healthyOriginCache = null;
@@ -220,6 +220,18 @@ export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
   {
     const hit = await tryOrigin(published);
     if (hit) return hit;
+  }
+
+  // 4) Mobile networks often flake on /healthz even when the API is fine.
+  // Prefer the stable named origin over blocking dubbing entirely.
+  const trusted =
+    (BUILTIN_API_ORIGIN && /api\.dubbyai\.com$/i.test(BUILTIN_API_ORIGIN)
+      ? BUILTIN_API_ORIGIN
+      : null) ||
+    (current && /api\.dubbyai\.com$/i.test(current) ? current : null) ||
+    (published && /api\.dubbyai\.com$/i.test(published) ? published : null);
+  if (trusted && !isEphemeralOrigin(trusted)) {
+    return markHealthy(rememberApiOrigin(trusted));
   }
 
   if (current) forgetApiOrigin();
@@ -256,8 +268,8 @@ export class ApiError extends Error {
 }
 
 /** Lightweight reachability check used before long extract/dub flows. */
-export async function pingApi(timeoutMs = 5000): Promise<void> {
-  const overall = Math.max(timeoutMs * 3, 12_000);
+export async function pingApi(timeoutMs = 8000): Promise<void> {
+  const overall = Math.max(timeoutMs * 2, 16_000);
   let timer: number | undefined;
   try {
     await Promise.race([
@@ -330,7 +342,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let apiOrigin = await ensureApiOrigin();
 
   const method = (init?.method || "GET").toUpperCase();
-  const retries = method === "GET" || method === "HEAD" ? 3 : 2;
+  const retries = method === "GET" || method === "HEAD" ? 4 : 3;
   let lastError: unknown;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
@@ -354,7 +366,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         } catch {
           /* keep previous origin */
         }
-        await sleep(700 * attempt);
+        await sleep(900 * attempt);
         continue;
       }
       if (err instanceof TypeError) {
