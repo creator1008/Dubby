@@ -139,12 +139,16 @@ async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
     const response = await fetch(`${origin}/healthz`, {
       method: "GET",
       cache: "no-store",
+      mode: "cors",
       signal: controller.signal,
       headers: tunnelExtraHeaders(origin),
     });
     if (!response.ok) return false;
-    const text = await response.text();
-    return text.includes('"status"') && text.includes("ok");
+    const text = (await response.text()).trim();
+    // Accept JSON health payloads; also accept empty/ok bodies from proxies.
+    if (!text) return true;
+    if (text.includes('"status"') && text.includes("ok")) return true;
+    return text === "ok" || text.toLowerCase().includes("healthy");
   } catch {
     return false;
   } finally {
@@ -226,6 +230,15 @@ export async function ensureApiOrigin(timeoutMs = 5000): Promise<string> {
 
 function apiUnreachableMessage(): string {
   const origin = getApiOrigin() || BUILTIN_API_ORIGIN || "(미설정)";
+  const isNamed =
+    /api\.dubbyai\.com$/i.test(origin) || /dubbyai\.com$/i.test(origin);
+  if (isNamed) {
+    return (
+      `API 서버(${origin})에 연결할 수 없습니다. ` +
+      "네트워크 상태를 확인한 뒤 화면을 새로고침해 주세요. " +
+      "계속되면 PC에서 API(uvicorn)와 Cloudflare 터널이 실행 중인지 확인해 주세요."
+    );
+  }
   return (
     `API 서버(${origin})에 연결할 수 없습니다(Failed to fetch). ` +
     "PC에서 uvicorn과 `bash scripts/run-named-tunnel.sh` 가 켜져 있는지 확인한 뒤, " +

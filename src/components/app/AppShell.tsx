@@ -242,33 +242,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             title={text.voiceSetting}
           >
             <span className="nav-label-full">{text.voiceSetting}</span>
-            <span className="nav-label-short nav-lips-icon" aria-hidden="true">
+            <span className="nav-label-short nav-voice-chip" aria-hidden="true">
               <svg
+                className="nav-voice-chip-icon"
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
               >
+                <rect
+                  x="9"
+                  y="3.5"
+                  width="6"
+                  height="10"
+                  rx="3"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
                 <path
-                  d="M4.5 11.2c1.4-1.7 3.2-2.7 5.1-2.7.9 0 1.7.2 2.4.6.7-.4 1.5-.6 2.4-.6 1.9 0 3.7 1 5.1 2.7"
+                  d="M7 11.5a5 5 0 0 0 10 0"
                   stroke="currentColor"
                   strokeWidth="1.8"
                   strokeLinecap="round"
                 />
                 <path
-                  d="M5 12.2c1.6 2.4 3.7 3.8 7 3.8s5.4-1.4 7-3.8"
+                  d="M12 16.5v3.2M9.2 19.7h5.6"
                   stroke="currentColor"
                   strokeWidth="1.8"
                   strokeLinecap="round"
                 />
                 <path
-                  d="M7.2 12.1c1.4.7 3 .9 4.8.9s3.4-.2 4.8-.9"
+                  d="M4.8 10.2v1.4M19.2 10.2v1.4M3.2 8.4v5M20.8 8.4v5"
                   stroke="currentColor"
-                  strokeWidth="1.6"
+                  strokeWidth="1.7"
                   strokeLinecap="round"
                 />
               </svg>
+              <span className="nav-voice-chip-text">{text.voiceSettingShort}</span>
             </span>
           </Link>
           <Link

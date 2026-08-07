@@ -16,6 +16,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     newDub: "새 더빙",
     history: "더빙 이력",
     voiceSetting: "목소리 설정",
+    voiceSettingShort: "목소리",
     voiceSettingDescription:
       "Voice Library에서 목소리를 고르고 My Voice Box에 저장하세요.",
     myVoiceBox: "My Voice Box",
@@ -332,6 +333,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     newDub: "New dubbing",
     history: "Dubbing history",
     voiceSetting: "Voice Settings",
+    voiceSettingShort: "Voice",
     voiceSettingDescription:
       "Browse the Voice Library and save voices to My Voice Box.",
     myVoiceBox: "My Voice Box",
@@ -648,6 +650,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     newDub: "Lồng tiếng mới",
     history: "Lịch sử lồng tiếng",
     voiceSetting: "Cài đặt giọng nói",
+    voiceSettingShort: "Giọng",
     voiceSettingDescription:
       "Duyệt Voice Library và lưu giọng vào My Voice Box.",
     myVoiceBox: "My Voice Box",
