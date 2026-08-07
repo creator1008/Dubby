@@ -1830,6 +1830,16 @@ body {
     font-weight: 800;
   }
 
+  .app-nav .nav-lips-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-nav .nav-lips-icon svg {
+    display: block;
+  }
+
   .app-nav .lang-switch select {
     max-width: 4.5rem;
     min-height: 2.75rem;

@@ -40,6 +40,37 @@ function speakerLabel(template: string, n: number) {
   return template.replace("{n}", String(n));
 }
 
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function lookupVoiceLabel(
+  text: Record<string, string>,
+  prefix: string,
+  value: string | null | undefined,
+): string {
+  const raw = (value || "").trim();
+  if (!raw) return "";
+  const key = `${prefix}_${raw.toLowerCase().replace(/\s+/g, "_")}`;
+  return text[key] || titleCaseWords(raw);
+}
+
+function formatVoiceOption(
+  voice: UserVoice,
+  text: Record<string, string>,
+): string {
+  const nickname = (voice.nickname || voice.name || "").trim() || "—";
+  const parts = [
+    lookupVoiceLabel(text, "voiceLang", voice.language),
+    lookupVoiceLabel(text, "voiceGender", voice.gender),
+    lookupVoiceLabel(text, "voiceAccent", voice.accent),
+  ].filter(Boolean);
+  return parts.length ? `${nickname} · ${parts.join(" · ")}` : nickname;
+}
+
 export default function NewDubPage() {
   const text = useAppDictionary();
   const [title, setTitle] = useState("");
@@ -763,7 +794,7 @@ export default function NewDubPage() {
                           key={voice.id}
                           value={voice.elevenlabs_voice_id}
                         >
-                          {voice.nickname || voice.name}
+                          {formatVoiceOption(voice, text)}
                         </option>
                       ))}
                     </select>

@@ -45,17 +45,23 @@ new-user trigger (profile + 10-minute signup credit), and the service RPCs
    ```json
    [
      {
-       "AllowedOrigins": ["https://<your-pages-domain>", "http://localhost:3000"],
-       "AllowedMethods": ["PUT", "GET"],
-       "AllowedHeaders": ["content-type"],
-       "ExposeHeaders": ["etag"],
+       "AllowedOrigins": [
+         "https://dubbyai.com",
+         "https://www.dubbyai.com",
+         "https://creator1008.github.io",
+         "http://localhost:3000",
+         "capacitor://localhost"
+       ],
+       "AllowedMethods": ["PUT", "GET", "HEAD"],
+       "AllowedHeaders": ["*"],
+       "ExposeHeaders": ["ETag", "etag"],
        "MaxAgeSeconds": 3600
      }
    ]
    ```
 
-   `ExposeHeaders: etag` is required — the client must read each part's ETag
-   to complete a multipart upload.
+   `ExposeHeaders: ETag` is required — the client must read each part's ETag
+   to complete a multipart upload. Apply with `python scripts/apply_r2_cors.py`.
 
 ## 3. Lightsail
 
