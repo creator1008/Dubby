@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
+import { useAppDictionary } from "@/lib/i18n/locale-context";
 import type {
   SharedVoice,
   UserVoice,
@@ -46,7 +46,6 @@ function TrashIcon() {
 
 export default function VoiceSettingsPage() {
   const text = useAppDictionary();
-  const { locale } = useLocale();
   const [box, setBox] = useState<UserVoice[]>([]);
   const [library, setLibrary] = useState<SharedVoice[]>([]);
   const [filters, setFilters] = useState<VoiceFilterOptions>(EMPTY_FILTERS);
@@ -144,7 +143,6 @@ export default function VoiceSettingsPage() {
           category: category || undefined,
           gender: gender || undefined,
           age: age || undefined,
-          ui_locale: locale,
         });
         setLibrary((prev) =>
           replace ? result.voices : [...prev, ...result.voices],
@@ -157,7 +155,7 @@ export default function VoiceSettingsPage() {
         setLoadingLibrary(false);
       }
     },
-    [accent, age, category, gender, language, locale, text.voiceLoadError],
+    [accent, age, category, gender, language, text.voiceLoadError],
   );
 
   useEffect(() => {
@@ -282,10 +280,10 @@ export default function VoiceSettingsPage() {
         ) : box.length === 0 ? (
           <p className="muted">{text.voiceBoxEmpty}</p>
         ) : (
-          <ul className="voice-box-grid">
+          <ul className="voice-card-grid">
             {box.map((voice) => (
-              <li key={voice.id} className="voice-box-card">
-                <div className="voice-box-card-head">
+              <li key={voice.id} className="voice-card">
+                <div className="voice-card-head">
                   <strong>{voice.nickname}</strong>
                   <div className="voice-icon-actions">
                     <button
@@ -321,18 +319,29 @@ export default function VoiceSettingsPage() {
                   </div>
                 </div>
                 <div className="voice-chip-row">
-                  <span className="voice-chip">
-                    {labelLanguage(voice.language)}
-                  </span>
-                  <span className="voice-chip">
-                    {labelGender(voice.gender)}
-                  </span>
-                  <span className="voice-chip">
-                    {voice.accent ? labelAccent(voice.accent) : "—"}
-                  </span>
-                  <span className="voice-chip">
-                    {labelCategory(voice.category)}
-                  </span>
+                  {voice.language ? (
+                    <span className="voice-chip">
+                      {labelLanguage(voice.language)}
+                    </span>
+                  ) : null}
+                  {voice.gender ? (
+                    <span className="voice-chip">
+                      {labelGender(voice.gender)}
+                    </span>
+                  ) : null}
+                  {voice.age ? (
+                    <span className="voice-chip">{labelAge(voice.age)}</span>
+                  ) : null}
+                  {voice.accent ? (
+                    <span className="voice-chip">
+                      {labelAccent(voice.accent)}
+                    </span>
+                  ) : null}
+                  {voice.category ? (
+                    <span className="voice-chip">
+                      {labelCategory(voice.category)}
+                    </span>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -380,20 +389,6 @@ export default function VoiceSettingsPage() {
             </select>
           </label>
           <label>
-            <span>{text.voiceCategory}</span>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="">{text.voiceFilterAll}</option>
-              {filters.categories.map((item) => (
-                <option key={item} value={item}>
-                  {labelCategory(item)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
             <span>{text.voiceGender}</span>
             <select value={gender} onChange={(e) => setGender(e.target.value)}>
               <option value="">{text.voiceFilterAll}</option>
@@ -415,6 +410,20 @@ export default function VoiceSettingsPage() {
               ))}
             </select>
           </label>
+          <label>
+            <span>{text.voiceCategory}</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">{text.voiceFilterAll}</option>
+              {filters.categories.map((item) => (
+                <option key={item} value={item}>
+                  {labelCategory(item)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {loadingLibrary && library.length === 0 ? (
@@ -422,7 +431,7 @@ export default function VoiceSettingsPage() {
         ) : library.length === 0 ? (
           <p className="muted">{text.voiceLibraryEmpty}</p>
         ) : (
-          <ul className="voice-library-list">
+          <ul className="voice-card-grid voice-library-grid">
             {library.map((voice) => {
               const nickname = nicknames[voice.voice_id] || "";
               const already = savedVoiceIds.has(voice.voice_id);
@@ -432,88 +441,86 @@ export default function VoiceSettingsPage() {
               return (
                 <li
                   key={`${voice.public_owner_id}-${voice.voice_id}`}
-                  className="voice-library-item"
+                  className={`voice-card${already ? " is-added" : ""}`}
                 >
-                  <div className="voice-library-body">
-                    <div className="voice-library-copy">
-                      <strong>{voice.name}</strong>
-                      {voice.description ? (
-                        <p className="voice-library-desc">
-                          {voice.description}
-                        </p>
-                      ) : null}
-                      <div className="voice-chip-row">
-                        <span className="voice-chip">
-                          {labelGender(voice.gender)}
-                        </span>
-                        {voice.language ? (
-                          <span className="voice-chip">
-                            {labelLanguage(voice.language)}
-                          </span>
-                        ) : null}
-                        {voice.accent ? (
-                          <span className="voice-chip">
-                            {labelAccent(voice.accent)}
-                          </span>
-                        ) : null}
-                        {voice.category ? (
-                          <span className="voice-chip">
-                            {labelCategory(voice.category)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="voice-library-side">
-                      <label className="voice-nickname-field">
-                        <span>{text.voiceNickname}</span>
-                        <input
-                          type="text"
-                          maxLength={30}
-                          value={nickname}
-                          disabled={already}
-                          placeholder={text.voiceNicknamePlaceholder}
-                          onChange={(e) =>
-                            setNickname(voice.voice_id, e.target.value)
-                          }
-                        />
-                        <small>{nickname.length}/30</small>
-                      </label>
-                      <div className="voice-icon-actions">
-                        <button
-                          type="button"
-                          className="voice-icon-btn"
-                          disabled={!voice.preview_url}
-                          aria-label={
-                            playing ? text.voicePreviewStop : text.voicePreview
-                          }
-                          title={
-                            playing ? text.voicePreviewStop : text.voicePreview
-                          }
-                          onClick={() => preview(voice.preview_url)}
-                        >
-                          {playing ? "⏹" : "▶"}
-                        </button>
-                        <button
-                          type="button"
-                          className="voice-icon-btn primary"
-                          disabled={!canAdd || addingId === voice.voice_id}
-                          aria-label={
-                            already
-                              ? text.voiceAlreadyAdded
-                              : text.voiceAddToAccount
-                          }
-                          title={
-                            already
-                              ? text.voiceAlreadyAdded
-                              : text.voiceAddToAccount
-                          }
-                          onClick={() => void addToBox(voice)}
-                        >
-                          {already ? "✓" : "+"}
-                        </button>
-                      </div>
+                  <div className="voice-card-head">
+                    <strong>{voice.name}</strong>
+                    <div className="voice-icon-actions">
+                      <button
+                        type="button"
+                        className="voice-icon-btn"
+                        disabled={!voice.preview_url}
+                        aria-label={
+                          playing ? text.voicePreviewStop : text.voicePreview
+                        }
+                        title={
+                          playing ? text.voicePreviewStop : text.voicePreview
+                        }
+                        onClick={() => preview(voice.preview_url)}
+                      >
+                        {playing ? "⏹" : "▶"}
+                      </button>
+                      <button
+                        type="button"
+                        className="voice-icon-btn primary"
+                        disabled={!canAdd || addingId === voice.voice_id}
+                        aria-label={
+                          already
+                            ? text.voiceAlreadyAdded
+                            : text.voiceAddToAccount
+                        }
+                        title={
+                          already
+                            ? text.voiceAlreadyAdded
+                            : text.voiceAddToAccount
+                        }
+                        onClick={() => void addToBox(voice)}
+                      >
+                        {already ? "✓" : "+"}
+                      </button>
                     </div>
                   </div>
+                  <div className="voice-chip-row">
+                    {voice.gender ? (
+                      <span className="voice-chip">
+                        {labelGender(voice.gender)}
+                      </span>
+                    ) : null}
+                    {voice.age ? (
+                      <span className="voice-chip">{labelAge(voice.age)}</span>
+                    ) : null}
+                    {voice.language ? (
+                      <span className="voice-chip">
+                        {labelLanguage(voice.language)}
+                      </span>
+                    ) : null}
+                    {voice.accent ? (
+                      <span className="voice-chip">
+                        {labelAccent(voice.accent)}
+                      </span>
+                    ) : null}
+                    {voice.category ? (
+                      <span className="voice-chip">
+                        {labelCategory(voice.category)}
+                      </span>
+                    ) : null}
+                  </div>
+                  <label className="voice-nickname-field">
+                    <span className="voice-nickname-label">
+                      <span>{text.voiceNickname}</span>
+                      <small>{nickname.length}/30</small>
+                    </span>
+                    <input
+                      type="text"
+                      maxLength={30}
+                      value={nickname}
+                      disabled={already}
+                      placeholder={text.voiceNicknamePlaceholder}
+                      onChange={(e) =>
+                        setNickname(voice.voice_id, e.target.value)
+                      }
+                    />
+                  </label>
                 </li>
               );
             })}
