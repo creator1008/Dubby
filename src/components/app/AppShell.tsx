@@ -236,6 +236,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
           <Link
+            href="/app"
+            className={`btn-ghost header-history${pathname === "/app" || pathname === "/app/" ? " active" : ""}`}
+          >
+            <span className="nav-label-full">{text.history}</span>
+            <span className="nav-label-short" aria-hidden="true">
+              ≡
+            </span>
+          </Link>
+          <Link
             href="/app/voice-settings"
             className={`btn-ghost header-voice-settings${pathname === "/app/voice-settings" || pathname === "/app/voice-settings/" ? " active" : ""}`}
             aria-label={text.voiceSetting}
@@ -280,15 +289,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
               </svg>
               <span className="nav-voice-chip-text">{text.voiceSettingShort}</span>
-            </span>
-          </Link>
-          <Link
-            href="/app"
-            className={`btn-ghost header-history${pathname === "/app" || pathname === "/app/" ? " active" : ""}`}
-          >
-            <span className="nav-label-full">{text.history}</span>
-            <span className="nav-label-short" aria-hidden="true">
-              ≡
             </span>
           </Link>
         </nav>

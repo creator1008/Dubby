@@ -139,7 +139,7 @@ def test_fit_policy_prefers_rubberband_for_any_tempo_change() -> None:
     assert abs(decision.tempo - 1.2) < 1e-6
 
 
-def test_diarization_overlap_uses_safe_fallback() -> None:
+def test_diarization_overlap_keeps_majority_speaker() -> None:
     result = assign_speakers(
         [(0, 1000), (1000, 2000)],
         [
@@ -149,7 +149,21 @@ def test_diarization_overlap_uses_safe_fallback() -> None:
         ],
     )
     assert result[0] == ("a", False)
-    assert result[1] == (None, True)
+    # Majority overlap is b (800ms) vs a (700ms); soft-overlap flagged but id kept.
+    assert result[1] == ("b", True)
+
+
+def test_normalize_speaker_ids_first_appearance() -> None:
+    from app.worker.diarization import normalize_speaker_ids
+
+    turns = normalize_speaker_ids(
+        [
+            SpeakerTurn(0, 1000, "B", "hi"),
+            SpeakerTurn(1000, 2000, "A", "there"),
+            SpeakerTurn(2000, 3000, "B", "again"),
+        ]
+    )
+    assert [t.speaker_id for t in turns] == ["speaker_1", "speaker_2", "speaker_1"]
 
 
 def test_speaker_turn_text_is_split_to_bounded_tts_slots() -> None:

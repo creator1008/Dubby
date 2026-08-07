@@ -40,6 +40,7 @@ from .diarization import (
     SpeakerTurn,
     assign_speakers,
     create_diarization_provider,
+    normalize_speaker_ids,
 )
 from .dub_quality import (
     matched_loudness_gain,
@@ -500,10 +501,12 @@ async def run_transcribe(ctx: JobContext) -> None:
                     lambda: provider.diarize(str(asr_audio), language=source_lang or None),
                     step="diarization",
                 )
+                turns = normalize_speaker_ids(
+                    [turn for turn in turns if turn.end_ms > turn.start_ms]
+                )
                 speaker_turns = [
                     (turn.start_ms, turn.end_ms, turn.speaker_id, turn.text)
                     for turn in turns
-                    if turn.end_ms > turn.start_ms
                 ] or None
                 if speaker_turns is None:
                     quality_warnings.append("diarization_empty_turns_single_speaker_fallback")
@@ -611,9 +614,8 @@ async def run_transcribe(ctx: JobContext) -> None:
         if bool(project.get("diarization_enabled")) and speaker_turns is None:
             speaker_assignments = [(None, False) for _ in chunks]
         elif speaker_turns:
-            # Always resolve speakers by time overlap (OpenAI turns include text,
-            # so we must not skip this path). Keep turn-sliced ids when overlap
-            # is ambiguous.
+            # Always resolve speakers by time overlap. Keep majority speaker even
+            # when overlap is soft — never clear speaker_id (that collapses voices).
             timed = assign_speakers(
                 [(c.start_ms, c.end_ms) for c in chunks],
                 [
@@ -623,13 +625,10 @@ async def run_transcribe(ctx: JobContext) -> None:
             )
             refined: list[tuple[str | None, bool]] = []
             for chunk, (spk, overlap) in zip(chunks, timed):
-                if spk and not overlap:
-                    refined.append((spk, False))
-                else:
-                    refined.append((chunk.speaker_id or spk, overlap))
+                refined.append((spk or chunk.speaker_id or "speaker_1", overlap))
             speaker_assignments = refined
         if any(overlap for _, overlap in speaker_assignments):
-            quality_warnings.append("overlapping_speakers_use_default_voice")
+            quality_warnings.append("overlapping_speakers_majority_voice")
 
         await ctx.report(0.72, "translate")
         # Per-segment translation with full-transcript context. Document-level
@@ -808,11 +807,8 @@ async def run_dub(ctx: JobContext) -> None:
                 text = str(seg["target_text"]).strip()
                 source_text = str(seg.get("source_text") or "").strip()
                 speaker_id = str(seg.get("speaker_id") or "")
-                voice_id = (
-                    speaker_voices.get(speaker_id, default_voice)
-                    if not seg.get("speaker_overlap")
-                    else default_voice
-                )
+                # Always map by speaker slot; soft overlaps still keep majority voice.
+                voice_id = speaker_voices.get(speaker_id, default_voice)
                 next_start = (
                     int(speakable[n + 1]["start_ms"]) if n + 1 < total else None
                 )

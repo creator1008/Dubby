@@ -1193,7 +1193,13 @@ def _merge_drafts_for_translation(
         incomplete = is_translation_dangling(prev_text) or (
             continuous and gap <= 80 and not looks_like_sentence_end(prev_text)
         )
-        if continuous and incomplete and (end - prev_start) <= max_ms:
+        same_speaker = speakers[index] == merged_speakers[-1]
+        if (
+            continuous
+            and incomplete
+            and same_speaker
+            and (end - prev_start) <= max_ms
+        ):
             merged_drafts[-1] = (prev_start, end, _join_draft_text(prev_text, text))
         else:
             merged_drafts.append((start, end, text))
@@ -1461,6 +1467,15 @@ def _process(
         source_language = asr_language
     if diarization_enabled:
         turns = _openai_diarize(asr_mp3, source_language)
+        # Normalize A/B → speaker_1/speaker_2 (first-appearance = 화자 1/2).
+        label_map: dict[str, str] = {}
+        normalized_turns: list[tuple[int, int, str, str]] = []
+        for start, end, speaker, text in turns:
+            raw = (speaker or "").strip() or "speaker_0"
+            if raw not in label_map:
+                label_map[raw] = f"speaker_{len(label_map) + 1}"
+            normalized_turns.append((start, end, label_map[raw], text))
+        turns = normalized_turns
         max_segment_ms = max(
             1000,
             round(float(os.getenv("SPEECH_SEGMENT_MAX_SECONDS", "6")) * 1000),
@@ -1472,7 +1487,7 @@ def _process(
         else:
             speaker_ids = _assign_speaker_ids(drafts, turns)
     else:
-        speaker_ids = ["speaker_0"] * len(drafts)
+        speaker_ids = ["speaker_1"] * len(drafts)
     drafts, speaker_ids = _merge_drafts_for_translation(drafts, speaker_ids)
     translations = _translate(drafts, source_language, target_language)
     pairs: list[SpeechPair] = []

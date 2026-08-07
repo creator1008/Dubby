@@ -136,10 +136,36 @@ def create_diarization_provider(settings: Settings) -> DiarizationProvider | Non
     return None
 
 
+def normalize_speaker_ids(turns: list[SpeakerTurn]) -> list[SpeakerTurn]:
+    """Map provider labels (A/B, SPEAKER_00, …) to ``speaker_1``, ``speaker_2``, …
+
+    First-appearance order matches New Dub 화자 1 / 화자 2 voice slots.
+    """
+    mapping: dict[str, str] = {}
+    normalized: list[SpeakerTurn] = []
+    for turn in turns:
+        raw = (turn.speaker_id or "").strip() or "speaker_0"
+        if raw not in mapping:
+            mapping[raw] = f"speaker_{len(mapping) + 1}"
+        normalized.append(
+            SpeakerTurn(
+                start_ms=turn.start_ms,
+                end_ms=turn.end_ms,
+                speaker_id=mapping[raw],
+                text=turn.text,
+            )
+        )
+    return normalized
+
+
 def assign_speakers(
     segments: list[tuple[int, int]], turns: list[SpeakerTurn]
 ) -> list[tuple[str | None, bool]]:
-    """Assign the largest-overlap speaker; ambiguous overlap safely falls back."""
+    """Assign the largest-overlap speaker; flag soft overlaps without dropping the id.
+
+    Clearing ``speaker_id`` on overlap made multi-speaker dubs fall back to one
+    default voice. Keep the majority speaker so 화자 1 / 화자 2 stay distinct.
+    """
     assigned: list[tuple[str | None, bool]] = []
     for start, end in segments:
         by_speaker: dict[str, int] = {}
@@ -150,7 +176,7 @@ def assign_speakers(
         ranked = sorted(by_speaker.items(), key=lambda item: item[1], reverse=True)
         total = sum(by_speaker.values())
         ambiguous = len(ranked) > 1 and ranked[1][1] >= ranked[0][1] * 0.5
-        speaker = ranked[0][0] if ranked and not ambiguous and total > 0 else None
+        speaker = ranked[0][0] if ranked and total > 0 else None
         assigned.append((speaker, ambiguous))
     return assigned
 

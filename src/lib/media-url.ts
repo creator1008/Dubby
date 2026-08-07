@@ -26,8 +26,12 @@ const QUALITY_WARNING_KO: Record<string, string> = {
   invalid_duration: "구간 길이가 올바르지 않아 타이밍을 기본값으로 처리했습니다.",
   diarization_provider_unavailable_single_speaker_fallback:
     "화자 분리를 사용할 수 없어 단일 화자로 처리했습니다.",
+  diarization_empty_turns_single_speaker_fallback:
+    "화자 분리 결과가 비어 단일 화자로 처리했습니다.",
   overlapping_speakers_use_default_voice:
     "화자 구간이 겹쳐 기본 보이스를 사용했습니다.",
+  overlapping_speakers_majority_voice:
+    "화자 구간이 일부 겹쳐 비중이 큰 화자 목소리를 사용했습니다.",
 };
 
 const QUALITY_WARNING_EN: Record<string, string> = {
@@ -40,8 +44,12 @@ const QUALITY_WARNING_EN: Record<string, string> = {
   invalid_duration: "Invalid segment duration; used default timing.",
   diarization_provider_unavailable_single_speaker_fallback:
     "Speaker diarization unavailable; fell back to a single speaker.",
+  diarization_empty_turns_single_speaker_fallback:
+    "Diarization returned no turns; fell back to a single speaker.",
   overlapping_speakers_use_default_voice:
     "Overlapping speakers detected; used the default voice.",
+  overlapping_speakers_majority_voice:
+    "Overlapping speakers detected; used the majority speaker voice.",
 };
 
 const QUALITY_WARNING_VI: Record<string, string> = {
@@ -54,8 +62,12 @@ const QUALITY_WARNING_VI: Record<string, string> = {
   invalid_duration: "Độ dài đoạn không hợp lệ; dùng thời gian mặc định.",
   diarization_provider_unavailable_single_speaker_fallback:
     "Không tách được người nói; xử lý như một người nói.",
+  diarization_empty_turns_single_speaker_fallback:
+    "Không có kết quả tách người nói; xử lý như một người nói.",
   overlapping_speakers_use_default_voice:
     "Người nói chồng chéo; dùng giọng mặc định.",
+  overlapping_speakers_majority_voice:
+    "Người nói chồng chéo; dùng giọng của người nói chiếm ưu thế.",
 };
 
 function localizeCode(
