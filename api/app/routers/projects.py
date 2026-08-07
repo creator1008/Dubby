@@ -160,14 +160,32 @@ async def update_project(
 async def delete_project(
     project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
 ) -> None:
+    """Delete a project and purge related Supabase / R2 / local artifacts."""
+    from ..project_cleanup import purge_project_artifacts
+
+    project = await repo.get_project(user.id, project_id)
+    if project is None:
+        raise NotFoundError("Project not found")
+
+    # Storage first so a failed DB delete can be retried without leaving orphans.
+    summary = await purge_project_artifacts(
+        storage, user.id, project_id, project_row=project
+    )
+    if summary.get("r2_error"):
+        logger.warning(
+            "project %s R2 purge incomplete: %s", project_id, summary["r2_error"]
+        )
+
     deleted = await repo.delete_project(user.id, project_id)
     if not deleted:
         raise NotFoundError("Project not found")
-    # Storage cleanup is best-effort; orphans are cheap and can be swept later.
+
+    # Soft-delete path may leave children; repository also clears them. Re-purge
+    # R2 in case a concurrent upload wrote after the first pass.
     try:
         await storage.delete_prefix(f"users/{user.id}/projects/{project_id}/")
-    except Exception:  # noqa: BLE001 - deletion must not fail the request
-        pass
+    except Exception:  # noqa: BLE001 - request already succeeded for the user
+        logger.exception("post-delete R2 re-purge failed for %s", project_id)
 
 
 @router.post("/{project_id}/source-from-url", response_model=ProjectOut)

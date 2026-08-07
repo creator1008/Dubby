@@ -229,7 +229,9 @@ class SupabaseRestRepository(Repository):
         if resp.status_code in (200, 204):
             return True
         if resp.status_code == 400 and "credit_ledger_is_immutable" in resp.text:
-            # Append-only ledger blocks ON DELETE SET NULL; hide the project instead.
+            # Append-only ledger blocks ON DELETE SET NULL; hide the project
+            # and still remove child media rows so history is gone.
+            await self._purge_project_children(project_id)
             soft = await self.client.patch(
                 "/projects",
                 params={
@@ -238,12 +240,34 @@ class SupabaseRestRepository(Repository):
                     "id": f"eq.{project_id}",
                 },
                 headers={"Prefer": "return=representation"},
-                json={"error": _PROJECT_DELETED_SENTINEL, "status": "failed"},
+                json={
+                    "error": _PROJECT_DELETED_SENTINEL,
+                    "status": "failed",
+                    "source_key": None,
+                    "output_key": None,
+                    "lipsync_output_key": None,
+                    "duration_seconds": None,
+                    "quality_warnings": [],
+                },
             )
             soft.raise_for_status()
             return bool(soft.json())
         resp.raise_for_status()
         return False
+
+    async def _purge_project_children(self, project_id: UUID) -> None:
+        """Best-effort delete of segments/jobs when the project row must remain."""
+        for table in ("segments", "jobs"):
+            try:
+                resp = await self.client.delete(
+                    f"/{table}",
+                    params={"project_id": f"eq.{project_id}"},
+                    headers={"Prefer": "return=minimal"},
+                )
+                if resp.status_code not in (200, 204):
+                    resp.raise_for_status()
+            except Exception:  # noqa: BLE001 - soft-delete must still succeed
+                pass
 
     # --- segments -------------------------------------------------------------
 

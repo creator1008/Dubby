@@ -232,16 +232,62 @@ class R2Storage:
             ExpiresIn=expires_in or self._settings.download_expires_seconds,
         )
 
-    async def delete_prefix(self, prefix: str) -> None:
-        """Best-effort recursive delete used when a project is removed."""
+    async def delete_prefix(self, prefix: str) -> int:
+        """Recursive delete used when a project is removed. Returns deleted count."""
 
-        def _delete() -> None:
+        deleted = 0
+
+        def _delete() -> int:
+            nonlocal deleted
             paginator = self.client.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
                 objects = [{"Key": o["Key"]} for o in page.get("Contents", [])]
-                if objects:
+                if not objects:
+                    continue
+                # S3/R2 delete_objects accepts at most 1000 keys per call.
+                for start in range(0, len(objects), 1000):
+                    chunk = objects[start : start + 1000]
                     self.client.delete_objects(
-                        Bucket=self.bucket, Delete={"Objects": objects}
+                        Bucket=self.bucket, Delete={"Objects": chunk}
                     )
+                    deleted += len(chunk)
+            return deleted
+
+        return await asyncio.to_thread(_delete)
+
+    async def delete_object(self, key: str) -> None:
+        """Delete a single object; missing keys are ignored."""
+
+        def _delete() -> None:
+            try:
+                self.client.delete_object(Bucket=self.bucket, Key=key)
+            except ClientError as exc:
+                code = (exc.response.get("Error") or {}).get("Code")
+                if code in {"404", "NoSuchKey", "NotFound"}:
+                    return
+                raise
 
         await asyncio.to_thread(_delete)
+
+    async def abort_multipart_uploads_under_prefix(self, prefix: str) -> int:
+        """Abort incomplete multipart uploads whose key starts with ``prefix``."""
+
+        def _abort() -> int:
+            aborted = 0
+            paginator = self.client.get_paginator("list_multipart_uploads")
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for upload in page.get("Uploads") or []:
+                    key = upload.get("Key")
+                    upload_id = upload.get("UploadId")
+                    if not key or not upload_id:
+                        continue
+                    try:
+                        self.client.abort_multipart_upload(
+                            Bucket=self.bucket, Key=key, UploadId=upload_id
+                        )
+                        aborted += 1
+                    except ClientError:
+                        continue
+            return aborted
+
+        return await asyncio.to_thread(_abort)

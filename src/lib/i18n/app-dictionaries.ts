@@ -301,7 +301,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     delete: "삭제",
     deleteHistory: "이력 삭제",
     deleteConfirm:
-      "더빙 이력을 삭제할까요? 관련 영상·음성·로컬/R2 파일이 함께 영구 삭제되며 복구할 수 없습니다.",
+      "더빙 이력을 삭제할까요? Supabase 기록과 Cloudflare R2·로컬 관련 파일이 모두 영구 삭제되며 복구할 수 없습니다.",
     billingDescription: "필요한 더빙 시간을 선택해 크레딧을 충전하세요.",
     remaining: "잔여",
     subtitleEditor: "자막 에디터",
@@ -619,7 +619,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     delete: "Delete",
     deleteHistory: "Delete history",
     deleteConfirm:
-      "Delete this dubbing history item? Related video/audio and local/R2 files are permanently deleted and cannot be recovered.",
+      "Delete this dubbing history item? Supabase records and related Cloudflare R2/local files are permanently deleted and cannot be recovered.",
     billingDescription: "Choose the dubbing time you need and add credits.",
     remaining: "Remaining",
     subtitleEditor: "Subtitle editor",
@@ -938,7 +938,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     delete: "Xóa",
     deleteHistory: "Xóa lịch sử",
     deleteConfirm:
-      "Xóa mục lịch sử lồng tiếng này? Video/âm thanh liên quan và tệp local/R2 sẽ bị xóa vĩnh viễn, không thể khôi phục.",
+      "Xóa mục lịch sử lồng tiếng này? Bản ghi Supabase và tệp Cloudflare R2/local liên quan sẽ bị xóa vĩnh viễn, không thể khôi phục.",
     billingDescription: "Chọn thời lượng lồng tiếng cần thiết và nạp tín dụng.",
     remaining: "Còn lại",
     subtitleEditor: "Trình chỉnh sửa phụ đề",
