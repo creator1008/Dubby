@@ -168,8 +168,8 @@ def test_translation_groups_neoreul_jegeo_and_lays_english() -> None:
     ]
 
 
-def test_breath_split_at_1500ms_even_inside_flow() -> None:
-    """Voice gaps >= 1.5s split chunks even without sentence punctuation."""
+def test_breath_split_on_voice_gap_even_inside_flow() -> None:
+    """Voice gaps >= breath threshold split chunks even without punctuation."""
     from app.worker.utterance_pipeline import (
         TimedToken,
         build_breath_utterances,
@@ -180,22 +180,35 @@ def test_breath_split_at_1500ms_even_inside_flow() -> None:
         TimedToken(0, 800, "Right"),
         TimedToken(800, 1600, "now"),
         TimedToken(1600, 2800, "maybe"),
-        # 1600ms silence — must become a new voice chunk
-        TimedToken(4400, 5200, "now"),
-        TimedToken(5200, 6000, "clear"),
+        # 700ms silence — must become a new voice chunk at 650ms threshold
+        TimedToken(3500, 4200, "now"),
+        TimedToken(4200, 5000, "clear"),
     ]
     chunks = build_breath_utterances(
         words,
         None,
-        breath_pause_ms=1500,
+        breath_pause_ms=650,
         max_duration_ms=20000,
         soft_pause_ms=400,
     )
     assert len(chunks) == 2
-    merged = merge_dangling_chunks(chunks, max_gap_ms=1499, max_duration_ms=13000)
+    # Pipeline only re-glues micro-gaps; deliberate breath splits stay apart.
+    merged = merge_dangling_chunks(chunks, max_gap_ms=400, max_duration_ms=13000)
     assert len(merged) == 2
     assert "maybe" in merged[0].text.lower()
     assert "clear" in merged[1].text.lower()
+
+
+def test_merge_dangling_does_not_undo_breath_gap() -> None:
+    from app.worker.utterance_pipeline import UtteranceChunk, merge_dangling_chunks
+
+    fragments = [
+        UtteranceChunk(0, 2000, "첫 덩어리입니다", "A", ()),
+        # 800ms gap — larger than micro-merge window
+        UtteranceChunk(2800, 4000, "다음 덩어리입니다", "A", ()),
+    ]
+    merged = merge_dangling_chunks(fragments, max_gap_ms=400, max_duration_ms=13000)
+    assert len(merged) == 2
 
 
 def test_soft_split_overlong_prefers_pause_not_forced_cut() -> None:

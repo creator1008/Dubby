@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     speech_segment_max_seconds: float = Field(default=6.0, ge=1.0, le=30.0)
     # Split voice chunks when inter-word silence is at least this long (ms),
     # even inside a single grammatical sentence.
-    breath_pause_ms: int = Field(default=1500, ge=400, le=4000)
+    breath_pause_ms: int = Field(default=650, ge=400, le=4000)
 
     # --- ElevenLabs (voice clone + TTS) ----------------------------------------
     elevenlabs_api_key: str = ""

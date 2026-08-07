@@ -486,6 +486,7 @@ async def run_transcribe(ctx: JobContext) -> None:
 
         speaker_turns: list[tuple[int, int, str, str]] | None = None
         quality_warnings: list[str] = []
+        source_lang = str(project.get("source_lang") or "").strip()
         if bool(project.get("diarization_enabled")):
             provider = create_diarization_provider(ctx.settings)
             if provider is None:
@@ -495,17 +496,21 @@ async def run_transcribe(ctx: JobContext) -> None:
             else:
                 await ctx.report(0.55, "diarization")
                 turns = await _with_retries(
-                    ctx, lambda: provider.diarize(str(asr_audio)), step="diarization"
+                    ctx,
+                    lambda: provider.diarize(str(asr_audio), language=source_lang or None),
+                    step="diarization",
                 )
                 speaker_turns = [
                     (turn.start_ms, turn.end_ms, turn.speaker_id, turn.text)
                     for turn in turns
                     if turn.end_ms > turn.start_ms
                 ] or None
+                if speaker_turns is None:
+                    quality_warnings.append("diarization_empty_turns_single_speaker_fallback")
 
         await ctx.report(0.58, "segment_timing")
         # Split on real voice gaps (>= breath_pause_ms), even inside one sentence.
-        breath_ms = max(400, int(getattr(ctx.settings, "breath_pause_ms", 1500)))
+        breath_ms = max(400, int(getattr(ctx.settings, "breath_pause_ms", 650)))
         if transcribe_result.words:
             chunks = build_breath_utterances(
                 list(transcribe_result.words),
@@ -527,11 +532,12 @@ async def run_transcribe(ctx: JobContext) -> None:
                     )
                     for draft in drafts
                 ]
-            # Re-glue only mid-clause scraps across *shorter* gaps than a breath.
-            # Never re-merge across a deliberate >= breath_ms silence.
+            # Only re-glue micro-scraps (soft-split crumbs). Never undo a
+            # deliberate breath/gap split the user expects to stay separate.
+            merge_gap_ms = min(400, max(200, breath_ms // 2))
             chunks = merge_dangling_chunks(
                 chunks,
-                max_gap_ms=max(200, breath_ms - 1),
+                max_gap_ms=merge_gap_ms,
                 max_duration_ms=13000,
             )
         else:
@@ -604,14 +610,24 @@ async def run_transcribe(ctx: JobContext) -> None:
         ]
         if bool(project.get("diarization_enabled")) and speaker_turns is None:
             speaker_assignments = [(None, False) for _ in chunks]
-        elif speaker_turns and all(not text.strip() for *_, text in speaker_turns):
-            speaker_assignments = assign_speakers(
+        elif speaker_turns:
+            # Always resolve speakers by time overlap (OpenAI turns include text,
+            # so we must not skip this path). Keep turn-sliced ids when overlap
+            # is ambiguous.
+            timed = assign_speakers(
                 [(c.start_ms, c.end_ms) for c in chunks],
                 [
                     SpeakerTurn(start, end, speaker, text)
                     for start, end, speaker, text in speaker_turns
                 ],
             )
+            refined: list[tuple[str | None, bool]] = []
+            for chunk, (spk, overlap) in zip(chunks, timed):
+                if spk and not overlap:
+                    refined.append((spk, False))
+                else:
+                    refined.append((chunk.speaker_id or spk, overlap))
+            speaker_assignments = refined
         if any(overlap for _, overlap in speaker_assignments):
             quality_warnings.append("overlapping_speakers_use_default_voice")
 
@@ -758,13 +774,15 @@ async def run_dub(ctx: JobContext) -> None:
         )
 
         await ctx.report(0.40, "dub_voice_tts")
-        speakers = sorted(
-            {
-                str(s["speaker_id"])
-                for s in speakable
-                if s.get("speaker_id") and not s.get("speaker_overlap")
-            }
-        )
+        # First-appearance order matches New Dub 화자 1 / 화자 2 slots.
+        speakers: list[str] = []
+        seen_speakers: set[str] = set()
+        for seg in speakable:
+            sid = str(seg.get("speaker_id") or "").strip()
+            if not sid or seg.get("speaker_overlap") or sid in seen_speakers:
+                continue
+            seen_speakers.add(sid)
+            speakers.append(sid)
         default_voice, speaker_voices, protected_voices = await _resolve_dub_voices(
             ctx, project, speakers
         )

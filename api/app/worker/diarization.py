@@ -23,12 +23,16 @@ class SpeakerTurn:
 
 
 class DiarizationProvider(Protocol):
-    async def diarize(self, audio_path: str) -> list[SpeakerTurn]: ...
+    async def diarize(
+        self, audio_path: str, *, language: str | None = None
+    ) -> list[SpeakerTurn]: ...
 
 
 class MockDiarizationProvider:
-    async def diarize(self, audio_path: str) -> list[SpeakerTurn]:
-        del audio_path
+    async def diarize(
+        self, audio_path: str, *, language: str | None = None
+    ) -> list[SpeakerTurn]:
+        del audio_path, language
         return [
             SpeakerTurn(0, 2667, "speaker_0"),
             SpeakerTurn(2667, 5334, "speaker_1"),
@@ -42,7 +46,11 @@ class PyannoteDiarizationProvider:
             raise PipelineError(errors.CONFIG_MISSING, "PYANNOTE_AUTH_TOKEN is not configured")
         self._settings = settings
 
-    async def diarize(self, audio_path: str) -> list[SpeakerTurn]:
+    async def diarize(
+        self, audio_path: str, *, language: str | None = None
+    ) -> list[SpeakerTurn]:
+        del language
+
         def _run() -> list[SpeakerTurn]:
             try:
                 from pyannote.audio import Pipeline
@@ -74,12 +82,17 @@ class OpenAIDiarizationProvider:
             raise PipelineError(errors.CONFIG_MISSING, "OPENAI_API_KEY is not configured")
         self._settings = settings
 
-    async def diarize(self, audio_path: str) -> list[SpeakerTurn]:
-        data = {
+    async def diarize(
+        self, audio_path: str, *, language: str | None = None
+    ) -> list[SpeakerTurn]:
+        data: dict[str, str] = {
             "model": self._settings.diarization_model,
             "response_format": "diarized_json",
             "chunking_strategy": "auto",
         }
+        lang = (language or "").strip().lower().split("-", 1)[0]
+        if lang:
+            data["language"] = lang
         files = {
             "file": (
                 Path(audio_path).name,
