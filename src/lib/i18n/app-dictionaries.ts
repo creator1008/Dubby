@@ -248,6 +248,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     voiceSettingsLink: "목소리 설정",
     fileUpload: "파일 업로드",
     uploading: "업로드 중…",
+    checkingApi: "API 연결 확인 중…",
+    preparingProject: "프로젝트 준비 중…",
     uploadAndExtract: "1. 파일 업로드 및 자막 추출",
     batchCreateDub: "더빙 영상 일괄 생성",
     batchCreateDubHelp:
@@ -562,6 +564,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     voiceSettingsLink: "Voice Settings",
     fileUpload: "File upload",
     uploading: "Uploading…",
+    checkingApi: "Checking API connection…",
+    preparingProject: "Preparing project…",
     uploadAndExtract: "1. Upload file and extract subtitles",
     batchCreateDub: "Create dubbed video in one go",
     batchCreateDubHelp:
@@ -876,6 +880,8 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     voiceSettingsLink: "Cài đặt giọng",
     fileUpload: "Tải tệp lên",
     uploading: "Đang tải lên…",
+    checkingApi: "Đang kiểm tra kết nối API…",
+    preparingProject: "Đang chuẩn bị dự án…",
     uploadAndExtract: "1. Tải tệp và trích xuất phụ đề",
     batchCreateDub: "Tạo video lồng tiếng một lần",
     batchCreateDubHelp:

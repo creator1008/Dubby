@@ -204,9 +204,10 @@ export default function NewDubPage() {
 
   const runExtract = async (trimmedUrl: string) => {
     if (!isDemoMode) {
-      setLocalStage("API 연결 확인 중…");
+      setLocalStage(text.checkingApi);
       await pingApi();
     }
+    setLocalStage(text.preparingProject);
     const projectTitle =
       title.trim() ||
       (inputMode === "file" && file
@@ -222,8 +223,13 @@ export default function NewDubPage() {
       dub_voice_ids: selectedDubVoiceIds,
     });
     if (inputMode === "file" && file) {
-      await uploadSourceFile(created.id, file, setUploadPct);
+      setLocalStage(text.uploading);
+      await uploadSourceFile(created.id, file, (pct) => {
+        setUploadPct(pct);
+        setLocalStage(`${text.uploading} ${pct}%`);
+      });
     } else {
+      setLocalStage(text.fetchingLink);
       setUploadPct(20);
       await api.projects.sourceFromUrl(created.id, trimmedUrl);
       setUploadPct(60);
@@ -258,6 +264,7 @@ export default function NewDubPage() {
       setSourceUrl(nextSourceUrl);
       setLocalStage(null);
     } else {
+      setLocalStage(text.batchStageTranscribe);
       await api.jobs.create(created.id, "transcribe");
     }
 
@@ -267,6 +274,10 @@ export default function NewDubPage() {
     ]);
     setProject(nextProject);
     setJobs(nextJobs);
+    if (!isDemoMode) {
+      // JobProgress shows the live job; avoid a stuck "checking API" banner.
+      setLocalStage(null);
+    }
     if (!nextSourceUrl) {
       void api.projects
         .sourceUrl(created.id)
@@ -618,6 +629,7 @@ export default function NewDubPage() {
     if (!project) return;
     setError(null);
     setOutputUrl(null);
+    setLocalStage(null);
     try {
       const saved = await saveSegments();
       const rows = saved ?? segments;
@@ -632,9 +644,11 @@ export default function NewDubPage() {
         );
         return;
       }
+      setLocalStage(text.batchStageDub);
       await api.jobs.create(project.id, "dub");
       window.dispatchEvent(new Event("credits-changed"));
       await refresh();
+      setLocalStage(null);
     } catch (err) {
       setLocalStage(null);
       setError(err instanceof Error ? err.message : "더빙을 시작하지 못했습니다.");
