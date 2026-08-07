@@ -21,6 +21,8 @@ export type Project = {
   subtitle_mode: SubtitleMode;
   tone_style: ToneStyle;
   diarization_enabled: boolean;
+  /** Ordered ElevenLabs voice IDs for speaker 1, 2, … */
+  dub_voice_ids?: string[];
   duration_seconds: number | null;
   source_key: string | null;
   output_key: string | null;

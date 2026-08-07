@@ -27,10 +27,17 @@ import type {
   Segment,
   SubtitleMode,
   ToneStyle,
+  UserVoice,
 } from "@/lib/ui-types";
+
+const MAX_SPEAKER_VOICES = 6;
 
 function snapshotSourceTexts(rows: Segment[]) {
   return Object.fromEntries(rows.map((row) => [row.id, row.source_text]));
+}
+
+function speakerLabel(template: string, n: number) {
+  return template.replace("{n}", String(n));
 }
 
 export default function NewDubPage() {
@@ -38,9 +45,11 @@ export default function NewDubPage() {
   const [title, setTitle] = useState("");
   const [sourceLang, setSourceLang] = useState<LangCode>("ko");
   const [targetLang, setTargetLang] = useState<LangCode>("en");
-  const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("target");
+  const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("none");
   const [toneStyle, setToneStyle] = useState<ToneStyle>("neutral");
-  const [diarizationEnabled, setDiarizationEnabled] = useState(true);
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
+  const [boxVoices, setBoxVoices] = useState<UserVoice[]>([]);
+  const [speakerVoiceIds, setSpeakerVoiceIds] = useState<string[]>([""]);
   const [file, setFile] = useState<File | null>(null);
   const [inputMode, setInputMode] = useState<"file" | "url">("file");
   const [mediaUrl, setMediaUrl] = useState("");
@@ -62,6 +71,33 @@ export default function NewDubPage() {
   const [retranslating, setRetranslating] = useState(false);
   const baselineSourceRef = useRef<Record<string, string>>({});
   const voiceConsent = useVoiceConsent();
+
+  useEffect(() => {
+    void api.voices.box
+      .list()
+      .then((rows) => {
+        setBoxVoices(rows);
+        setSpeakerVoiceIds((prev) => {
+          if (prev.some(Boolean) || rows.length === 0) return prev;
+          return [rows[0].elevenlabs_voice_id];
+        });
+      })
+      .catch(() => setBoxVoices([]));
+  }, []);
+
+  const setSpeakerMode = (multi: boolean) => {
+    setDiarizationEnabled(multi);
+    setSpeakerVoiceIds((prev) => {
+      const first = prev[0] || "";
+      if (!multi) return [first];
+      if (prev.length >= 2) return prev;
+      return [first, ""];
+    });
+  };
+
+  const selectedDubVoiceIds = speakerVoiceIds
+    .map((id) => id.trim())
+    .filter(Boolean);
 
   const activeJob = jobs.find(
     (job) => job.status === "queued" || job.status === "running",
@@ -122,6 +158,16 @@ export default function NewDubPage() {
       setError(text.sameLanguages);
       return null;
     }
+    const requiredSlots = diarizationEnabled
+      ? Math.max(2, speakerVoiceIds.length)
+      : 1;
+    const filled = speakerVoiceIds.slice(0, requiredSlots).filter((id) => id.trim());
+    if (filled.length < requiredSlots || boxVoices.length === 0) {
+      setError(
+        boxVoices.length === 0 ? text.voiceSelectEmpty : text.voiceSelectRequired,
+      );
+      return null;
+    }
     return trimmedUrl;
   };
 
@@ -142,6 +188,7 @@ export default function NewDubPage() {
       subtitle_mode: subtitleMode,
       tone_style: toneStyle,
       diarization_enabled: diarizationEnabled,
+      dub_voice_ids: selectedDubVoiceIds,
     });
     if (inputMode === "file" && file) {
       await uploadSourceFile(created.id, file, setUploadPct);
@@ -235,10 +282,13 @@ export default function NewDubPage() {
       throw new Error("더빙할 번역 텍스트가 없습니다.");
     }
     await demoApi.assertDubCredits(currentProject.id);
-    setLocalStage(
-      "Demucs 보이스 분리 → 깨끗한 보이스 샘플로 클론 → ElevenLabs 더빙 음성 생성 중",
+    setLocalStage("선택 목소리로 ElevenLabs 더빙 음성 생성 중");
+    const outputs = await generateLocalDubVoice(
+      runId,
+      speakable,
+      toneStyle,
+      currentProject.dub_voice_ids ?? selectedDubVoiceIds,
     );
-    const outputs = await generateLocalDubVoice(runId, speakable, toneStyle);
     const nextSegments = await demoApi.applyDubVoice(currentProject.id, outputs);
     setSegments(nextSegments);
     window.dispatchEvent(new Event("credits-changed"));
@@ -676,12 +726,81 @@ export default function NewDubPage() {
               <select
                 value={diarizationEnabled ? "multi" : "single"}
                 disabled={uploading}
-                onChange={(e) => setDiarizationEnabled(e.target.value === "multi")}
+                onChange={(e) => setSpeakerMode(e.target.value === "multi")}
               >
-                <option value="multi">{text.multiSpeaker}</option>
                 <option value="single">{text.singleSpeaker}</option>
+                <option value="multi">{text.multiSpeaker}</option>
               </select>
             </label>
+          </div>
+
+          <div className="voice-select-block">
+            <div className="voice-select-head">
+              <strong>{text.voiceSelect}</strong>
+              <a className="voice-settings-link" href="/app/voice-settings">
+                {text.voiceSettingsLink}
+              </a>
+            </div>
+            {boxVoices.length === 0 ? (
+              <p className="muted">{text.voiceSelectEmpty}</p>
+            ) : (
+              <div className="voice-select-slots">
+                {speakerVoiceIds.map((voiceId, index) => (
+                  <label key={`speaker-voice-${index}`}>
+                    {speakerLabel(text.voiceSelectSpeaker, index + 1)}
+                    <select
+                      value={voiceId}
+                      disabled={uploading}
+                      onChange={(e) => {
+                        const next = [...speakerVoiceIds];
+                        next[index] = e.target.value;
+                        setSpeakerVoiceIds(next);
+                      }}
+                    >
+                      <option value="">{text.voiceSelectPlaceholder}</option>
+                      {boxVoices.map((voice) => (
+                        <option
+                          key={voice.id}
+                          value={voice.elevenlabs_voice_id}
+                        >
+                          {voice.nickname || voice.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            )}
+            {diarizationEnabled && boxVoices.length > 0 && (
+              <div className="voice-select-actions">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={
+                    uploading || speakerVoiceIds.length >= MAX_SPEAKER_VOICES
+                  }
+                  onClick={() =>
+                    setSpeakerVoiceIds((prev) =>
+                      prev.length >= MAX_SPEAKER_VOICES ? prev : [...prev, ""],
+                    )
+                  }
+                >
+                  {text.voiceSelectAddSpeaker}
+                </button>
+                {speakerVoiceIds.length > 2 && (
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    disabled={uploading}
+                    onClick={() =>
+                      setSpeakerVoiceIds((prev) => prev.slice(0, -1))
+                    }
+                  >
+                    {text.voiceSelectRemoveSpeaker}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="input-mode-toggle" role="group" aria-label={text.inputMode}>

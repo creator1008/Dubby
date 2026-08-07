@@ -54,9 +54,10 @@ class ProjectCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     source_lang: LangCode = "ko"
     target_lang: LangCode = "en"
-    subtitle_mode: SubtitleMode = "target"
+    subtitle_mode: SubtitleMode = "none"
     tone_style: ToneStyle = "neutral"
     diarization_enabled: bool = False
+    dub_voice_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 class ProjectUpdate(BaseModel):
@@ -66,6 +67,7 @@ class ProjectUpdate(BaseModel):
     subtitle_mode: SubtitleMode | None = None
     tone_style: ToneStyle | None = None
     diarization_enabled: bool | None = None
+    dub_voice_ids: list[str] | None = Field(default=None, max_length=8)
 
 
 class ProjectOut(BaseModel):
@@ -77,6 +79,7 @@ class ProjectOut(BaseModel):
     subtitle_mode: str
     tone_style: str = "neutral"
     diarization_enabled: bool = False
+    dub_voice_ids: list[str] = Field(default_factory=list)
     duration_seconds: float | None = None
     source_key: str | None = None
     output_key: str | None = None
@@ -94,6 +97,18 @@ class ProjectOut(BaseModel):
                 return json.loads(value)
             except json.JSONDecodeError:
                 return [value]
+        return value
+
+    @field_validator("dub_voice_ids", mode="before")
+    @classmethod
+    def parse_dub_voice_ids(cls, value: object) -> object:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return []
         return value
 
 

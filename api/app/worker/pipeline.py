@@ -208,7 +208,7 @@ async def _preferred_voice_id(ctx: JobContext, project: Row) -> str | None:
         return None
     try:
         voices = await ctx.repo.list_user_voices(owner_id)
-    except Exception:  # noqa: BLE001 - dubbing should fall back to env/clone
+    except Exception:  # noqa: BLE001 - dubbing should fall back to env voice
         logger.warning("could not load user voice box for %s", owner_id)
         return None
     for row in voices:
@@ -217,6 +217,86 @@ async def _preferred_voice_id(ctx: JobContext, project: Row) -> str | None:
             return voice_id
     return None
 
+
+def _project_dub_voice_ids(project: Row) -> list[str]:
+    """Ordered ElevenLabs voice IDs selected on the new-dub form."""
+    raw = project.get("dub_voice_ids")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(raw, list):
+        return []
+    return [str(v).strip() for v in raw if str(v).strip()]
+
+
+async def _load_dub_voice_ids_from_storage(
+    ctx: JobContext, project: Row
+) -> list[str]:
+    owner_raw = project.get("owner_id")
+    if not owner_raw:
+        return []
+    try:
+        owner_id = UUID(str(owner_raw))
+    except (TypeError, ValueError):
+        return []
+    key = ctx.storage.project_meta_key(
+        owner_id, ctx.project_id, "dub_voice_ids.json"
+    )
+    try:
+        raw = await ctx.storage.download_bytes(key)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not download dub_voice_ids for %s", ctx.project_id)
+        return []
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    voices = data.get("voice_ids") if isinstance(data, dict) else data
+    if not isinstance(voices, list):
+        return []
+    return [str(v).strip() for v in voices if str(v).strip()]
+
+
+async def _resolve_dub_voices(
+    ctx: JobContext, project: Row, speakers: list[str]
+) -> tuple[str, dict[str, str], set[str]]:
+    """Map speaker slots to selected Voice Box IDs (no cloning).
+
+    Returns ``(default_voice, speaker_voices, protected_ids)``.
+    """
+    selected = _project_dub_voice_ids(project)
+    if not selected:
+        selected = await _load_dub_voice_ids_from_storage(ctx, project)
+    if not selected:
+        fallback = await _preferred_voice_id(ctx, project)
+        if fallback:
+            selected = [fallback]
+    if not selected and ctx.settings.elevenlabs_voice_id:
+        selected = [str(ctx.settings.elevenlabs_voice_id).strip()]
+    selected = [v for v in selected if v]
+    if not selected:
+        raise PipelineError(
+            errors.VOICE_MISSING,
+            "No dubbing voice selected. Add a voice in My Voice Box and choose it on New Dub.",
+        )
+
+    default_voice = selected[0]
+    protected = set(selected)
+    if ctx.settings.elevenlabs_voice_id:
+        protected.add(str(ctx.settings.elevenlabs_voice_id).strip())
+
+    speaker_voices: dict[str, str] = {}
+    for index, speaker in enumerate(speakers):
+        speaker_voices[speaker] = (
+            selected[index] if index < len(selected) else default_voice
+        )
+    return default_voice, speaker_voices, protected
 
 async def _load_project(ctx: JobContext) -> Row:
     project = await ctx.repo.get_project_for_worker(ctx.project_id)
@@ -677,21 +757,7 @@ async def run_dub(ctx: JobContext) -> None:
             ),
         )
 
-        await ctx.report(0.40, "voice_clone_tts")
-        box_voice = await _preferred_voice_id(ctx, project)
-        protected_voices = {box_voice} if box_voice else set()
-        default_voice = await _with_retries(
-            ctx,
-            lambda: engine.prepare_voice(
-                vocals,
-                str(scratch),
-                f"dubby-{ctx.project_id}",
-                preferred_voice_id=box_voice,
-            ),
-            step="voice_clone",
-        )
-        voice_ids.add(default_voice)
-        speaker_voices: dict[str, str] = {}
+        await ctx.report(0.40, "dub_voice_tts")
         speakers = sorted(
             {
                 str(s["speaker_id"])
@@ -699,34 +765,11 @@ async def run_dub(ctx: JobContext) -> None:
                 if s.get("speaker_id") and not s.get("speaker_overlap")
             }
         )
-        for speaker in speakers:
-            ranges: list[tuple[int, int]] = []
-            remaining_ms = int(ctx.settings.speaker_sample_seconds * 1000)
-            for segment in speakable:
-                if (
-                    segment.get("speaker_id") != speaker
-                    or segment.get("speaker_overlap")
-                    or remaining_ms <= 0
-                ):
-                    continue
-                start = int(segment["start_ms"])
-                end = min(int(segment["end_ms"]), start + remaining_ms)
-                if end > start:
-                    ranges.append((start, end))
-                    remaining_ms -= end - start
-            speaker_voice = await _with_retries(
-                ctx,
-                lambda sp=speaker, rs=ranges: engine.prepare_voice(
-                    vocals,
-                    str(scratch),
-                    f"dubby-{ctx.project_id}-{sp}",
-                    ranges_ms=rs,
-                    preferred_voice_id=box_voice,
-                ),
-                step="voice_clone",
-            )
-            speaker_voices[speaker] = speaker_voice
-            voice_ids.add(speaker_voice)
+        default_voice, speaker_voices, protected_voices = await _resolve_dub_voices(
+            ctx, project, speakers
+        )
+        voice_ids.add(default_voice)
+        voice_ids.update(speaker_voices.values())
 
         placed_clips: list[tuple[str, int]] = []
         quality_warnings = list(project.get("quality_warnings") or [])

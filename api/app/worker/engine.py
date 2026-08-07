@@ -93,7 +93,7 @@ class Engine(ABC):
         ranges_ms: list[tuple[int, int]] | None = None,
         preferred_voice_id: str | None = None,
     ) -> str:
-        """Voice id used for TTS (cloned, Voice Box, or configured)."""
+        """Return a TTS voice id (Voice Box / configured). Cloning is disabled."""
 
     @abstractmethod
     async def cleanup_voice(
@@ -294,23 +294,16 @@ class RealEngine(Engine):
         ranges_ms: list[tuple[int, int]] | None = None,
         preferred_voice_id: str | None = None,
     ) -> str:
+        del vocals_path, scratch, name, ranges_ms
         preferred = (preferred_voice_id or "").strip()
         if preferred:
             return preferred
         if self._settings.elevenlabs_voice_id:
             return self._settings.elevenlabs_voice_id
-        sample = str(Path(scratch) / f"voice_sample_{name[-24:]}.mp3")
-        await self._run(
-            media.build_voice_sample_cmd(
-                self._settings,
-                vocals_path,
-                sample,
-                self._settings.voice_clone_sample_seconds,
-                ranges_ms,
-            ),
-            errors.FFMPEG_FAILED,
+        raise PipelineError(
+            errors.VOICE_MISSING,
+            "No dubbing voice configured. Select a My Voice Box voice or set ELEVENLABS_VOICE_ID.",
         )
-        return await self.elevenlabs.create_voice(sample, name)
 
     async def cleanup_voice(
         self, voice_id: str, *, protected_ids: set[str] | None = None

@@ -22,6 +22,7 @@ from uuid import UUID
 
 import boto3
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 
 from ..config import Settings
 
@@ -74,6 +75,14 @@ class R2Storage:
 
     def source_key(self, user_id: UUID, project_id: UUID, filename: str) -> str:
         return f"users/{user_id}/projects/{project_id}/source/{sanitize_filename(filename)}"
+
+    def project_meta_key(
+        self, user_id: UUID, project_id: UUID, filename: str
+    ) -> str:
+        return (
+            f"users/{user_id}/projects/{project_id}/meta/"
+            f"{sanitize_filename(filename)}"
+        )
 
     def meta_key_for_source(self, source_key: str, filename: str) -> str:
         """Derive ``.../meta/<filename>`` from a project's source key."""
@@ -166,6 +175,30 @@ class R2Storage:
             self.client.get_object, Bucket=self.bucket, Key=key
         )
         return response["Body"]
+
+    async def upload_bytes(
+        self, data: bytes, key: str, content_type: str = "application/octet-stream"
+    ) -> None:
+        await asyncio.to_thread(
+            self.client.put_object,
+            Bucket=self.bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+
+    async def download_bytes(self, key: str) -> bytes | None:
+        try:
+            response = await asyncio.to_thread(
+                self.client.get_object, Bucket=self.bucket, Key=key
+            )
+        except ClientError as exc:
+            code = (exc.response.get("Error") or {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return None
+            raise
+        body = response["Body"]
+        return await asyncio.to_thread(body.read)
 
     async def upload_file(
         self, source: str, key: str, content_type: str = "application/octet-stream"

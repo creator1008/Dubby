@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import tempfile
 from pathlib import Path
 from uuid import UUID
@@ -26,6 +28,9 @@ from ..schemas import (
 from ..storage.r2 import sanitize_filename
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
+logger = logging.getLogger("dubby.projects")
+
+_DUB_VOICE_META = "dub_voice_ids.json"
 
 
 async def _resolve_project(user: CurrentUser, repo: Repo, project_id: UUID):
@@ -36,15 +41,58 @@ async def _resolve_project(user: CurrentUser, repo: Repo, project_id: UUID):
     return row
 
 
+async def _save_dub_voice_ids(
+    storage: Storage, owner_id: UUID, project_id: UUID, voice_ids: list[str]
+) -> None:
+    key = storage.project_meta_key(owner_id, project_id, _DUB_VOICE_META)
+    payload = json.dumps(
+        {"voice_ids": [str(v).strip() for v in voice_ids if str(v).strip()][:8]}
+    ).encode("utf-8")
+    await storage.upload_bytes(payload, key, content_type="application/json")
+
+
+async def _load_dub_voice_ids(
+    storage: Storage, owner_id: UUID, project_id: UUID
+) -> list[str]:
+    key = storage.project_meta_key(owner_id, project_id, _DUB_VOICE_META)
+    raw = await storage.download_bytes(key)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return []
+    voices = data.get("voice_ids") if isinstance(data, dict) else data
+    if not isinstance(voices, list):
+        return []
+    return [str(v).strip() for v in voices if str(v).strip()][:8]
+
+
+async def _with_dub_voices(
+    storage: Storage, owner_id: UUID, row: dict
+) -> dict:
+    if row.get("dub_voice_ids"):
+        return row
+    try:
+        voices = await _load_dub_voice_ids(storage, owner_id, UUID(str(row["id"])))
+    except Exception:  # noqa: BLE001 - project reads must not fail on meta miss
+        logger.warning("could not load dub_voice_ids for project %s", row.get("id"))
+        voices = []
+    return {**row, "dub_voice_ids": voices}
+
+
 @router.get("", response_model=list[ProjectOut])
-async def list_projects(user: CurrentUser, repo: Repo) -> list[ProjectOut]:
+async def list_projects(
+    user: CurrentUser, repo: Repo, storage: Storage
+) -> list[ProjectOut]:
     rows = await repo.list_projects(user.id)
-    return [ProjectOut.model_validate(r) for r in rows]
+    enriched = [await _with_dub_voices(storage, user.id, r) for r in rows]
+    return [ProjectOut.model_validate(r) for r in enriched]
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 async def create_project(
-    body: ProjectCreate, user: CurrentUser, repo: Repo
+    body: ProjectCreate, user: CurrentUser, repo: Repo, storage: Storage
 ) -> ProjectOut:
     row = await repo.create_project(
         user.id,
@@ -54,27 +102,57 @@ async def create_project(
         subtitle_mode=body.subtitle_mode,
         tone_style=body.tone_style,
         diarization_enabled=body.diarization_enabled,
+        dub_voice_ids=body.dub_voice_ids,
     )
+    voices = [
+        str(v).strip() for v in (body.dub_voice_ids or []) if str(v).strip()
+    ][:8]
+    if voices:
+        try:
+            await _save_dub_voice_ids(storage, user.id, UUID(str(row["id"])), voices)
+        except Exception:  # noqa: BLE001 - project create should still succeed
+            logger.exception("failed to persist dub_voice_ids sidecar")
+    row = {**row, "dub_voice_ids": voices}
     return ProjectOut.model_validate(row)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
-async def get_project(project_id: UUID, user: CurrentUser, repo: Repo) -> ProjectOut:
+async def get_project(
+    project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
+) -> ProjectOut:
     row = await _resolve_project(user, repo, project_id)
     if row is None:
         raise NotFoundError("Project not found")
+    owner_id = UUID(str(row.get("owner_id") or user.id))
+    row = await _with_dub_voices(storage, owner_id, row)
     return ProjectOut.model_validate(row)
 
 
 @router.patch("/{project_id}", response_model=ProjectOut)
 async def update_project(
-    project_id: UUID, body: ProjectUpdate, user: CurrentUser, repo: Repo
+    project_id: UUID,
+    body: ProjectUpdate,
+    user: CurrentUser,
+    repo: Repo,
+    storage: Storage,
 ) -> ProjectOut:
-    row = await repo.update_project(
-        user.id, project_id, body.model_dump(exclude_unset=True)
-    )
+    fields = body.model_dump(exclude_unset=True)
+    row = await repo.update_project(user.id, project_id, fields)
     if row is None:
         raise NotFoundError("Project not found")
+    if "dub_voice_ids" in fields:
+        voices = [
+            str(v).strip()
+            for v in (fields.get("dub_voice_ids") or [])
+            if str(v).strip()
+        ][:8]
+        try:
+            await _save_dub_voice_ids(storage, user.id, project_id, voices)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to update dub_voice_ids sidecar")
+        row = {**row, "dub_voice_ids": voices}
+    else:
+        row = await _with_dub_voices(storage, user.id, row)
     return ProjectOut.model_validate(row)
 
 

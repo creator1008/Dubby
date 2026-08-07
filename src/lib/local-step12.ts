@@ -285,6 +285,7 @@ export async function generateLocalDubVoice(
   runId: string,
   segments: Array<{ idx: number; target_text: string }>,
   toneStyle: string,
+  voiceIds: string[] = [],
 ): Promise<Array<{ idx: number; audio_url: string }>> {
   let response: Response;
   try {
@@ -295,6 +296,7 @@ export async function generateLocalDubVoice(
         run_id: runId,
         segments,
         tone_style: toneStyle,
+        voice_ids: voiceIds,
       }),
     });
   } catch (err) {

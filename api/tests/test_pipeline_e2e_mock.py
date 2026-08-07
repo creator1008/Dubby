@@ -77,6 +77,9 @@ class FakeStorage:
         prefix = source_key.rsplit("/source/", 1)[0]
         return f"{prefix}/meta/{filename}"
 
+    def project_meta_key(self, user_id: UUID, project_id: UUID, filename: str) -> str:
+        return f"users/{user_id}/projects/{project_id}/meta/{filename}"
+
     async def head_object(self, key: str) -> dict | None:
         p = self._path(key)
         if not p.exists():
@@ -86,11 +89,22 @@ class FakeStorage:
     async def download_file(self, key: str, destination: str) -> None:
         shutil.copyfile(self._path(key), destination)
 
+    async def download_bytes(self, key: str) -> bytes | None:
+        p = self._path(key)
+        if not p.exists():
+            return None
+        return p.read_bytes()
+
+    async def upload_bytes(
+        self, data: bytes, key: str, content_type: str = "application/octet-stream"
+    ) -> None:
+        del content_type
+        self._path(key).write_bytes(data)
+
     async def upload_file(
         self, source: str, key: str, content_type: str = "application/octet-stream"
     ) -> None:
         shutil.copyfile(source, self._path(key))
-
 
 SOURCE_KEY = "users/u1/projects/p1/source/video.mp4"
 

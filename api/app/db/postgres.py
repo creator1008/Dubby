@@ -24,7 +24,7 @@ from .base import (
 
 _PROJECT_COLUMNS = (
     "id, title, status, source_lang, target_lang, subtitle_mode, tone_style, "
-    "diarization_enabled, duration_seconds, source_key, output_key, "
+    "diarization_enabled, dub_voice_ids, duration_seconds, source_key, output_key, "
     "lipsync_output_key, quality_warnings, error, created_at, updated_at"
 )
 _JOB_COLUMNS = (
@@ -41,6 +41,7 @@ _PROJECT_PATCHABLE = {
     "subtitle_mode",
     "tone_style",
     "diarization_enabled",
+    "dub_voice_ids",
     "status",
     "source_key",
     "output_key",
@@ -104,12 +105,18 @@ class PostgresRepository(Repository):
         subtitle_mode: str,
         tone_style: str = "neutral",
         diarization_enabled: bool = False,
+        dub_voice_ids: list[str] | None = None,
     ) -> Row:
+        voices = [
+            str(v).strip()
+            for v in (dub_voice_ids or [])
+            if str(v).strip()
+        ][:8]
         row = await self.pool.fetchrow(
             "INSERT INTO public.projects "
             "(owner_id, title, source_lang, target_lang, subtitle_mode, "
-            "tone_style, diarization_enabled) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+            "tone_style, diarization_enabled, dub_voice_ids) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) "
             f"RETURNING {_PROJECT_COLUMNS}",
             owner_id,
             title,
@@ -118,6 +125,7 @@ class PostgresRepository(Repository):
             subtitle_mode,
             tone_style,
             diarization_enabled,
+            json.dumps(voices),
         )
         assert row is not None
         return dict(row)
@@ -137,6 +145,10 @@ class PostgresRepository(Repository):
         cols = {k: v for k, v in fields.items() if k in _PROJECT_PATCHABLE}
         if isinstance(cols.get("quality_warnings"), list):
             cols["quality_warnings"] = json.dumps(cols["quality_warnings"])
+        if isinstance(cols.get("dub_voice_ids"), list):
+            cols["dub_voice_ids"] = json.dumps(
+                [str(v).strip() for v in cols["dub_voice_ids"] if str(v).strip()][:8]
+            )
         if not cols:
             return await self.get_project(owner_id, project_id)
         sets = ", ".join(f"{col} = ${i + 3}" for i, col in enumerate(cols))

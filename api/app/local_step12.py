@@ -122,7 +122,7 @@ class DubVoiceRequest(BaseModel):
     run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     segments: list[DubSegment] = Field(min_length=1, max_length=500)
     tone_style: str = Field(default="neutral", pattern="^(neutral|warm|energetic|serious)$")
-
+    voice_ids: list[str] = Field(default_factory=list, max_length=8)
 
 class RenderSegment(BaseModel):
     idx: int
@@ -1924,32 +1924,28 @@ def _load_cached_voices(work_dir: Path) -> dict[str, tuple[str, bool]]:
 def _resolve_usable_voices(
     work_dir: Path,
     speaker_ids: set[str],
+    selected_voice_ids: list[str] | None = None,
 ) -> dict[str, tuple[str, bool]]:
-    """Reuse valid cached clones; create only what is missing.
-
-    Do not purge on every dub — delete+recreate burns ElevenLabs monthly
-    add/edit quota. Slot cleanup happens only inside ``_create_eleven_voice``
-    when the concurrent voice cap is hit.
-    """
-    cached = _load_cached_voices(work_dir)
-    voices: dict[str, tuple[str, bool]] = {}
-    for speaker_id, (voice_id, temporary) in cached.items():
-        if speaker_id not in speaker_ids:
-            continue
-        if temporary and not _eleven_voice_exists(voice_id):
-            continue
-        voices[speaker_id] = (voice_id, temporary)
-
-    keep_ids = {voice_id for voice_id, _ in voices.values()}
-    for speaker_id in sorted(speaker_ids):
-        if speaker_id in voices:
-            continue
-        voices[speaker_id] = _create_eleven_voice(
-            work_dir,
-            speaker_id,
-            keep_voice_ids=keep_ids | {voice_id for voice_id, _ in voices.values()},
+    """Map speakers to selected Voice Box IDs; fall back to env voice (no clone)."""
+    selected = [str(v).strip() for v in (selected_voice_ids or []) if str(v).strip()]
+    env_voice = (os.getenv("ELEVENLABS_VOICE_ID") or "").strip()
+    if not selected and env_voice:
+        selected = [env_voice]
+    if not selected:
+        raise RuntimeError(
+            "더빙 목소리가 없습니다. My Voice Box에서 목소리를 선택하거나 "
+            "ELEVENLABS_VOICE_ID를 설정하세요."
         )
-        keep_ids.add(voices[speaker_id][0])
+
+    ordered_speakers = sorted(speaker_ids) or ["speaker_0"]
+    default = selected[0]
+    voices: dict[str, tuple[str, bool]] = {}
+    for index, speaker_id in enumerate(ordered_speakers):
+        voice_id = selected[index] if index < len(selected) else default
+        voices[speaker_id] = (voice_id, False)
+
+    # Persist mapping for reruns (non-temporary — do not delete account voices).
+    del work_dir  # mapping is derived from request each run
     return voices
 
 
@@ -2090,12 +2086,13 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         )
         for segment in request.segments
     }
-    # Voice clone (Demucs + ElevenLabs) and loudness prep overlap on Demucs cache.
+    # Loudness prep can run while we resolve selected Voice Box IDs.
     with ThreadPoolExecutor(max_workers=2) as prep:
         voices_future = prep.submit(
             _resolve_usable_voices,
             work_dir,
             set(speaker_by_idx.values()),
+            list(request.voice_ids or []),
         )
         levels_future = prep.submit(
             _source_loudness_levels,

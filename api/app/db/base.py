@@ -44,6 +44,7 @@ class Repository(ABC):
         subtitle_mode: str,
         tone_style: str = "neutral",
         diarization_enabled: bool = False,
+        dub_voice_ids: list[str] | None = None,
     ) -> Row: ...
 
     @abstractmethod

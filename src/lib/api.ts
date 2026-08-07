@@ -368,11 +368,11 @@ const realApi = {
   projects: {
     list: () => request<Project[]>("/v1/projects"),
     get: (id: string) => request<Project>(`/v1/projects/${id}`),
-    create: (body: Pick<Project, "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled">) =>
+    create: (body: Pick<Project, "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled" | "dub_voice_ids">) =>
       request<Project>("/v1/projects", { method: "POST", body: JSON.stringify(body) }),
     update: (
       id: string,
-      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode">>,
+      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids">>,
     ) => request<Project>(`/v1/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),

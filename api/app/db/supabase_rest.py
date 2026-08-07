@@ -127,7 +127,15 @@ class SupabaseRestRepository(Repository):
         subtitle_mode: str,
         tone_style: str = "neutral",
         diarization_enabled: bool = False,
+        dub_voice_ids: list[str] | None = None,
     ) -> Row:
+        voices = [
+            str(v).strip()
+            for v in (dub_voice_ids or [])
+            if str(v).strip()
+        ][:8]
+        # Persist dub_voice_ids via R2 sidecar until the DB column is migrated.
+        # Keep them on the returned row so ProjectOut validates immediately.
         resp = await self.client.post(
             "/projects",
             params={"select": _PROJECT_SELECT},
@@ -143,7 +151,9 @@ class SupabaseRestRepository(Repository):
             },
         )
         resp.raise_for_status()
-        return resp.json()[0]
+        row = resp.json()[0]
+        row["dub_voice_ids"] = voices
+        return row
 
     async def get_project(self, owner_id: UUID, project_id: UUID) -> Row | None:
         resp = await self.client.get(
@@ -167,22 +177,32 @@ class SupabaseRestRepository(Repository):
     ) -> Row | None:
         if await self.get_project(owner_id, project_id) is None:
             return None
+        voices = fields.get("dub_voice_ids")
         payload = {k: v for k, v in fields.items() if k in _PROJECT_PATCHABLE}
-        if not payload:
+        if not payload and voices is None:
             return await self.get_project(owner_id, project_id)
-        resp = await self.client.patch(
-            "/projects",
-            params={
-                "select": _PROJECT_SELECT,
-                "owner_id": f"eq.{owner_id}",
-                "id": f"eq.{project_id}",
-            },
-            headers={"Prefer": "return=representation"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        rows = resp.json()
-        return rows[0] if rows else None
+        row: Row | None
+        if payload:
+            resp = await self.client.patch(
+                "/projects",
+                params={
+                    "select": _PROJECT_SELECT,
+                    "owner_id": f"eq.{owner_id}",
+                    "id": f"eq.{project_id}",
+                },
+                headers={"Prefer": "return=representation"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+            row = rows[0] if rows else None
+        else:
+            row = await self.get_project(owner_id, project_id)
+        if row is not None and isinstance(voices, list):
+            row["dub_voice_ids"] = [
+                str(v).strip() for v in voices if str(v).strip()
+            ][:8]
+        return row
 
     async def delete_project(self, owner_id: UUID, project_id: UUID) -> bool:
         existing = await self.get_project(owner_id, project_id)

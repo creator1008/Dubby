@@ -8,7 +8,8 @@ const MESSAGE_LABELS_KO: Record<string, string> = {
   refine_timing: "타임스탬프 보정",
   extract_vocals: "원본 목소리 추출",
   inpaint_ambient: "주변 소리 복원",
-  voice_clone_tts: "목소리 복제·더빙 합성",
+  voice_clone_tts: "목소리 선택·더빙 합성",
+  dub_voice_tts: "선택 목소리로 더빙 합성",
   prepare_asr: "음성 인식 준비",
   asr: "음성 인식 (STT)",
   segment_timing: "발화 구간·타임스탬프 분할",
@@ -46,7 +47,8 @@ const MESSAGE_LABELS: Record<Locale, Record<string, string>> = {
     queued: "Queued", extracting_audio: "Extracting audio",
     measuring_duration: "Checking duration", stem_split: "Separating background",
     refine_timing: "Refining timestamps", extract_vocals: "Extracting source voice",
-    inpaint_ambient: "Restoring ambience", voice_clone_tts: "Cloning voice and synthesizing",
+    inpaint_ambient: "Restoring ambience", voice_clone_tts: "Synthesizing with selected voice",
+    dub_voice_tts: "Synthesizing with selected voice",
     prepare_asr: "Preparing speech recognition", asr: "Speech recognition (STT)",
     segment_timing: "Utterance timing split",
     correct_asr: "Context ASR correction",
@@ -64,7 +66,8 @@ const MESSAGE_LABELS: Record<Locale, Record<string, string>> = {
     queued: "Đang chờ", extracting_audio: "Trích xuất âm thanh",
     measuring_duration: "Kiểm tra thời lượng", stem_split: "Tách âm nền",
     refine_timing: "Căn chỉnh mốc thời gian", extract_vocals: "Trích xuất giọng gốc",
-    inpaint_ambient: "Khôi phục âm thanh nền", voice_clone_tts: "Nhân bản và tổng hợp giọng",
+    inpaint_ambient: "Khôi phục âm thanh nền", voice_clone_tts: "Tổng hợp bằng giọng đã chọn",
+    dub_voice_tts: "Tổng hợp bằng giọng đã chọn",
     prepare_asr: "Chuẩn bị nhận dạng giọng nói", asr: "Nhận dạng giọng nói (STT)",
     segment_timing: "Chia đoạn lời nói / timestamp",
     correct_asr: "Hiệu chỉnh ngữ cảnh ASR",
@@ -114,6 +117,8 @@ const PIPELINE_ERROR_KO: Record<string, string> = {
   source_no_audio: "영상에 오디오가 없습니다.",
   probe_failed: "영상 정보를 읽지 못했습니다. 다른 파일로 다시 시도해 주세요.",
   worker_timeout: "작업 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+  voice_missing:
+    "더빙 목소리가 없습니다. My Voice Box에 목소리를 추가하고 새 더빙에서 선택해 주세요.",
   "[Errno 11001] getaddrinfo failed":
     "서버 네트워크(DNS) 오류로 작업이 중단되었습니다. 잠시 후 다시 추출해 주세요.",
 };
@@ -125,6 +130,8 @@ const PIPELINE_ERROR_EN: Record<string, string> = {
   source_no_audio: "This media has no audio track.",
   probe_failed: "Could not read media info. Try another file.",
   worker_timeout: "The job timed out. Please try again shortly.",
+  voice_missing:
+    "No dubbing voice selected. Add a voice in My Voice Box and choose it on New Dub.",
   "[Errno 11001] getaddrinfo failed":
     "A server network (DNS) error stopped the job. Please retry shortly.",
 };
@@ -136,6 +143,8 @@ const PIPELINE_ERROR_VI: Record<string, string> = {
   source_no_audio: "Media không có âm thanh.",
   probe_failed: "Không đọc được thông tin media. Thử file khác.",
   worker_timeout: "Công việc bị quá thời gian. Vui lòng thử lại sau.",
+  voice_missing:
+    "Chưa chọn giọng lồng tiếng. Hãy thêm giọng trong My Voice Box và chọn ở New Dub.",
   "[Errno 11001] getaddrinfo failed":
     "Lỗi mạng (DNS) máy chủ làm dừng công việc. Vui lòng thử lại sau.",
 };
