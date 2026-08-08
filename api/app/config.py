@@ -133,6 +133,8 @@ class Settings(BaseSettings):
     tts_concurrency: int = Field(default=4, ge=1, le=16)
     # Seconds of the vocals stem sent as the IVC reference sample.
     voice_clone_sample_seconds: float = 60.0
+    # After TTS, optionally run Voice Changer (STS) for timbre polish (extra cost).
+    voice_changer_after_tts: bool = False
     # Tempo policy. Rubber Band is preferred outside atempo's high-quality range.
     # Keep residual tempo mild; prefer compress + slot extension first.
     tts_max_speedup: float = Field(default=1.25, ge=1.0, le=4.0)

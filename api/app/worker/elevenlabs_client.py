@@ -185,6 +185,60 @@ class ElevenLabsClient:
         except httpx.HTTPError:
             logger.warning("could not delete cloned voice %s", voice_id)
 
+    async def speech_to_speech_to_file(
+        self,
+        audio_path: str,
+        voice_id: str,
+        out_path: str,
+        *,
+        model_id: str = "eleven_multilingual_sts_v2",
+    ) -> None:
+        """Voice Changer: map performance in ``audio_path`` onto ``voice_id``."""
+        attempts = max(1, self._settings.pipeline_step_retries + 1)
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                with Path(audio_path).open("rb") as handle:
+                    resp = await self._client.post(
+                        f"{self._base}/v1/speech-to-speech/{voice_id}",
+                        params={"output_format": "mp3_44100_128"},
+                        headers=self._headers,
+                        data={
+                            "model_id": model_id,
+                            "remove_background_noise": "true",
+                        },
+                        files={
+                            "audio": (
+                                Path(audio_path).name,
+                                handle,
+                                "audio/mpeg",
+                            )
+                        },
+                    )
+                _raise_for_status(resp, errors.TTS_FAILED)
+                Path(out_path).write_bytes(resp.content)
+                return
+            except PipelineError as exc:
+                last_error = exc
+                if not exc.retryable or attempt >= attempts:
+                    raise
+                await asyncio.sleep(
+                    self._settings.pipeline_retry_backoff_seconds * attempt
+                )
+            except httpx.HTTPError as exc:
+                last_error = PipelineError(
+                    errors.TTS_FAILED,
+                    f"Voice Changer request failed: {exc}",
+                    retryable=True,
+                )
+                if attempt >= attempts:
+                    raise last_error from exc
+                await asyncio.sleep(
+                    self._settings.pipeline_retry_backoff_seconds * attempt
+                )
+        if last_error:
+            raise last_error
+
     async def tts_to_file(
         self,
         text: str,

@@ -79,6 +79,7 @@ export default function NewDubPage() {
   const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("none");
   const [toneStyle, setToneStyle] = useState<ToneStyle>("neutral");
   const [diarizationEnabled, setDiarizationEnabled] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<"voice_box" | "auto_clone">("voice_box");
   const [boxVoices, setBoxVoices] = useState<UserVoice[]>([]);
   const [speakerVoiceIds, setSpeakerVoiceIds] = useState<string[]>([""]);
   const [file, setFile] = useState<File | null>(null);
@@ -189,15 +190,17 @@ export default function NewDubPage() {
       setError(text.sameLanguages);
       return null;
     }
-    const requiredSlots = diarizationEnabled
-      ? Math.max(2, speakerVoiceIds.length)
-      : 1;
-    const filled = speakerVoiceIds.slice(0, requiredSlots).filter((id) => id.trim());
-    if (filled.length < requiredSlots || boxVoices.length === 0) {
-      setError(
-        boxVoices.length === 0 ? text.voiceSelectEmpty : text.voiceSelectRequired,
-      );
-      return null;
+    if (voiceMode === "voice_box") {
+      const requiredSlots = diarizationEnabled
+        ? Math.max(2, speakerVoiceIds.length)
+        : 1;
+      const filled = speakerVoiceIds.slice(0, requiredSlots).filter((id) => id.trim());
+      if (filled.length < requiredSlots || boxVoices.length === 0) {
+        setError(
+          boxVoices.length === 0 ? text.voiceSelectEmpty : text.voiceSelectRequired,
+        );
+        return null;
+      }
     }
     return trimmedUrl;
   };
@@ -220,7 +223,9 @@ export default function NewDubPage() {
       subtitle_mode: subtitleMode,
       tone_style: toneStyle,
       diarization_enabled: diarizationEnabled,
-      dub_voice_ids: selectedDubVoiceIds,
+      voice_mode: voiceMode,
+      pipeline_version: "2.0",
+      dub_voice_ids: voiceMode === "voice_box" ? selectedDubVoiceIds : [],
     });
     if (inputMode === "file" && file) {
       setLocalStage(text.uploading);
@@ -806,7 +811,31 @@ export default function NewDubPage() {
                 {text.voiceSettingsLink}
               </a>
             </div>
-            {boxVoices.length === 0 ? (
+            <div
+              className="input-mode-toggle"
+              role="group"
+              aria-label={text.voiceSelect}
+            >
+              <button
+                type="button"
+                className={voiceMode === "voice_box" ? "is-active" : undefined}
+                disabled={uploading}
+                onClick={() => setVoiceMode("voice_box")}
+              >
+                {text.voiceModeMyBox}
+              </button>
+              <button
+                type="button"
+                className={voiceMode === "auto_clone" ? "is-active" : undefined}
+                disabled={uploading}
+                onClick={() => setVoiceMode("auto_clone")}
+              >
+                {text.voiceModeAutoClone}
+              </button>
+            </div>
+            {voiceMode === "auto_clone" ? (
+              <p className="muted">{text.voiceModeAutoCloneHelp}</p>
+            ) : boxVoices.length === 0 ? (
               <p className="muted">{text.voiceSelectEmpty}</p>
             ) : (
               <div className="voice-select-slots">
@@ -836,7 +865,7 @@ export default function NewDubPage() {
                 ))}
               </div>
             )}
-            {diarizationEnabled && boxVoices.length > 0 && (
+            {voiceMode === "voice_box" && diarizationEnabled && boxVoices.length > 0 && (
               <div className="voice-select-actions">
                 <button
                   type="button"

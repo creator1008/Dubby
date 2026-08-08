@@ -23,6 +23,10 @@ export type Project = {
   diarization_enabled: boolean;
   /** Ordered ElevenLabs voice IDs for speaker 1, 2, … */
   dub_voice_ids?: string[];
+  /** voice_box = My Voice Box; auto_clone = Instant Voice Clone per speaker */
+  voice_mode?: "voice_box" | "auto_clone";
+  /** Pipeline architecture version (2.0 = original-base mix). */
+  pipeline_version?: string;
   duration_seconds: number | null;
   source_key: string | null;
   output_key: string | null;

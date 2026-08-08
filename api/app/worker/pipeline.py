@@ -234,43 +234,95 @@ def _project_dub_voice_ids(project: Row) -> list[str]:
     return [str(v).strip() for v in raw if str(v).strip()]
 
 
-async def _load_dub_voice_ids_from_storage(
-    ctx: JobContext, project: Row
-) -> list[str]:
+async def _load_dub_meta_from_storage(ctx: JobContext, project: Row) -> dict:
     owner_raw = project.get("owner_id")
     if not owner_raw:
-        return []
+        return {}
     try:
         owner_id = UUID(str(owner_raw))
     except (TypeError, ValueError):
-        return []
+        return {}
     key = ctx.storage.project_meta_key(
         owner_id, ctx.project_id, "dub_voice_ids.json"
     )
     try:
         raw = await ctx.storage.download_bytes(key)
     except Exception:  # noqa: BLE001
-        logger.warning("could not download dub_voice_ids for %s", ctx.project_id)
-        return []
+        logger.warning("could not download dub meta for %s", ctx.project_id)
+        return {}
     if not raw:
-        return []
+        return {}
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return []
-    voices = data.get("voice_ids") if isinstance(data, dict) else data
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+async def _load_dub_voice_ids_from_storage(
+    ctx: JobContext, project: Row
+) -> list[str]:
+    data = await _load_dub_meta_from_storage(ctx, project)
+    voices = data.get("voice_ids")
     if not isinstance(voices, list):
         return []
     return [str(v).strip() for v in voices if str(v).strip()]
 
 
 async def _resolve_dub_voices(
-    ctx: JobContext, project: Row, speakers: list[str]
+    ctx: JobContext,
+    project: Row,
+    speakers: list[str],
+    *,
+    engine: object | None = None,
+    vocals_path: str | None = None,
+    scratch: Path | None = None,
+    speaker_ranges: dict[str, list[tuple[int, int]]] | None = None,
 ) -> tuple[str, dict[str, str], set[str]]:
-    """Map speaker slots to selected Voice Box IDs (no cloning).
+    """Map speakers to Voice Box IDs or Instant Voice Clones (V2).
 
     Returns ``(default_voice, speaker_voices, protected_ids)``.
+    Protected ids (My Voice Box / env) are never deleted after the job.
     """
+    meta = await _load_dub_meta_from_storage(ctx, project)
+    voice_mode = str(project.get("voice_mode") or meta.get("voice_mode") or "voice_box")
+    if voice_mode not in {"voice_box", "auto_clone"}:
+        voice_mode = "voice_box"
+
+    if voice_mode == "auto_clone":
+        if engine is None or vocals_path is None or scratch is None:
+            raise PipelineError(
+                errors.VOICE_MISSING,
+                "Auto voice clone requires vocals stem and engine.",
+            )
+        speaker_voices: dict[str, str] = {}
+        protected: set[str] = set()
+        if ctx.settings.elevenlabs_voice_id:
+            protected.add(str(ctx.settings.elevenlabs_voice_id).strip())
+        sample_dir = scratch / "ivc_samples"
+        sample_dir.mkdir(exist_ok=True)
+        targets = speakers or ["speaker_1"]
+        for speaker in targets:
+            ranges = (speaker_ranges or {}).get(speaker) or []
+            sample_path = sample_dir / f"{speaker}.mp3"
+            voice_id = await engine.prepare_voice(  # type: ignore[attr-defined]
+                vocals_path,
+                str(sample_dir),
+                f"dubby-{ctx.project_id}-{speaker}"[:80],
+                ranges_ms=ranges or None,
+                preferred_voice_id=None,
+                force_clone=True,
+                sample_out=str(sample_path),
+            )
+            speaker_voices[speaker] = voice_id
+        if not speaker_voices:
+            raise PipelineError(
+                errors.VOICE_MISSING,
+                "Auto voice clone produced no voices.",
+            )
+        default_voice = next(iter(speaker_voices.values()))
+        return default_voice, speaker_voices, protected
+
     selected = _project_dub_voice_ids(project)
     if not selected:
         selected = await _load_dub_voice_ids_from_storage(ctx, project)
@@ -284,7 +336,7 @@ async def _resolve_dub_voices(
     if not selected:
         raise PipelineError(
             errors.VOICE_MISSING,
-            "No dubbing voice selected. Add a voice in My Voice Box and choose it on New Dub.",
+            "No dubbing voice selected. Choose My Voice Box voices or enable auto clone.",
         )
 
     default_voice = selected[0]
@@ -292,12 +344,11 @@ async def _resolve_dub_voices(
     if ctx.settings.elevenlabs_voice_id:
         protected.add(str(ctx.settings.elevenlabs_voice_id).strip())
 
-    speaker_voices: dict[str, str] = {}
+    mapped: dict[str, str] = {}
     for index, speaker in enumerate(speakers):
-        speaker_voices[speaker] = (
-            selected[index] if index < len(selected) else default_voice
-        )
-    return default_voice, speaker_voices, protected
+        mapped[speaker] = selected[index] if index < len(selected) else default_voice
+    return default_voice, mapped, protected
+
 
 async def _load_project(ctx: JobContext) -> Row:
     project = await ctx.repo.get_project_for_worker(ctx.project_id)
@@ -707,9 +758,11 @@ async def run_transcribe(ctx: JobContext) -> None:
 
 
 async def run_dub(ctx: JobContext) -> None:
-    """dub: stems -> voice clone -> TTS -> fit/mix -> subtitles -> mux -> R2.
+    """dub (V2): duck original bed -> voice resolve -> TTS -> fit/mix -> mux.
 
     Project: ready_for_edit -> dubbing -> completed (failed on error).
+    Mix bed is the original audio with source-language spans ducked; other
+    languages passthrough. Voices come from My Voice Box or auto IVC.
     """
     engine = create_engine(ctx.settings, heartbeat=ctx.heartbeat)
     scratch = _make_scratch(ctx)
@@ -718,8 +771,8 @@ async def run_dub(ctx: JobContext) -> None:
     try:
         project = await _load_project(ctx)
         segments = await ctx.repo.list_segments_for_worker(ctx.project_id)
-        speakable = [s for s in segments if str(s.get("target_text", "")).strip()]
-        if not speakable:
+        translated = [s for s in segments if str(s.get("target_text", "")).strip()]
+        if not translated:
             raise PipelineError(
                 errors.NO_SEGMENTS,
                 "no translated segments to dub; run transcribe first",
@@ -736,36 +789,43 @@ async def run_dub(ctx: JobContext) -> None:
         full_wav = scratch / "audio.wav"
         await engine.extract_audio(str(source_path), str(full_wav))
 
+        source_lang = str(project["source_lang"])
+        # V2: only dub segments that match the declared source language.
+        from .language_passthrough import should_passthrough
+
+        speakable = [
+            s
+            for s in translated
+            if not should_passthrough(str(s.get("source_text", "")), source_lang)
+        ]
+        if not speakable:
+            raise PipelineError(
+                errors.NO_SEGMENTS,
+                "no source-language segments to dub (others kept as original audio)",
+            )
+
+        # Demucs for IVC samples / loudness; mix bed = original with ducking.
         await ctx.report(0.15, "stem_split")
         stems_dir = scratch / "stems"
         stems_dir.mkdir()
-        vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
-        segment_bounds = [
+        vocals, _no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
+
+        duck_bounds = [
             (int(segment["start_ms"]), int(segment["end_ms"]))
-            for segment in segments
-            if str(segment.get("source_text", "")).strip()
-            and int(segment["end_ms"]) > int(segment["start_ms"])
+            for segment in speakable
+            if int(segment["end_ms"]) > int(segment["start_ms"])
         ]
-        saved_ranges = await _load_speech_ranges(
-            ctx, str(project["source_key"]), scratch
-        )
-        speech_ranges = voice_removal_ranges(saved_ranges, segment_bounds)
-        if not speech_ranges:
+        if not duck_bounds:
             raise PipelineError(
                 errors.NO_SEGMENTS,
-                "no ASR-recognized language ranges available for voice removal",
+                "no valid timing ranges for dubbed speech",
             )
-        selective_bed = scratch / "speech_removed.wav"
-        await engine.remove_recognized_speech(
-            str(full_wav),
-            no_vocals,
-            speech_ranges,
-            str(selective_bed),
-        )
+        selective_bed = scratch / "original_ducked.wav"
+        await engine.build_duck_bed(str(full_wav), duck_bounds, str(selective_bed))
         speakable_indices = {int(segment["idx"]) for segment in speakable}
         source_levels = await source_loudness_levels_async(
             speakable,
-            speech_ranges,
+            duck_bounds,
             speakable_indices,
             lambda start_ms, end_ms: engine.measure_segment_loudness(
                 vocals, start_ms, end_ms
@@ -773,7 +833,6 @@ async def run_dub(ctx: JobContext) -> None:
         )
 
         await ctx.report(0.40, "dub_voice_tts")
-        # First-appearance order matches New Dub 화자 1 / 화자 2 slots.
         speakers: list[str] = []
         seen_speakers: set[str] = set()
         for seg in speakable:
@@ -782,8 +841,20 @@ async def run_dub(ctx: JobContext) -> None:
                 continue
             seen_speakers.add(sid)
             speakers.append(sid)
+        speaker_ranges: dict[str, list[tuple[int, int]]] = {}
+        for seg in speakable:
+            sid = str(seg.get("speaker_id") or "").strip() or "speaker_1"
+            speaker_ranges.setdefault(sid, []).append(
+                (int(seg["start_ms"]), int(seg["end_ms"]))
+            )
         default_voice, speaker_voices, protected_voices = await _resolve_dub_voices(
-            ctx, project, speakers
+            ctx,
+            project,
+            speakers,
+            engine=engine,
+            vocals_path=str(vocals),
+            scratch=scratch,
+            speaker_ranges=speaker_ranges,
         )
         voice_ids.add(default_voice)
         voice_ids.update(speaker_voices.values())
@@ -794,7 +865,6 @@ async def run_dub(ctx: JobContext) -> None:
         clips_dir.mkdir()
         total = len(speakable)
         target_lang = str(project["target_lang"])
-        source_lang = str(project["source_lang"])
         tone_style = str(project.get("tone_style") or "neutral")
         tolerance = ctx.settings.translation_timing_tolerance
         tts_concurrency = max(1, int(ctx.settings.tts_concurrency))
@@ -837,6 +907,16 @@ async def run_dub(ctx: JobContext) -> None:
                     ),
                     step="tts",
                 )
+                if ctx.settings.voice_changer_after_tts:
+                    sts_out = clips_dir / f"seg_{seg['idx']}_sts.{engine.tts_extension}"
+                    await _with_retries(
+                        ctx,
+                        lambda src=str(raw), dst=str(sts_out), v=voice_id: engine.speech_to_speech(
+                            src, v, dst
+                        ),
+                        step="voice_changer",
+                    )
+                    raw = sts_out
                 clip_s = await engine.clip_duration_seconds(str(raw))
                 return {
                     "n": n,

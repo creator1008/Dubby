@@ -248,6 +248,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     voiceSelectRequired: "더빙에 사용할 목소리를 선택하세요.",
     voiceSelectAddSpeaker: "화자 추가",
     voiceSelectRemoveSpeaker: "화자 제거",
+    voiceModeMyBox: "My Voice Box",
+    voiceModeAutoClone: "자동 목소리 복제",
+    voiceModeAutoCloneHelp:
+      "영상 속 화자 음성을 자동으로 Instant Voice Clone해 더빙합니다. My Voice Box 선택이 필요 없습니다.",
     voiceSettingsLink: "목소리 설정",
     fileUpload: "파일 업로드",
     uploading: "업로드 중…",
@@ -567,6 +571,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     voiceSelectRequired: "Select a voice for dubbing.",
     voiceSelectAddSpeaker: "Add speaker",
     voiceSelectRemoveSpeaker: "Remove speaker",
+    voiceModeMyBox: "My Voice Box",
+    voiceModeAutoClone: "Auto voice clone",
+    voiceModeAutoCloneHelp:
+      "Instantly clone each speaker from the video. No My Voice Box selection needed.",
     voiceSettingsLink: "Voice Settings",
     fileUpload: "File upload",
     uploading: "Uploading…",
@@ -886,6 +894,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     voiceSelectRequired: "Hãy chọn giọng để lồng tiếng.",
     voiceSelectAddSpeaker: "Thêm người nói",
     voiceSelectRemoveSpeaker: "Xóa người nói",
+    voiceModeMyBox: "My Voice Box",
+    voiceModeAutoClone: "Tự động nhân bản giọng",
+    voiceModeAutoCloneHelp:
+      "Tự động Instant Voice Clone từng người nói từ video. Không cần chọn My Voice Box.",
     voiceSettingsLink: "Cài đặt giọng",
     fileUpload: "Tải tệp lên",
     uploading: "Đang tải lên…",

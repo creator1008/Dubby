@@ -33,6 +33,7 @@ LangCode = Literal[
 ]
 SubtitleMode = Literal["none", "source", "target"]
 ToneStyle = Literal["neutral", "warm", "energetic", "serious"]
+VoiceMode = Literal["voice_box", "auto_clone"]
 ProjectStatus = Literal[
     "created",
     "uploading",
@@ -57,7 +58,9 @@ class ProjectCreate(BaseModel):
     subtitle_mode: SubtitleMode = "none"
     tone_style: ToneStyle = "neutral"
     diarization_enabled: bool = False
+    voice_mode: VoiceMode = "voice_box"
     dub_voice_ids: list[str] = Field(default_factory=list, max_length=8)
+    pipeline_version: str = "2.0"
 
 
 class ProjectUpdate(BaseModel):
@@ -67,6 +70,7 @@ class ProjectUpdate(BaseModel):
     subtitle_mode: SubtitleMode | None = None
     tone_style: ToneStyle | None = None
     diarization_enabled: bool | None = None
+    voice_mode: VoiceMode | None = None
     dub_voice_ids: list[str] | None = Field(default=None, max_length=8)
 
 
@@ -79,7 +83,9 @@ class ProjectOut(BaseModel):
     subtitle_mode: str
     tone_style: str = "neutral"
     diarization_enabled: bool = False
+    voice_mode: VoiceMode = "voice_box"
     dub_voice_ids: list[str] = Field(default_factory=list)
+    pipeline_version: str = "2.0"
     duration_seconds: float | None = None
     source_key: str | None = None
     output_key: str | None = None

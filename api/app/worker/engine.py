@@ -92,8 +92,28 @@ class Engine(ABC):
         name: str,
         ranges_ms: list[tuple[int, int]] | None = None,
         preferred_voice_id: str | None = None,
+        force_clone: bool = False,
+        sample_out: str | None = None,
     ) -> str:
-        """Return a TTS voice id (Voice Box / configured). Cloning is disabled."""
+        """Return a TTS voice id (Voice Box or Instant Voice Clone)."""
+
+    @abstractmethod
+    async def build_duck_bed(
+        self,
+        original_wav: str,
+        ranges_ms: list[tuple[int, int]],
+        wav_out: str,
+    ) -> None:
+        """Duck original audio inside dubbed ranges (V2 mix bed)."""
+
+    @abstractmethod
+    async def speech_to_speech(
+        self,
+        audio_path: str,
+        voice_id: str,
+        out_path: str,
+    ) -> None:
+        """Optional Voice Changer (STS) timbre transfer."""
 
     @abstractmethod
     async def cleanup_voice(
@@ -286,6 +306,21 @@ class RealEngine(Engine):
         vocals, no_vocals = stems.locate_stems(self._settings, wav_in, out_dir)
         return str(vocals), str(no_vocals)
 
+    async def build_duck_bed(
+        self,
+        original_wav: str,
+        ranges_ms: list[tuple[int, int]],
+        wav_out: str,
+    ) -> None:
+        from .v2_mix import build_original_duck_bed_cmd
+
+        await self._run(
+            build_original_duck_bed_cmd(
+                self._settings, original_wav, ranges_ms, wav_out
+            ),
+            errors.MIX_FAILED,
+        )
+
     async def prepare_voice(
         self,
         vocals_path: str,
@@ -293,17 +328,37 @@ class RealEngine(Engine):
         name: str,
         ranges_ms: list[tuple[int, int]] | None = None,
         preferred_voice_id: str | None = None,
+        force_clone: bool = False,
+        sample_out: str | None = None,
     ) -> str:
-        del vocals_path, scratch, name, ranges_ms
         preferred = (preferred_voice_id or "").strip()
-        if preferred:
+        if preferred and not force_clone:
             return preferred
-        if self._settings.elevenlabs_voice_id:
+        if self._settings.elevenlabs_voice_id and not force_clone:
             return self._settings.elevenlabs_voice_id
-        raise PipelineError(
-            errors.VOICE_MISSING,
-            "No dubbing voice configured. Select a My Voice Box voice or set ELEVENLABS_VOICE_ID.",
+
+        sample_path = Path(sample_out) if sample_out else Path(scratch) / "ivc_sample.mp3"
+        sample_path.parent.mkdir(parents=True, exist_ok=True)
+        await self._run(
+            media.build_voice_sample_cmd(
+                self._settings,
+                vocals_path,
+                str(sample_path),
+                self._settings.voice_clone_sample_seconds,
+                ranges_ms=ranges_ms,
+            ),
+            errors.VOICE_CLONE_FAILED,
         )
+        return await self.elevenlabs.create_voice(str(sample_path), name)
+
+    async def speech_to_speech(
+        self,
+        audio_path: str,
+        voice_id: str,
+        out_path: str,
+    ) -> None:
+        """Voice Changer (STS) — timbre transfer while keeping delivery."""
+        await self.elevenlabs.speech_to_speech_to_file(audio_path, voice_id, out_path)
 
     async def cleanup_voice(
         self, voice_id: str, *, protected_ids: set[str] | None = None
@@ -557,12 +612,34 @@ class MockEngine(Engine):
         name: str,
         ranges_ms: list[tuple[int, int]] | None = None,
         preferred_voice_id: str | None = None,
+        force_clone: bool = False,
+        sample_out: str | None = None,
     ) -> str:
-        del vocals_path, scratch, ranges_ms
+        del vocals_path, scratch, ranges_ms, sample_out
         preferred = (preferred_voice_id or "").strip()
-        if preferred:
+        if preferred and not force_clone:
             return preferred
         return f"mock-voice-{name[-16:]}"
+
+    async def build_duck_bed(
+        self,
+        original_wav: str,
+        ranges_ms: list[tuple[int, int]],
+        wav_out: str,
+    ) -> None:
+        del ranges_ms
+        duration = _wav_duration(original_wav)
+        _write_wav(wav_out, duration)
+
+    async def speech_to_speech(
+        self,
+        audio_path: str,
+        voice_id: str,
+        out_path: str,
+    ) -> None:
+        del voice_id
+        duration = _wav_duration(audio_path)
+        _write_wav(out_path, duration)
 
     async def cleanup_voice(
         self, voice_id: str, *, protected_ids: set[str] | None = None

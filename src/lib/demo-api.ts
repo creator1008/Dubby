@@ -601,7 +601,7 @@ export const demoApi = {
     create: async (
       body: Pick<
         Project,
-        "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled" | "dub_voice_ids"
+        "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled" | "dub_voice_ids" | "voice_mode" | "pipeline_version"
       >,
     ) => {
       const userId = await requireUserId();
@@ -617,6 +617,8 @@ export const demoApi = {
         tone_style: body.tone_style,
         diarization_enabled: body.diarization_enabled,
         dub_voice_ids: body.dub_voice_ids ?? [],
+        voice_mode: body.voice_mode ?? "voice_box",
+        pipeline_version: body.pipeline_version ?? "2.0",
         duration_seconds: null,
         source_key: null,
         output_key: null,
@@ -632,7 +634,7 @@ export const demoApi = {
     },
     update: async (
       id: string,
-      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids">>,
+      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids" | "voice_mode">>,
     ) => {
       const project = await requireOwnedProject(id);
       Object.assign(project, body, { updated_at: nowIso() });
