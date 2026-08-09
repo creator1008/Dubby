@@ -106,8 +106,32 @@ class ElevenLabsClient:
             deleted += 1
         return deleted
 
-    async def create_voice(self, sample_path: str, name: str) -> str:
-        """Instant Voice Clone from a single reference sample; returns voice_id."""
+    async def _fallback_voice_on_add_limit(self) -> str | None:
+        """Prefer configured / existing account voices when IVC create is blocked."""
+        configured = (self._settings.elevenlabs_voice_id or "").strip()
+        if configured:
+            return configured
+        voices = await self.list_voices()
+        for voice in voices:
+            voice_id = str(voice.get("voice_id") or "").strip()
+            if voice_id and self._is_dubby_temp_voice(voice):
+                return voice_id
+        for voice in voices:
+            category = str(voice.get("category") or "").lower()
+            voice_id = str(voice.get("voice_id") or "").strip()
+            if voice_id and category not in {"premade", "professional", "famous"}:
+                return voice_id
+        for voice in voices:
+            voice_id = str(voice.get("voice_id") or "").strip()
+            if voice_id:
+                return voice_id
+        return None
+
+    async def create_voice(self, sample_path: str, name: str) -> tuple[str, bool]:
+        """Instant Voice Clone from a single reference sample.
+
+        Returns ``(voice_id, used_monthly_limit_fallback)``.
+        """
         sample = Path(sample_path)
         files = {"files": (sample.name, sample.read_bytes(), "audio/mpeg")}
         data = {
@@ -130,31 +154,28 @@ class ElevenLabsClient:
                     retryable=True,
                 ) from exc
 
-        async def _reuse_dubby_voice() -> str | None:
-            for voice in await self.list_voices():
-                voice_id = str(voice.get("voice_id") or "").strip()
-                if voice_id and self._is_dubby_temp_voice(voice):
-                    return voice_id
-            return None
+        async def _limit_fallback() -> tuple[str, bool]:
+            reused = await self._fallback_voice_on_add_limit()
+            if reused:
+                logger.warning(
+                    "ElevenLabs monthly voice add/edit limit reached; using %s",
+                    reused,
+                )
+                return reused, True
+            raise PipelineError(
+                errors.VOICE_CLONE_FAILED,
+                "ElevenLabs monthly voice add/edit limit reached; "
+                "no registered Voice ID available to reuse",
+            )
 
         resp = await _add()
         body = resp.text
         if resp.status_code >= 400 and (
             "voice_add_edit_limit_reached" in body
             or "monthly limit of voice add/edit" in body
+            or "voice add/edit operations" in body
         ):
-            reused = await _reuse_dubby_voice()
-            if reused:
-                logger.warning(
-                    "ElevenLabs monthly voice add/edit limit reached; reusing %s",
-                    reused,
-                )
-                return reused
-            raise PipelineError(
-                errors.VOICE_CLONE_FAILED,
-                "ElevenLabs monthly voice add/edit limit reached; "
-                "set ELEVENLABS_VOICE_ID or upgrade the plan",
-            )
+            return await _limit_fallback()
         if resp.status_code >= 400 and (
             "voice_limit_reached" in body
             or "maximum amount of custom voices" in body
@@ -164,17 +185,23 @@ class ElevenLabsClient:
             if resp.status_code >= 400 and (
                 "voice_add_edit_limit_reached" in resp.text
                 or "monthly limit of voice add/edit" in resp.text
+                or "voice add/edit operations" in resp.text
             ):
-                reused = await _reuse_dubby_voice()
-                if reused:
-                    return reused
+                return await _limit_fallback()
+            reused = await self._fallback_voice_on_add_limit()
+            if resp.status_code >= 400 and reused:
+                logger.warning(
+                    "ElevenLabs custom voice slot full; using existing voice %s",
+                    reused,
+                )
+                return reused, True
         _raise_for_status(resp, errors.VOICE_CLONE_FAILED)
         voice_id = resp.json().get("voice_id")
         if not voice_id:
             raise PipelineError(
                 errors.VOICE_CLONE_FAILED, "voice clone response had no voice_id"
             )
-        return str(voice_id)
+        return str(voice_id), False
 
     async def delete_voice(self, voice_id: str) -> None:
         """Best-effort cleanup of a per-project cloned voice."""

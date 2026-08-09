@@ -278,16 +278,17 @@ async def _resolve_dub_voices(
     vocals_path: str | None = None,
     scratch: Path | None = None,
     speaker_ranges: dict[str, list[tuple[int, int]]] | None = None,
-) -> tuple[str, dict[str, str], set[str]]:
+) -> tuple[str, dict[str, str], set[str], list[str]]:
     """Map speakers to Voice Box IDs or Instant Voice Clones (V2).
 
-    Returns ``(default_voice, speaker_voices, protected_ids)``.
-    Protected ids (My Voice Box / env) are never deleted after the job.
+    Returns ``(default_voice, speaker_voices, protected_ids, warnings)``.
+    Protected ids (My Voice Box / env / limit fallbacks) are never deleted.
     """
     meta = await _load_dub_meta_from_storage(ctx, project)
     voice_mode = str(project.get("voice_mode") or meta.get("voice_mode") or "voice_box")
     if voice_mode not in {"voice_box", "auto_clone"}:
         voice_mode = "voice_box"
+    voice_warnings: list[str] = []
 
     if voice_mode == "auto_clone":
         if engine is None or vocals_path is None or scratch is None:
@@ -302,10 +303,11 @@ async def _resolve_dub_voices(
         sample_dir = scratch / "ivc_samples"
         sample_dir.mkdir(exist_ok=True)
         targets = speakers or ["speaker_1"]
+        used_limit_fallback = False
         for speaker in targets:
             ranges = (speaker_ranges or {}).get(speaker) or []
             sample_path = sample_dir / f"{speaker}.mp3"
-            voice_id = await engine.prepare_voice(  # type: ignore[attr-defined]
+            voice_id, limit_fallback = await engine.prepare_voice(  # type: ignore[attr-defined]
                 vocals_path,
                 str(sample_dir),
                 f"dubby-{ctx.project_id}-{speaker}"[:80],
@@ -315,13 +317,18 @@ async def _resolve_dub_voices(
                 sample_out=str(sample_path),
             )
             speaker_voices[speaker] = voice_id
+            if limit_fallback:
+                used_limit_fallback = True
+                protected.add(voice_id)
         if not speaker_voices:
             raise PipelineError(
                 errors.VOICE_MISSING,
                 "Auto voice clone produced no voices.",
             )
+        if used_limit_fallback:
+            voice_warnings.append("voice_add_edit_limit_default_voice")
         default_voice = next(iter(speaker_voices.values()))
-        return default_voice, speaker_voices, protected
+        return default_voice, speaker_voices, protected, voice_warnings
 
     selected = _project_dub_voice_ids(project)
     if not selected:
@@ -347,7 +354,7 @@ async def _resolve_dub_voices(
     mapped: dict[str, str] = {}
     for index, speaker in enumerate(speakers):
         mapped[speaker] = selected[index] if index < len(selected) else default_voice
-    return default_voice, mapped, protected
+    return default_voice, mapped, protected, voice_warnings
 
 
 async def _load_project(ctx: JobContext) -> Row:
@@ -847,20 +854,23 @@ async def run_dub(ctx: JobContext) -> None:
             speaker_ranges.setdefault(sid, []).append(
                 (int(seg["start_ms"]), int(seg["end_ms"]))
             )
-        default_voice, speaker_voices, protected_voices = await _resolve_dub_voices(
-            ctx,
-            project,
-            speakers,
-            engine=engine,
-            vocals_path=str(vocals),
-            scratch=scratch,
-            speaker_ranges=speaker_ranges,
+        default_voice, speaker_voices, protected_voices, voice_warnings = (
+            await _resolve_dub_voices(
+                ctx,
+                project,
+                speakers,
+                engine=engine,
+                vocals_path=str(vocals),
+                scratch=scratch,
+                speaker_ranges=speaker_ranges,
+            )
         )
         voice_ids.add(default_voice)
         voice_ids.update(speaker_voices.values())
 
         placed_clips: list[tuple[str, int]] = []
         quality_warnings = list(project.get("quality_warnings") or [])
+        quality_warnings.extend(voice_warnings)
         clips_dir = scratch / "clips"
         clips_dir.mkdir()
         total = len(speakable)

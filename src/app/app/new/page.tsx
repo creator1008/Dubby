@@ -10,7 +10,7 @@ import { ApiError, api, isDemoMode, pingApi, uploadSourceFile } from "@/lib/api"
 import { formatPipelineError } from "@/lib/job-labels";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
-import { preferStableMediaUrl } from "@/lib/media-url";
+import { formatQualityWarning, preferStableMediaUrl } from "@/lib/media-url";
 import {
   extractLocalStep12,
   extractLocalStep12FromUrl,
@@ -18,7 +18,7 @@ import {
   renderLocalDubVideo,
   retranslateLocalSegments,
 } from "@/lib/local-step12";
-import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import { LANG_CODES, LANG_LABELS, isDubLangCode } from "@/lib/languages";
 import type {
   Job,
@@ -73,6 +73,7 @@ function formatVoiceOption(
 
 export default function NewDubPage() {
   const text = useAppDictionary();
+  const { locale } = useLocale();
   const [title, setTitle] = useState("");
   const [sourceLang, setSourceLang] = useState<LangCode>("ko");
   const [targetLang, setTargetLang] = useState<LangCode>("en");
@@ -530,9 +531,12 @@ export default function NewDubPage() {
         text.batchStageDub,
       );
       const warnings = dubbed.project.quality_warnings ?? [];
+      const warningText = warnings
+        .map((code) => formatQualityWarning(code, locale))
+        .join(" ");
       setMessage(
-        warnings.length
-          ? `${text.batchCreateDone} ${warnings.join(" ")}`
+        warningText
+          ? `${text.batchCreateDone} ${warningText}`
           : text.batchCreateDone,
       );
     } catch (err) {
@@ -722,6 +726,16 @@ export default function NewDubPage() {
       </div>
 
       {error && <p className="form-msg err">{error}</p>}
+      {project && (project.quality_warnings?.length ?? 0) > 0 && (
+        <div className="app-panel" role="status">
+          <strong>{text.qualityWarning}</strong>
+          <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
+            {project.quality_warnings.map((warning) => (
+              <li key={warning}>{formatQualityWarning(warning, locale)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* 1. 파일선택 및 자막추출 */}
       {!project && (

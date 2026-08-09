@@ -94,8 +94,8 @@ class Engine(ABC):
         preferred_voice_id: str | None = None,
         force_clone: bool = False,
         sample_out: str | None = None,
-    ) -> str:
-        """Return a TTS voice id (Voice Box or Instant Voice Clone)."""
+    ) -> tuple[str, bool]:
+        """Return ``(voice_id, used_monthly_limit_fallback)``."""
 
     @abstractmethod
     async def build_duck_bed(
@@ -330,12 +330,12 @@ class RealEngine(Engine):
         preferred_voice_id: str | None = None,
         force_clone: bool = False,
         sample_out: str | None = None,
-    ) -> str:
+    ) -> tuple[str, bool]:
         preferred = (preferred_voice_id or "").strip()
         if preferred and not force_clone:
-            return preferred
+            return preferred, False
         if self._settings.elevenlabs_voice_id and not force_clone:
-            return self._settings.elevenlabs_voice_id
+            return self._settings.elevenlabs_voice_id, False
 
         sample_path = Path(sample_out) if sample_out else Path(scratch) / "ivc_sample.mp3"
         sample_path.parent.mkdir(parents=True, exist_ok=True)
@@ -614,12 +614,12 @@ class MockEngine(Engine):
         preferred_voice_id: str | None = None,
         force_clone: bool = False,
         sample_out: str | None = None,
-    ) -> str:
+    ) -> tuple[str, bool]:
         del vocals_path, scratch, ranges_ms, sample_out
         preferred = (preferred_voice_id or "").strip()
         if preferred and not force_clone:
-            return preferred
-        return f"mock-voice-{name[-16:]}"
+            return preferred, False
+        return f"mock-voice-{name[-16:]}", False
 
     async def build_duck_bed(
         self,

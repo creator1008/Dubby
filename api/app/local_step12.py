@@ -1712,6 +1712,18 @@ def _pick_reusable_dubby_voice(
         voice_id = str(voice.get("voice_id") or "").strip()
         if voice_id and _is_dubby_temp_voice(voice):
             return voice_id
+    configured = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
+    if configured:
+        return configured
+    for voice in voices:
+        category = str(voice.get("category") or "").lower()
+        voice_id = str(voice.get("voice_id") or "").strip()
+        if voice_id and category not in {"premade", "professional", "famous"}:
+            return voice_id
+    for voice in voices:
+        voice_id = str(voice.get("voice_id") or "").strip()
+        if voice_id:
+            return voice_id
     return None
 
 
