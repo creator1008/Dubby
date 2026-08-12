@@ -39,6 +39,7 @@ from .engine import create_engine
 from .diarization import (
     SpeakerTurn,
     assign_speakers,
+    collapse_minor_speakers,
     create_diarization_provider,
     normalize_speaker_ids,
 )
@@ -684,7 +685,11 @@ async def run_transcribe(ctx: JobContext) -> None:
             refined: list[tuple[str | None, bool]] = []
             for chunk, (spk, overlap) in zip(chunks, timed):
                 refined.append((spk or chunk.speaker_id or "speaker_1", overlap))
-            speaker_assignments = refined
+            # Drop tiny spurious labels (e.g. 1–2 micro turns as speaker_2).
+            speaker_assignments = collapse_minor_speakers(
+                refined,
+                [(c.start_ms, c.end_ms) for c in chunks],
+            )
         if any(overlap for _, overlap in speaker_assignments):
             quality_warnings.append("overlapping_speakers_majority_voice")
 
@@ -811,28 +816,38 @@ async def run_dub(ctx: JobContext) -> None:
                 "no source-language segments to dub (others kept as original audio)",
             )
 
-        # Demucs for IVC samples / loudness; mix bed = original with ducking.
+        # Demucs stems: IVC samples / loudness + selective voice removal for mix bed.
+        # Soft volume ducking left original speech audible under the dub (phuc).
         await ctx.report(0.15, "stem_split")
         stems_dir = scratch / "stems"
         stems_dir.mkdir()
-        vocals, _no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
+        vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
 
-        duck_bounds = [
+        segment_bounds = [
             (int(segment["start_ms"]), int(segment["end_ms"]))
             for segment in speakable
             if int(segment["end_ms"]) > int(segment["start_ms"])
         ]
-        if not duck_bounds:
+        if not segment_bounds:
             raise PipelineError(
                 errors.NO_SEGMENTS,
                 "no valid timing ranges for dubbed speech",
             )
-        selective_bed = scratch / "original_ducked.wav"
-        await engine.build_duck_bed(str(full_wav), duck_bounds, str(selective_bed))
+        saved_ranges = await _load_speech_ranges(
+            ctx, str(project["source_key"]), scratch
+        )
+        removal_ranges = voice_removal_ranges(saved_ranges, segment_bounds)
+        selective_bed = scratch / "speech_removed_bed.wav"
+        await engine.remove_recognized_speech(
+            str(full_wav),
+            no_vocals,
+            removal_ranges,
+            str(selective_bed),
+        )
         speakable_indices = {int(segment["idx"]) for segment in speakable}
         source_levels = await source_loudness_levels_async(
             speakable,
-            duck_bounds,
+            segment_bounds,
             speakable_indices,
             lambda start_ms, end_ms: engine.measure_segment_loudness(
                 vocals, start_ms, end_ms

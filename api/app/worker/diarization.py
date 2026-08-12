@@ -181,6 +181,78 @@ def assign_speakers(
     return assigned
 
 
+def collapse_minor_speakers(
+    assignments: list[tuple[str | None, bool]],
+    segments: list[tuple[int, int]],
+    *,
+    min_total_ms: int = 3000,
+    min_share: float = 0.08,
+) -> list[tuple[str | None, bool]]:
+    """Fold tiny / spurious diarization labels into neighboring major speakers.
+
+    OpenAI diarize often invents a third label for 1–2 short fragments. Those
+    steal a Voice Box slot and scramble 화자 1/2 mapping.
+    """
+    if not assignments or not segments or len(assignments) != len(segments):
+        return assignments
+
+    totals: dict[str, int] = {}
+    for (sid, _), (start, end) in zip(assignments, segments):
+        if not sid:
+            continue
+        totals[sid] = totals.get(sid, 0) + max(0, int(end) - int(start))
+    if not totals:
+        return assignments
+
+    grand = max(1, sum(totals.values()))
+    majors = {
+        sid
+        for sid, dur in totals.items()
+        if dur >= min_total_ms and (dur / grand) >= min_share
+    }
+    if not majors:
+        majors = {max(totals.items(), key=lambda item: item[1])[0]}
+    if len(majors) >= len(totals):
+        return _renumber_speaker_assignments(assignments)
+
+    primary = max(majors, key=lambda sid: totals.get(sid, 0))
+
+    def nearest_major(index: int) -> str:
+        for j in range(index - 1, -1, -1):
+            sid = assignments[j][0]
+            if sid in majors:
+                return sid
+        for j in range(index + 1, len(assignments)):
+            sid = assignments[j][0]
+            if sid in majors:
+                return sid
+        return primary
+
+    collapsed: list[tuple[str | None, bool]] = []
+    for index, (sid, overlap) in enumerate(assignments):
+        if sid is None or sid in majors:
+            collapsed.append((sid, overlap))
+        else:
+            collapsed.append((nearest_major(index), False))
+    return _renumber_speaker_assignments(collapsed)
+
+
+def _renumber_speaker_assignments(
+    assignments: list[tuple[str | None, bool]],
+) -> list[tuple[str | None, bool]]:
+    """Re-label to speaker_1..N in first-appearance order (Voice Box slot order)."""
+    mapping: dict[str, str] = {}
+    out: list[tuple[str | None, bool]] = []
+    for sid, overlap in assignments:
+        if not sid:
+            out.append((None, overlap))
+            continue
+        if sid not in mapping:
+            mapping[sid] = f"speaker_{len(mapping) + 1}"
+        out.append((mapping[sid], overlap))
+    return out
+
+
 def split_speaker_turns(
     turns: list[SpeakerTurn],
     max_duration_ms: int = 6000,
