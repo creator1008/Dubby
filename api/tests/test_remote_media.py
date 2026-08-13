@@ -12,8 +12,11 @@ from app.remote_media import (
     assert_safe_direct_media_url,
     classify_media_url,
     is_ytdlp_platform_host,
+    normalize_remote_media_url,
     _is_cookie_auth_error,
+    _is_facebook_share_url,
     _strip_ansi,
+    _ytdlp_attempt_cookie_opts,
     _ytdlp_cookie_option_sets,
 )
 
@@ -25,6 +28,7 @@ from app.remote_media import (
         ("https://youtu.be/dQw4w9WgXcQ", "ytdlp"),
         ("https://m.youtube.com/watch?v=abc", "ytdlp"),
         ("https://www.facebook.com/watch/?v=123", "ytdlp"),
+        ("https://www.facebook.com/share/r/1JhDTfb53T/?_fb_noscript=1", "ytdlp"),
         ("https://fb.watch/abc123/", "ytdlp"),
         ("https://www.tiktok.com/@user/video/123", "ytdlp"),
         ("https://vm.tiktok.com/ZMabcdef/", "ytdlp"),
@@ -124,3 +128,25 @@ def test_ytdlp_cookie_option_sets_includes_explicit_browser(
     monkeypatch.delenv("YTDLP_COOKIES_FILE", raising=False)
     options = _ytdlp_cookie_option_sets()
     assert options == [{"cookiesfrombrowser": ("chrome", None, None, None)}]
+
+
+def test_normalize_strips_facebook_noscript() -> None:
+    cleaned = normalize_remote_media_url(
+        "https://www.facebook.com/share/r/1JhDTfb53T/?_fb_noscript=1&mibextid=abc"
+    )
+    assert cleaned == "https://www.facebook.com/share/r/1JhDTfb53T/"
+    assert _is_facebook_share_url(cleaned)
+
+
+def test_facebook_cookie_attempts_prefer_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("YTDLP_COOKIES_AUTO_BROWSER", "0")
+    monkeypatch.setenv("YTDLP_COOKIES_FROM_BROWSER", "edge")
+    monkeypatch.delenv("YTDLP_COOKIES_FILE", raising=False)
+    attempts = _ytdlp_attempt_cookie_opts(
+        "https://www.facebook.com/share/r/1JhDTfb53T/"
+    )
+    assert attempts[0] == {"cookiesfrombrowser": ("edge", None, None, None)}
+    assert attempts[-1] == {}

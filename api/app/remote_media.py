@@ -16,7 +16,7 @@ import socket
 import subprocess
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 
@@ -38,6 +38,22 @@ _COOKIE_DB_HINT_RE = re.compile(
 _TIKTOK_EXTRACT_HINT_RE = re.compile(
     r"universal data for rehydration|webpage video data|impersonat",
     re.IGNORECASE,
+)
+_FACEBOOK_SHARE_PATH_RE = re.compile(
+    r"^/share/(?:r|v|p)/[^/]+/?",
+    re.IGNORECASE,
+)
+_FACEBOOK_JUNK_QUERY = frozenset(
+    {
+        "_fb_noscript",
+        "_rdr",
+        "rdid",
+        "share_url",
+        "mibextid",
+        "refsrc",
+        "ref",
+        "aref",
+    }
 )
 
 # HTML5 <video> in Chromium/Firefox reliably decodes these; TikTok often
@@ -91,6 +107,55 @@ def is_ytdlp_platform_host(host: str) -> bool:
     return any(_host_matches_suffix(host, suffix) for suffix in _YTDLP_HOST_SUFFIXES)
 
 
+def _is_facebook_host(host: str) -> bool:
+    host = host.strip().lower().rstrip(".")
+    return any(
+        _host_matches_suffix(host, suffix)
+        for suffix in ("facebook.com", "fb.watch", "fb.com")
+    )
+
+
+def _is_facebook_share_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").strip().lower()
+    if not _is_facebook_host(host):
+        return False
+    return bool(_FACEBOOK_SHARE_PATH_RE.match(parsed.path or ""))
+
+
+def normalize_remote_media_url(url: str) -> str:
+    """Clean tracker/noscript query junk that breaks Facebook share extraction."""
+    raw = (url or "").strip()
+    if not raw:
+        return raw
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        return raw
+    host = (parsed.hostname or "").strip().lower()
+    if not _is_facebook_host(host):
+        return raw
+
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() not in _FACEBOOK_JUNK_QUERY
+    ]
+    path = parsed.path or "/"
+    # Keep a trailing slash on /share/r/<id> so generic+cookie extractors behave.
+    if _FACEBOOK_SHARE_PATH_RE.match(path) and not path.endswith("/"):
+        path = path + "/"
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            "",
+            urlencode(query),
+            "",
+        )
+    )
+
+
 def _path_has_direct_media_extension(path: str) -> bool:
     lower = path.lower()
     # Strip simple query-like suffixes already removed by urlparse.path
@@ -102,7 +167,7 @@ def _path_has_direct_media_extension(path: str) -> bool:
 
 def classify_media_url(url: str) -> MediaUrlKind:
     """Classify a user-pasted URL as direct media, yt-dlp platform, or unsupported."""
-    raw = (url or "").strip()
+    raw = normalize_remote_media_url((url or "").strip())
     if not raw:
         return "unsupported"
     parsed = urlparse(raw)
@@ -459,12 +524,16 @@ def _ytdlp_attempt_cookie_opts(url: str) -> list[dict]:
     *without* stale cookies first — outdated cookie jars often break
     ``universal data for rehydration``. Fall back to browser/file cookies
     when the anonymous fetch hits an age/login wall.
+
+    Facebook ``/share/r/`` links usually need a logged-in session; try cookies
+    before the anonymous noscript dead-end.
     """
     cookie_sets = _ytdlp_cookie_option_sets()
     host = _hostname(url)
     is_tiktok = bool(host) and (
         host == "tiktok.com" or host.endswith(".tiktok.com")
     )
+    is_facebook = bool(host) and _is_facebook_host(host)
     attempts: list[dict] = [{}]
     for opts in cookie_sets:
         if opts not in attempts:
@@ -472,6 +541,14 @@ def _ytdlp_attempt_cookie_opts(url: str) -> list[dict]:
     if is_tiktok:
         # Prefer anonymous+impersonate, then each cookie source.
         return attempts
+    if is_facebook:
+        ordered: list[dict] = []
+        for opts in cookie_sets:
+            if opts not in ordered:
+                ordered.append(opts)
+        if {} not in ordered:
+            ordered.append({})
+        return ordered or attempts
     return attempts
 
 
@@ -494,20 +571,20 @@ def _open_ytdlp(yt_dlp_mod, opts: dict):
         return yt_dlp_mod.YoutubeDL(fallback)
 
 
-def _raise_ytdlp_error(exc: BaseException) -> None:
+def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
     message = _strip_ansi(str(exc).strip() or exc.__class__.__name__)
     lower = message.lower()
     if _COOKIE_DB_HINT_RE.search(message):
         raise RemoteMediaError(
             "브라우저 쿠키 DB를 읽지 못했습니다. Chrome/Edge를 모두 종료한 뒤 "
-            "다시 시도하거나, TikTok에 로그인한 상태로 해당 영상을 연 다음 "
+            "다시 시도하거나, Facebook/TikTok에 로그인한 상태로 해당 영상을 연 다음 "
             "cookies.txt를 내보내 api/.env에 YTDLP_COOKIES_FILE=경로 를 "
             "설정해 주세요."
         ) from exc
     if _is_cookie_auth_error(message):
         raise RemoteMediaError(
             "이 영상은 로그인·연령/민감 콘텐츠 제한으로 쿠키가 필요합니다. "
-            "TikTok에 로그인한 브라우저에서 영상을 연 뒤, "
+            "로그인한 브라우저에서 영상을 연 뒤, "
             "api/.env에 YTDLP_COOKIES_FROM_BROWSER=edge "
             "(또는 chrome)을 설정하고 브라우저를 종료한 상태에서 "
             "서버를 재시작해 주세요. 더 안정적으로는 cookies.txt를 내보내 "
@@ -519,6 +596,15 @@ def _raise_ytdlp_error(exc: BaseException) -> None:
             "`pip install -U yt-dlp curl_cffi` 후 서버를 재시작하고, "
             "TikTok 로그인 상태로 해당 영상을 브라우저에서 연 다음 "
             "cookies.txt를 YTDLP_COOKIES_FILE로 지정해 보세요."
+        ) from exc
+    if "unsupported url" in lower and (
+        _is_facebook_share_url(url) or "facebook.com/share/" in lower
+    ):
+        raise RemoteMediaError(
+            "Facebook 공유 링크(share/r)를 열 수 없습니다. "
+            "브라우저에서 영상을 연 뒤 주소창의 reel/watch URL"
+            "(예: facebook.com/reel/숫자)을 복사해 붙여 넣거나, "
+            "Facebook 로그인 cookies.txt를 YTDLP_COOKIES_FILE로 설정해 주세요."
         ) from exc
     if "sign in" in lower or "private" in lower or "login" in lower:
         raise RemoteMediaError(
@@ -573,6 +659,7 @@ def download_with_ytdlp(
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Path:
     """Download a YouTube / Facebook / TikTok page URL via yt-dlp into ``dest_dir``."""
+    url = normalize_remote_media_url(url)
     assert_allowed_ytdlp_url(url)
     yt_dlp = _require_yt_dlp()
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -588,6 +675,7 @@ def download_with_ytdlp(
         impersonate_targets = [None]
 
     attempt_opts = _ytdlp_attempt_cookie_opts(url)
+    facebook_share = _is_facebook_share_url(url)
 
     info = None
     prepared = Path(outtmpl)
@@ -623,17 +711,20 @@ def download_with_ytdlp(
                     continue
                 if "unsupported" in lower and "impersonat" in lower:
                     continue
+                # Facebook share → `_fb_noscript` dead-end; try cookies / next UA.
+                if facebook_share and "unsupported url" in lower:
+                    continue
                 if cookie_opts and (
                     "assertionerror" in lower or message in {"", "AssertionError"}
                 ):
                     continue
-                _raise_ytdlp_error(exc)
+                _raise_ytdlp_error(exc, url=url)
         if last_error is None and info is not None:
             break
 
     if last_error is not None or info is None:
         if last_error is not None:
-            _raise_ytdlp_error(last_error)
+            _raise_ytdlp_error(last_error, url=url)
         raise RemoteMediaError("영상을 찾을 수 없습니다.")
 
     candidates = [
