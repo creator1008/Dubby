@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api } from "@/lib/api";
-import { saveBlobDownload } from "@/lib/demo-api";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { downloadProjectOutput } from "@/lib/mobile";
 import { preferStableMediaUrl } from "@/lib/media-url";
 import type { Project, Segment } from "@/lib/ui-types";
 
@@ -119,8 +119,14 @@ export function AdminDubDetailModal({ open, project, onClose }: Props) {
     setDownloading(true);
     setError(null);
     try {
-      const blob = await api.projects.downloadFile(project.id);
-      await saveBlobDownload(blob, `${project.title}-dubbed.mp4`);
+      await downloadProjectOutput({
+        filename: `${project.title}-dubbed.mp4`,
+        getSignedUrl: async () => {
+          const { url } = await api.projects.download(project.id);
+          return url;
+        },
+        getBlob: () => api.projects.downloadFile(project.id),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : text.downloadFinal);
     } finally {

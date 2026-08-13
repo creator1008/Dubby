@@ -62,7 +62,11 @@ export async function saveBlobDownload(blob: Blob, filename: string): Promise<vo
       types?: Array<{ description?: string; accept: Record<string, string[]> }>;
     }) => Promise<FileSystemFileHandle>;
   };
-  if (typeof win.showSaveFilePicker === "function") {
+  const likelyMobile =
+    typeof navigator !== "undefined" &&
+    (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 1 && window.innerWidth < 900));
+  if (!likelyMobile && typeof win.showSaveFilePicker === "function") {
     try {
       const handle = await win.showSaveFilePicker({
         suggestedName: safeName,

@@ -20,6 +20,7 @@ import {
 } from "@/lib/local-step12";
 import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import { LANG_CODES, LANG_LABELS, isDubLangCode } from "@/lib/languages";
+import { downloadProjectOutput } from "@/lib/mobile";
 import type {
   Job,
   LangCode,
@@ -1154,16 +1155,17 @@ export default function NewDubPage() {
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={() =>
-                    void api.projects
-                      .downloadFile(project.id)
-                      .then((blob) =>
-                        import("@/lib/demo-api").then(({ saveBlobDownload }) =>
-                          saveBlobDownload(blob, `${project.title}-dubbed.mp4`),
-                        ),
-                      )
-                      .catch((err: Error) => setError(err.message))
-                  }
+                  onClick={() => {
+                    if (!project) return;
+                    void downloadProjectOutput({
+                      filename: `${project.title}-dubbed.mp4`,
+                      getSignedUrl: async () => {
+                        const { url } = await api.projects.download(project.id);
+                        return url;
+                      },
+                      getBlob: () => api.projects.downloadFile(project.id),
+                    }).catch((err: Error) => setError(err.message));
+                  }}
                 >
                   {text.downloadFinal}
                 </button>
