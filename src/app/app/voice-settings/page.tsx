@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileUploader } from "@/components/app/FileUploader";
 import { api } from "@/lib/api";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import type {
@@ -64,6 +65,15 @@ export default function VoiceSettingsPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playingUrl, setPlayingUrl] = useState<string | null>(null);
+
+  const [cloneNickname, setCloneNickname] = useState("");
+  const [cloneLanguage, setCloneLanguage] = useState("ko");
+  const [cloneGender, setCloneGender] = useState("female");
+  const [cloneFile, setCloneFile] = useState<File | null>(null);
+  const [cloning, setCloning] = useState(false);
+  const [activeTab, setActiveTab] = useState<"box" | "clone" | "library">(
+    "box",
+  );
 
   const labelGender = useCallback(
     (value: string) => {
@@ -260,21 +270,92 @@ export default function VoiceSettingsPage() {
     }
   };
 
+  const cloneVoice = async () => {
+    const nickname = cloneNickname.trim();
+    if (!nickname || !cloneLanguage || !cloneGender || !cloneFile) {
+      setMsg(text.voiceCloneNeedFields);
+      return;
+    }
+    setCloning(true);
+    setMsg(null);
+    try {
+      const saved = await api.voices.box.clone({
+        nickname,
+        language: cloneLanguage,
+        gender: cloneGender,
+        file: cloneFile,
+      });
+      setBox((prev) => [saved, ...prev.filter((v) => v.id !== saved.id)]);
+      setCloneNickname("");
+      setCloneFile(null);
+      setMsg(text.voiceCloneSuccess);
+      setActiveTab("box");
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : text.voiceCloneFailed);
+    } finally {
+      setCloning(false);
+    }
+  };
+
+  const cloneLanguageOptions = useMemo(() => {
+    if (filters.languages.length > 0) return filters.languages;
+    return ["ko", "en", "vi", "ja", "zh"];
+  }, [filters.languages]);
+
   return (
     <div className="app-panel voice-settings">
       <h1 className="panel-inline-title">{text.voiceSetting}</h1>
       <p className="voice-settings-lead">{text.voiceSettingDescription}</p>
       {msg && (
-        <p className="form-error" role="alert">
+        <p
+          className={
+            msg === text.voiceCloneSuccess ? "form-success" : "form-error"
+          }
+          role="status"
+        >
           {msg}
         </p>
       )}
 
+      <div className="voice-settings-tabs" role="tablist" aria-label={text.voiceSetting}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "box"}
+          className={activeTab === "box" ? "btn-primary" : "btn-ghost"}
+          onClick={() => setActiveTab("box")}
+        >
+          {text.myVoiceBox}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "clone"}
+          className={activeTab === "clone" ? "btn-primary" : "btn-ghost"}
+          onClick={() => setActiveTab("clone")}
+        >
+          {text.voiceClone}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "library"}
+          className={activeTab === "library" ? "btn-primary" : "btn-ghost"}
+          onClick={() => setActiveTab("library")}
+        >
+          {text.voiceLibrary}
+        </button>
+      </div>
+
+      {activeTab === "box" ? (
       <section
         className="voice-section voice-section-panel"
         aria-labelledby="my-voice-box-title"
+        role="tabpanel"
       >
-        <h2 id="my-voice-box-title">{text.myVoiceBox}</h2>
+        <h2 id="my-voice-box-title" className="voice-panel-title-sr">
+          {text.myVoiceBox}
+        </h2>
         {loadingBox ? (
           <p className="muted">{text.loading}</p>
         ) : box.length === 0 ? (
@@ -348,12 +429,102 @@ export default function VoiceSettingsPage() {
           </ul>
         )}
       </section>
+      ) : null}
 
+      {activeTab === "clone" ? (
+      <section
+        className="voice-section voice-section-panel"
+        aria-labelledby="voice-clone-title"
+        role="tabpanel"
+      >
+        <h2 id="voice-clone-title" className="voice-panel-title-sr">
+          {text.voiceClone}
+        </h2>
+        <p className="voice-clone-lead">{text.voiceCloneDescription}</p>
+        <div className="voice-clone-form">
+          <label className="voice-nickname-field">
+            <span className="voice-nickname-label">
+              <span>{text.voiceNickname}</span>
+              <small>{cloneNickname.length}/29</small>
+            </span>
+            <input
+              type="text"
+              maxLength={29}
+              value={cloneNickname}
+              disabled={cloning}
+              placeholder={text.voiceCloneNicknamePlaceholder}
+              onChange={(e) => setCloneNickname(e.target.value.slice(0, 29))}
+            />
+          </label>
+          <label>
+            <span>{text.voiceLanguage}</span>
+            <select
+              value={cloneLanguage}
+              disabled={cloning}
+              onChange={(e) => setCloneLanguage(e.target.value)}
+            >
+              {cloneLanguageOptions.map((code) => (
+                <option key={code} value={code}>
+                  {labelLanguage(code)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{text.voiceGender}</span>
+            <select
+              value={cloneGender}
+              disabled={cloning}
+              onChange={(e) => setCloneGender(e.target.value)}
+            >
+              {(filters.genders.length
+                ? filters.genders
+                : ["male", "female", "neutral"]
+              ).map((item) => (
+                <option key={item} value={item}>
+                  {labelGender(item)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="voice-clone-file">
+            <span className="voice-clone-file-label">
+              {text.voiceCloneFile}
+              <small>{text.voiceCloneFileHint}</small>
+            </span>
+            <FileUploader
+              file={cloneFile}
+              onFile={setCloneFile}
+              disabled={cloning}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn-primary voice-clone-submit"
+            disabled={
+              cloning ||
+              !cloneNickname.trim() ||
+              !cloneFile ||
+              !cloneLanguage ||
+              !cloneGender
+            }
+            onClick={() => void cloneVoice()}
+          >
+            {cloning ? text.voiceCloneWorking : text.voiceCloneSubmit}
+          </button>
+        </div>
+      </section>
+      ) : null}
+
+      {activeTab === "library" ? (
       <section
         className="voice-section voice-section-panel"
         aria-labelledby="voice-library-title"
+        role="tabpanel"
       >
-        <h2 id="voice-library-title">{text.voiceLibrary}</h2>
+        <h2 id="voice-library-title" className="voice-panel-title-sr">
+          {text.voiceLibrary}
+        </h2>
 
         <div className="voice-filters">
           <label>
@@ -540,6 +711,7 @@ export default function VoiceSettingsPage() {
           </div>
         )}
       </section>
+      ) : null}
     </div>
   );
 }

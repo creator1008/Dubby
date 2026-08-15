@@ -53,6 +53,8 @@ next-env.d.ts
 # Python API
 api/.venv/
 api/data/
+api/fb-cookies.txt
+api/cookies.txt
 __pycache__/
 *.pyc
 .pytest_cache/

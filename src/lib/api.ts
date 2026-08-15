@@ -347,11 +347,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
     try {
+      const isForm =
+        typeof FormData !== "undefined" && init?.body instanceof FormData;
       response = await fetch(`${apiOrigin}${path}`, {
         ...init,
         headers: {
           Authorization: `Bearer ${data.session.access_token}`,
-          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...(init?.body && !isForm ? { "Content-Type": "application/json" } : {}),
           ...tunnelExtraHeaders(apiOrigin),
           ...init?.headers,
         },
@@ -533,6 +535,22 @@ const realApi = {
           method: "POST",
           body: JSON.stringify(body),
         }),
+      clone: (body: {
+        nickname: string;
+        language: string;
+        gender: string;
+        file: File;
+      }) => {
+        const form = new FormData();
+        form.set("nickname", body.nickname);
+        form.set("language", body.language);
+        form.set("gender", body.gender);
+        form.set("file", body.file);
+        return request<UserVoice>("/v1/voices/box/clone", {
+          method: "POST",
+          body: form,
+        });
+      },
       remove: (id: string) =>
         request<void>(`/v1/voices/box/${id}`, { method: "DELETE" }),
     },

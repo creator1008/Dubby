@@ -57,6 +57,7 @@ from .timing import (
     choose_fit_policy,
     extend_end_ms,
     safe_slot_seconds,
+    speak_speed_for_slot,
     speak_speed_matching_source,
 )
 from .utterance_pipeline import (
@@ -962,9 +963,10 @@ async def run_dub(ctx: JobContext) -> None:
         )
 
         async def _fit_natural_delivery(item: dict) -> dict:
-            """Compress translation first, then extend stamp into silence.
+            """Compress translation, extend stamp, then speed up — avoid cutting.
 
-            Avoid chipmunk tempo: residual speedup stays mild.
+            Truncation is a last resort handled later by ``choose_fit_policy``
+            only when even max residual tempo cannot fit the slot.
             """
             ratio = item["clip_s"] / item["slot_s"] if item["slot_s"] > 0 else 1.0
             if ratio <= 1 + tolerance:
@@ -978,6 +980,7 @@ async def run_dub(ctx: JobContext) -> None:
                 end_ms = int(item["end_ms"])
                 next_start = item["next_start"]
                 source_text = item["source_text"]
+                speak_speed = float(item.get("speak_speed") or 1.0)
 
                 # 1) Compress translation (same meaning, fewer spoken syllables).
                 if ctx.settings.translation_timing_rewrite:
@@ -1050,6 +1053,46 @@ async def run_dub(ctx: JobContext) -> None:
                         item = {**item, "end_ms": end_ms, "slot_s": slot_s}
                         quality_warnings.append(
                             f"segment_{item['seg']['idx']}:slot_extended"
+                        )
+                        if clip_s / slot_s <= 1 + tolerance:
+                            return item
+
+                # 3) Next subtitle blocks further extend — speed up TTS instead of cutting.
+                clip_s = float(item["clip_s"])
+                slot_s = float(item["slot_s"])
+                if slot_s > 0 and clip_s / slot_s > 1 + tolerance:
+                    current_speed = float(item.get("speak_speed") or 1.0)
+                    # Estimate duration at speed=1.0, then pick EL speed to fit slot.
+                    natural_s = clip_s * max(current_speed, 0.01)
+                    faster = speak_speed_for_slot(
+                        natural_s,
+                        slot_s,
+                        min_speed=0.7,
+                        max_speed=1.2,
+                        tolerance=tolerance,
+                    )
+                    if faster >= current_speed + 0.08:
+                        speak_speed = faster
+                        await _with_retries(
+                            ctx,
+                            lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                                t,
+                                v,
+                                p,
+                                tone_style,
+                                target_lang,
+                                s,
+                            ),
+                            step="tts",
+                        )
+                        clip_s = await engine.clip_duration_seconds(str(raw))
+                        item = {
+                            **item,
+                            "clip_s": clip_s,
+                            "speak_speed": speak_speed,
+                        }
+                        quality_warnings.append(
+                            f"segment_{item['seg']['idx']}:speak_speed_fit"
                         )
                 return item
 

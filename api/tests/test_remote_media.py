@@ -18,6 +18,7 @@ from app.remote_media import (
     _strip_ansi,
     _ytdlp_attempt_cookie_opts,
     _ytdlp_cookie_option_sets,
+    _ytdlp_impersonate_targets,
 )
 
 
@@ -134,7 +135,7 @@ def test_normalize_strips_facebook_noscript() -> None:
     cleaned = normalize_remote_media_url(
         "https://www.facebook.com/share/r/1JhDTfb53T/?_fb_noscript=1&mibextid=abc"
     )
-    assert cleaned == "https://www.facebook.com/share/r/1JhDTfb53T/"
+    assert cleaned == "https://www.facebook.com/share/r/1JhDTfb53T/?mibextid=abc"
     assert _is_facebook_share_url(cleaned)
 
 
@@ -150,3 +151,11 @@ def test_facebook_cookie_attempts_prefer_browser(
     )
     assert attempts[0] == {"cookiesfrombrowser": ("edge", None, None, None)}
     assert attempts[-1] == {}
+
+
+def test_facebook_impersonate_prefers_chrome_99(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("YTDLP_IMPERSONATE", raising=False)
+    assert _ytdlp_impersonate_targets(facebook=True)[0] == "chrome-99"
+    assert _ytdlp_impersonate_targets(facebook=False)[0] == "chrome"

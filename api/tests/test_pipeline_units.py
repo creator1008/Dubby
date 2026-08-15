@@ -126,6 +126,21 @@ def test_fit_policy_warns_and_caps_to_prevent_overlap() -> None:
     assert safe_slot_seconds(0, 3000, 2500) == 2.5
 
 
+def test_fit_policy_speeds_up_instead_of_truncating_when_within_max() -> None:
+    """Moderate overflow should speed-fit fully (no truncate warning)."""
+    decision = choose_fit_policy(
+        2.8,
+        2.0,
+        min_tempo=0.85,
+        atempo_max=1.5,
+        max_speedup=1.5,
+        rubberband_available=True,
+    )
+    assert decision.backend == "rubberband"
+    assert abs(decision.tempo - 1.4) < 1e-6
+    assert decision.warning is None
+
+
 def test_fit_policy_prefers_rubberband_for_any_tempo_change() -> None:
     decision = choose_fit_policy(
         3.6,

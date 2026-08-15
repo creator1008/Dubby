@@ -18,9 +18,13 @@ export function preferStableMediaUrl(
 
 const QUALITY_WARNING_KO: Record<string, string> = {
   speech_truncated_to_prevent_overlap:
-    "다음 자막과 겹치지 않도록 음성을 슬롯 길이에 맞게 잘랐습니다.",
+    "속도 보정 한도를 넘어서 음성을 슬롯에 맞게 잘랐습니다.",
   speech_not_extended_beyond_quality_limit:
     "음성이 짧아도 품질 한도 이하로 느리게 늘리지 않았습니다.",
+  slot_extended:
+    "다음 자막 전 여유 구간에 맞춰 자막 끝 시각을 늘렸습니다.",
+  speak_speed_fit:
+    "다음 자막과 겹치지 않도록 음성 속도를 높여 맞췄습니다.",
   rubberband_unavailable:
     "피치 유지 타임스트레치(rubberband)를 쓸 수 없어 atempo로 맞췄습니다.",
   invalid_duration: "구간 길이가 올바르지 않아 타이밍을 기본값으로 처리했습니다.",
@@ -38,9 +42,13 @@ const QUALITY_WARNING_KO: Record<string, string> = {
 
 const QUALITY_WARNING_EN: Record<string, string> = {
   speech_truncated_to_prevent_overlap:
-    "Speech was truncated to fit the slot and avoid overlap with the next subtitle.",
+    "Speech was truncated after hitting the speed-fit limit.",
   speech_not_extended_beyond_quality_limit:
     "Speech was shorter than the slot, but was not slowed below the quality tempo limit.",
+  slot_extended:
+    "Extended the subtitle end into trailing silence before the next line.",
+  speak_speed_fit:
+    "Increased speaking speed so the line fits without overlapping the next subtitle.",
   rubberband_unavailable:
     "Pitch-preserving rubberband was unavailable; used atempo instead.",
   invalid_duration: "Invalid segment duration; used default timing.",
@@ -58,9 +66,13 @@ const QUALITY_WARNING_EN: Record<string, string> = {
 
 const QUALITY_WARNING_VI: Record<string, string> = {
   speech_truncated_to_prevent_overlap:
-    "Đã cắt giọng nói để vừa khung thời gian và tránh chồng với phụ đề tiếp theo.",
+    "Đã cắt giọng nói sau khi đạt giới hạn tăng tốc.",
   speech_not_extended_beyond_quality_limit:
     "Giọng nói ngắn hơn khung, nhưng không làm chậm quá giới hạn chất lượng.",
+  slot_extended:
+    "Đã kéo dài thời điểm kết thúc phụ đề vào khoảng lặng trước dòng tiếp theo.",
+  speak_speed_fit:
+    "Đã tăng tốc độ nói để vừa khung và tránh chồng với phụ đề tiếp theo.",
   rubberband_unavailable:
     "Không dùng được rubberband giữ cao độ; đã dùng atempo.",
   invalid_duration: "Độ dài đoạn không hợp lệ; dùng thời gian mặc định.",

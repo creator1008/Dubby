@@ -1222,6 +1222,12 @@ def _translate(
     src_name = LANGUAGE_NAMES.get(source_language, source_language)
     tgt_name = LANGUAGE_NAMES.get(target_language, target_language)
     results: list[str] = [""] * len(drafts)
+    from .worker.locale_rules import (
+        apply_translation_postprocess,
+        translation_pair_rules,
+    )
+
+    pair_rules = translation_pair_rules(source_language, target_language)
 
     for batch_start in range(0, len(drafts), batch_size):
         batch = drafts[batch_start : batch_start + batch_size]
@@ -1278,6 +1284,7 @@ def _translate(
                         "never finish a previous segment inside the next idx, "
                         "and never omit or reorder. Return JSON: "
                         '{"translations":[{"idx":0,"text":"..."}]}.'
+                        + (f"\n\n{pair_rules}" if pair_rules else "")
                     ),
                 },
                 {
@@ -1338,8 +1345,16 @@ def _translate(
                 if not content and message.get("refusal"):
                     raise ValueError(f"model refused: {message['refusal']}")
                 parsed = _parse_translation_payload(content, active_expected)
+                source_by_idx = {
+                    batch_start + offset: text for offset, _s, _e, text in active
+                }
                 for idx in active_expected:
-                    results[idx] = parsed.get(idx, "")
+                    results[idx] = apply_translation_postprocess(
+                        source_by_idx.get(idx, ""),
+                        parsed.get(idx, ""),
+                        source_language,
+                        target_language,
+                    )
                 last_error = None
                 parsed_ok = True
                 break
@@ -2411,7 +2426,7 @@ def _fit_dub_clip(
         raise RuntimeError(f"유효하지 않은 더빙 구간입니다: {source.name}")
     # Fit speech inside its non-overlapping timestamp slot. Prefer pitch-
     # preserving rubberband; fall back to atempo only when unavailable.
-    max_speedup = float(os.getenv("TTS_MAX_SPEEDUP", "1.99"))
+    max_speedup = float(os.getenv("TTS_MAX_SPEEDUP", "1.5"))
     min_tempo = float(os.getenv("TTS_MIN_TEMPO", "0.85"))
     requested = duration / slot_seconds
     tempo = min(max(requested, min_tempo), max_speedup)

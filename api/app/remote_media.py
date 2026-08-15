@@ -49,7 +49,7 @@ _FACEBOOK_JUNK_QUERY = frozenset(
         "_rdr",
         "rdid",
         "share_url",
-        "mibextid",
+        # Keep mibextid — some FB mobile redirects break when it is stripped.
         "refsrc",
         "ref",
         "aref",
@@ -485,6 +485,16 @@ def _ytdlp_cookie_option_sets() -> list[dict]:
     """
     options: list[dict] = []
     cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+    app_env = os.getenv("APP_ENV", "local").strip().lower() or "local"
+    if not cookies_file and app_env == "local":
+        # Local convenience: Playwright export (scripts/export_facebook_cookies.py).
+        for candidate in (
+            Path(__file__).resolve().parent.parent / "fb-cookies.txt",
+            Path(__file__).resolve().parent.parent / "cookies.txt",
+        ):
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                cookies_file = str(candidate)
+                break
     from_browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
     if cookies_file:
         options.append({"cookiefile": cookies_file})
@@ -496,7 +506,6 @@ def _ytdlp_cookie_option_sets() -> list[dict]:
             # yt-dlp: (name, profile, keyring, container)
             options.append({"cookiesfrombrowser": (browser, profile, None, None)})
 
-    app_env = os.getenv("APP_ENV", "local").strip().lower() or "local"
     auto_browser = os.getenv("YTDLP_COOKIES_AUTO_BROWSER", "1").strip().lower() in {
         "1",
         "true",
@@ -552,11 +561,17 @@ def _ytdlp_attempt_cookie_opts(url: str) -> list[dict]:
     return attempts
 
 
-def _ytdlp_impersonate_targets() -> list[str]:
-    """Browser targets to try when curl_cffi is available."""
+def _ytdlp_impersonate_targets(*, facebook: bool = False) -> list[str]:
+    """Browser targets to try when curl_cffi is available.
+
+    Facebook often needs ``chrome-99`` with logged-in cookies (Tahoe API
+    fingerprinting); try that first for FB hosts.
+    """
     configured = os.getenv("YTDLP_IMPERSONATE", "").strip()
     if configured:
         return [configured]
+    if facebook:
+        return ["chrome-99", "chrome", "chrome-110", "safari"]
     return ["chrome", "chrome-110", "safari"]
 
 
@@ -601,10 +616,12 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
         _is_facebook_share_url(url) or "facebook.com/share/" in lower
     ):
         raise RemoteMediaError(
-            "Facebook 공유 링크(share/r)를 열 수 없습니다. "
-            "브라우저에서 영상을 연 뒤 주소창의 reel/watch URL"
-            "(예: facebook.com/reel/숫자)을 복사해 붙여 넣거나, "
-            "Facebook 로그인 cookies.txt를 YTDLP_COOKIES_FILE로 설정해 주세요."
+            "Facebook 공유 링크(share/r)는 로그인 없이는 reel/watch로 "
+            "풀리지 않습니다. 브라우저에서 영상을 연 뒤 주소창의 "
+            "facebook.com/reel/숫자 또는 watch URL을 붙여 넣으세요. "
+            "또는 scripts/export_facebook_cookies.py 로 로그인 쿠키를 내보낸 뒤 "
+            "api/.env에 YTDLP_COOKIES_FILE=경로 를 넣고 API를 재시작하세요 "
+            "(Windows에서 Edge/Chrome 쿠키 자동 읽기는 자주 실패합니다)."
         ) from exc
     if "sign in" in lower or "private" in lower or "login" in lower:
         raise RemoteMediaError(
@@ -646,7 +663,7 @@ def _base_ytdlp_opts(outtmpl: str, max_bytes: int, *, impersonate: str | None = 
         try:
             import curl_cffi  # noqa: F401
 
-            opts["impersonate"] = _ytdlp_impersonate_targets()[0]
+            opts["impersonate"] = _ytdlp_impersonate_targets()[0]  # generic default
         except ImportError:
             pass
     return opts
@@ -667,19 +684,24 @@ def download_with_ytdlp(
 
     # Prefer browser-safe H.264 progressive MP4 (TikTok's best quality is often
     # HEVC, which many browsers play as audio-only).
+    host = _hostname(url)
+    facebook_host = bool(host) and _is_facebook_host(host)
+    facebook_share = _is_facebook_share_url(url)
     try:
         import curl_cffi  # noqa: F401
 
-        impersonate_targets: list[str | None] = list(_ytdlp_impersonate_targets())
+        impersonate_targets: list[str | None] = list(
+            _ytdlp_impersonate_targets(facebook=facebook_host)
+        )
     except ImportError:
         impersonate_targets = [None]
 
     attempt_opts = _ytdlp_attempt_cookie_opts(url)
-    facebook_share = _is_facebook_share_url(url)
 
     info = None
     prepared = Path(outtmpl)
     last_error: BaseException | None = None
+    cookie_db_failures = 0
     for impersonate in impersonate_targets:
         base_opts = _base_ytdlp_opts(outtmpl, max_bytes, impersonate=impersonate)
         for cookie_opts in attempt_opts:
@@ -702,6 +724,7 @@ def download_with_ytdlp(
                 lower = message.lower()
                 # Cookie/profile locked or missing browser → try next option.
                 if cookie_opts and _COOKIE_DB_HINT_RE.search(message):
+                    cookie_db_failures += 1
                     continue
                 if _is_cookie_auth_error(message):
                     # Public fetch failed or cookies insufficient — try next source.
@@ -714,6 +737,9 @@ def download_with_ytdlp(
                 # Facebook share → `_fb_noscript` dead-end; try cookies / next UA.
                 if facebook_share and "unsupported url" in lower:
                     continue
+                # Facebook "Cannot parse data" often needs chrome-99 + cookies.
+                if facebook_host and "cannot parse data" in lower:
+                    continue
                 if cookie_opts and (
                     "assertionerror" in lower or message in {"", "AssertionError"}
                 ):
@@ -723,6 +749,20 @@ def download_with_ytdlp(
             break
 
     if last_error is not None or info is None:
+        if (
+            last_error is not None
+            and facebook_share
+            and cookie_db_failures > 0
+            and "unsupported url" in _strip_ansi(str(last_error)).lower()
+        ):
+            raise RemoteMediaError(
+                "Facebook 공유 링크를 열 수 없고, 이 PC의 브라우저 쿠키도 "
+                "읽지 못했습니다(Edge/Chrome DPAPI·잠금). "
+                "가장 빠른 방법: 브라우저에서 영상을 연 뒤 주소창의 "
+                "facebook.com/reel/숫자 URL을 붙여 넣으세요. "
+                "또는 scripts/export_facebook_cookies.py 로 쿠키를 만든 뒤 "
+                "api/.env에 YTDLP_COOKIES_FILE=경로 를 설정하고 API를 재시작하세요."
+            ) from last_error
         if last_error is not None:
             _raise_ytdlp_error(last_error, url=url)
         raise RemoteMediaError("영상을 찾을 수 없습니다.")

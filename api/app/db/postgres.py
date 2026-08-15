@@ -777,27 +777,52 @@ class PostgresRepository(Repository):
 
     async def add_user_voice(self, owner_id: UUID, fields: dict[str, Any]) -> Row:
         try:
-            row = await self.pool.fetchrow(
-                "INSERT INTO public.user_voices ("
-                "owner_id, nickname, elevenlabs_voice_id, shared_voice_id, "
-                "public_owner_id, name, description, gender, accent, category, "
-                "language, age, preview_url"
-                ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) "
-                f"RETURNING {self._USER_VOICE_COLUMNS}",
-                owner_id,
-                fields["nickname"],
-                fields["elevenlabs_voice_id"],
-                fields["shared_voice_id"],
-                fields.get("public_owner_id") or "",
-                fields.get("name") or "",
-                fields.get("description") or "",
-                fields.get("gender") or "",
-                fields.get("accent") or "",
-                fields.get("category") or "",
-                fields.get("language") or "",
-                fields.get("age") or "",
-                fields.get("preview_url"),
-            )
+            voice_id = fields.get("id")
+            if voice_id is not None:
+                row = await self.pool.fetchrow(
+                    "INSERT INTO public.user_voices ("
+                    "id, owner_id, nickname, elevenlabs_voice_id, shared_voice_id, "
+                    "public_owner_id, name, description, gender, accent, category, "
+                    "language, age, preview_url"
+                    ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) "
+                    f"RETURNING {self._USER_VOICE_COLUMNS}",
+                    voice_id,
+                    owner_id,
+                    fields["nickname"],
+                    fields["elevenlabs_voice_id"],
+                    fields["shared_voice_id"],
+                    fields.get("public_owner_id") or "",
+                    fields.get("name") or "",
+                    fields.get("description") or "",
+                    fields.get("gender") or "",
+                    fields.get("accent") or "",
+                    fields.get("category") or "",
+                    fields.get("language") or "",
+                    fields.get("age") or "",
+                    fields.get("preview_url"),
+                )
+            else:
+                row = await self.pool.fetchrow(
+                    "INSERT INTO public.user_voices ("
+                    "owner_id, nickname, elevenlabs_voice_id, shared_voice_id, "
+                    "public_owner_id, name, description, gender, accent, category, "
+                    "language, age, preview_url"
+                    ") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) "
+                    f"RETURNING {self._USER_VOICE_COLUMNS}",
+                    owner_id,
+                    fields["nickname"],
+                    fields["elevenlabs_voice_id"],
+                    fields["shared_voice_id"],
+                    fields.get("public_owner_id") or "",
+                    fields.get("name") or "",
+                    fields.get("description") or "",
+                    fields.get("gender") or "",
+                    fields.get("accent") or "",
+                    fields.get("category") or "",
+                    fields.get("language") or "",
+                    fields.get("age") or "",
+                    fields.get("preview_url"),
+                )
         except asyncpg.UniqueViolationError as exc:
             raise DuplicateVoiceError("voice already saved or nickname taken") from exc
         return dict(row)

@@ -127,7 +127,14 @@ class ElevenLabsClient:
                 return voice_id
         return None
 
-    async def create_voice(self, sample_path: str, name: str) -> tuple[str, bool]:
+    async def create_voice(
+        self,
+        sample_path: str,
+        name: str,
+        *,
+        description: str = "dubby:temp per-project instant voice clone",
+        allow_limit_fallback: bool = True,
+    ) -> tuple[str, bool]:
         """Instant Voice Clone from a single reference sample.
 
         Returns ``(voice_id, used_monthly_limit_fallback)``.
@@ -136,7 +143,7 @@ class ElevenLabsClient:
         files = {"files": (sample.name, sample.read_bytes(), "audio/mpeg")}
         data = {
             "name": name[:100],
-            "description": "dubby:temp per-project instant voice clone",
+            "description": (description or "")[:500],
         }
 
         async def _add() -> httpx.Response:
@@ -155,6 +162,11 @@ class ElevenLabsClient:
                 ) from exc
 
         async def _limit_fallback() -> tuple[str, bool]:
+            if not allow_limit_fallback:
+                raise PipelineError(
+                    errors.VOICE_CLONE_FAILED,
+                    "ElevenLabs monthly voice add/edit limit reached",
+                )
             reused = await self._fallback_voice_on_add_limit()
             if reused:
                 logger.warning(
@@ -188,6 +200,8 @@ class ElevenLabsClient:
                 or "voice add/edit operations" in resp.text
             ):
                 return await _limit_fallback()
+            if not allow_limit_fallback:
+                _raise_for_status(resp, errors.VOICE_CLONE_FAILED)
             reused = await self._fallback_voice_on_add_limit()
             if resp.status_code >= 400 and reused:
                 logger.warning(

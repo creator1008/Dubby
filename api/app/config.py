@@ -137,9 +137,9 @@ class Settings(BaseSettings):
     voice_changer_after_tts: bool = False
     # Tempo policy. Rubber Band is preferred outside atempo's high-quality range.
     # Keep residual tempo mild; prefer compress + slot extension first.
-    tts_max_speedup: float = Field(default=1.25, ge=1.0, le=4.0)
+    tts_max_speedup: float = Field(default=1.5, ge=1.0, le=4.0)
     tts_min_tempo: float = Field(default=0.85, ge=0.5, le=1.0)
-    tts_atempo_max: float = Field(default=1.25, ge=1.0, le=2.0)
+    tts_atempo_max: float = Field(default=1.5, ge=1.0, le=2.0)
     rubberband_path: str = ""
 
     # --- Speaker diarization -------------------------------------------------

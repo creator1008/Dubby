@@ -121,6 +121,8 @@ def build_translation_messages(
     *,
     document_context: str | None = None,
 ) -> list[dict]:
+    from .locale_rules import translation_pair_rules
+
     src = LANGUAGE_NAMES.get(source_lang, source_lang)
     tgt = LANGUAGE_NAMES.get(target_lang, target_lang)
     system = (
@@ -134,6 +136,9 @@ def build_translation_messages(
         "names, tense, and register stay consistent across segments — but still "
         "translate each idx independently without borrowing words from neighbors."
     )
+    extra = translation_pair_rules(source_lang, target_lang)
+    if extra:
+        system = f"{system}\n\n{extra}"
     payload: dict[str, object] = {
         "segments": [
             {"idx": idx, "text": text, "target_seconds": round(seconds, 2)}
@@ -191,6 +196,8 @@ class OpenAIClient:
         self._headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
 
     async def transcribe(self, audio_path: str, language: str) -> TranscribeResult:
+        from .locale_rules import whisper_vocab_prompt
+
         data = {
             "model": self._settings.whisper_model,
             "language": language,
@@ -199,6 +206,10 @@ class OpenAIClient:
             # Deterministic decoding — matches local_step12 quality path.
             "temperature": "0",
         }
+        vocab = whisper_vocab_prompt(language)
+        if vocab:
+            # Short vocabulary bias only — avoid long prose (whisper-1 may echo it).
+            data["prompt"] = vocab
         file_bytes = Path(audio_path).read_bytes()
         files = {"file": (Path(audio_path).name, file_bytes, "audio/mpeg")}
         try:
@@ -262,7 +273,19 @@ class OpenAIClient:
                 "unexpected chat completion shape",
                 retryable=True,
             ) from exc
-        return parse_translation_content(content, [idx for idx, _, _ in items])
+        parsed = parse_translation_content(content, [idx for idx, _, _ in items])
+        from .locale_rules import apply_translation_postprocess
+
+        source_by_idx = {idx: text for idx, text, _ in items}
+        return {
+            idx: apply_translation_postprocess(
+                source_by_idx.get(idx, ""),
+                text,
+                source_lang,
+                target_lang,
+            )
+            for idx, text in parsed.items()
+        }
 
     async def correct_transcript(
         self,
@@ -272,7 +295,24 @@ class OpenAIClient:
         """Context-aware ASR proofreading; returns corrected text per idx."""
         if not items:
             return {}
+        from .locale_rules import asr_proofread_rules
+
         lang = LANGUAGE_NAMES.get(language, language)
+        proofread = (
+            f"You proofread {lang} ASR (speech-to-text) subtitles for "
+            "dubbing. Fix clear recognition errors using FULL narrative "
+            "context across neighboring idxs: wrong near-homophones, "
+            "truncated words, nonsense tokens. "
+            "Remove duplicated phrases repeated across neighboring "
+            "idxs. Do not rewrite style or add new meaning. Keep each "
+            "idx as its own subtitle line. Return JSON "
+            '{"translations":[{"idx":0,"text":"..."}]} — use the same '
+            "idxs; field name is translations but values are corrected "
+            "source lines."
+        )
+        extra = asr_proofread_rules(language)
+        if extra:
+            proofread = f"{proofread}\n\n{extra}"
         body = {
             "model": self._settings.translation_model,
             "temperature": 0,
@@ -280,22 +320,7 @@ class OpenAIClient:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        f"You proofread {lang} ASR (speech-to-text) subtitles for "
-                        "dubbing. Fix clear recognition errors using FULL narrative "
-                        "context across neighboring idxs: wrong near-homophones, "
-                        "truncated words, nonsense tokens. "
-                        "Korean example: if someone survives because caretakers "
-                        "fed them, prefer 살아지더라 over 사라지더라 when Whisper "
-                        "misheard survival as disappearance — choose the reading "
-                        "that makes sense with the surrounding story. "
-                        "Remove duplicated phrases repeated across neighboring "
-                        "idxs. Do not rewrite style or add new meaning. Keep each "
-                        "idx as its own subtitle line. Return JSON "
-                        '{"translations":[{"idx":0,"text":"..."}]} — use the same '
-                        "idxs; field name is translations but values are corrected "
-                        "source lines."
-                    ),
+                    "content": proofread,
                 },
                 {
                     "role": "user",

@@ -915,6 +915,8 @@ class SupabaseRestRepository(Repository):
             "age": fields.get("age") or "",
             "preview_url": fields.get("preview_url"),
         }
+        if fields.get("id") is not None:
+            payload["id"] = str(fields["id"])
         resp = await self.client.post(
             "/user_voices",
             params={"select": self._USER_VOICE_SELECT},
