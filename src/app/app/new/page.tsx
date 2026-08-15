@@ -1132,6 +1132,33 @@ export default function NewDubPage() {
                 afterLabel={text.afterDubbed}
                 segments={segments}
                 subtitleMode={project.subtitle_mode}
+                onDownloadBefore={() => {
+                  if (!project) return;
+                  void downloadProjectOutput({
+                    filename: `${project.title}-original.mp4`,
+                    getSignedUrl: async () => {
+                      const { url } = await api.projects.sourceUrl(project.id);
+                      return url;
+                    },
+                    getBlob: async () => {
+                      const { url } = await api.projects.sourceUrl(project.id);
+                      const res = await fetch(url);
+                      if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+                      return res.blob();
+                    },
+                  }).catch((err: Error) => setError(err.message));
+                }}
+                onDownloadAfter={() => {
+                  if (!project || !outputUrl) return;
+                  void downloadProjectOutput({
+                    filename: `${project.title}-dubbed.mp4`,
+                    getSignedUrl: async () => {
+                      const { url } = await api.projects.download(project.id);
+                      return url;
+                    },
+                    getBlob: () => api.projects.downloadFile(project.id),
+                  }).catch((err: Error) => setError(err.message));
+                }}
               />
             ) : (
               <p className="muted">{text.loadingSource}</p>
@@ -1149,27 +1176,6 @@ export default function NewDubPage() {
                   ? text.afterPendingAfterEdit
                   : text.afterPending}
               </p>
-            )}
-            {outputUrl && (
-              <div className="action-row">
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={() => {
-                    if (!project) return;
-                    void downloadProjectOutput({
-                      filename: `${project.title}-dubbed.mp4`,
-                      getSignedUrl: async () => {
-                        const { url } = await api.projects.download(project.id);
-                        return url;
-                      },
-                      getBlob: () => api.projects.downloadFile(project.id),
-                    }).catch((err: Error) => setError(err.message));
-                  }}
-                >
-                  {text.downloadFinal}
-                </button>
-              </div>
             )}
           </div>
         </div>

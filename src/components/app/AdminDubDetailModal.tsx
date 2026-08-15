@@ -42,7 +42,6 @@ export function AdminDubDetailModal({ open, project, onClose }: Props) {
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (!open || !project) {
@@ -115,8 +114,29 @@ export function AdminDubDetailModal({ open, project, onClose }: Props) {
 
   if (!open || !project) return null;
 
+  const handleDownloadOriginal = async () => {
+    if (!project) return;
+    setError(null);
+    try {
+      await downloadProjectOutput({
+        filename: `${project.title}-original.mp4`,
+        getSignedUrl: async () => {
+          const { url } = await api.projects.sourceUrl(project.id);
+          return url;
+        },
+        getBlob: async () => {
+          const { url } = await api.projects.sourceUrl(project.id);
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+          return res.blob();
+        },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : text.download);
+    }
+  };
+
   const handleDownload = async () => {
-    setDownloading(true);
     setError(null);
     try {
       await downloadProjectOutput({
@@ -128,9 +148,7 @@ export function AdminDubDetailModal({ open, project, onClose }: Props) {
         getBlob: () => api.projects.downloadFile(project.id),
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : text.downloadFinal);
-    } finally {
-      setDownloading(false);
+      setError(err instanceof Error ? err.message : text.download);
     }
   };
 
@@ -183,6 +201,11 @@ export function AdminDubDetailModal({ open, project, onClose }: Props) {
               afterLabel={text.afterDubbed}
               segments={segments}
               subtitleMode={detail?.subtitle_mode ?? "target"}
+              onDownloadBefore={() => void handleDownloadOriginal()}
+              onDownloadAfter={() => {
+                if (!outputUrl) return;
+                void handleDownload();
+              }}
             />
           </div>
         )}
@@ -209,16 +232,6 @@ export function AdminDubDetailModal({ open, project, onClose }: Props) {
         )}
 
         <div className="action-row admin-dub-detail-actions">
-          {detail?.status === "completed" && (
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={downloading}
-              onClick={() => void handleDownload()}
-            >
-              {downloading ? text.loading : text.downloadFinal}
-            </button>
-          )}
           <button type="button" className="btn-secondary" onClick={onClose}>
             {text.close}
           </button>

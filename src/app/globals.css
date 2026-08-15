@@ -394,7 +394,14 @@ body {
   text-wrap: balance;
 }
 
-.pane-listen-btn {
+.pane-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+}
+
+.pane-listen-btn,
+.pane-download-btn {
   width: 100%;
   border: 0;
   border-radius: 0 0 0.9rem 0.9rem;
@@ -409,8 +416,25 @@ body {
   transition: background 0.18s ease, color 0.18s ease;
 }
 
-.pane-listen-btn:hover {
+.pane-actions .pane-listen-btn {
+  border-radius: 0 0 0 0.9rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.pane-actions .pane-download-btn {
+  border-radius: 0 0 0.9rem 0;
+  background: #164a42;
+}
+
+.pane-listen-btn:hover,
+.pane-download-btn:hover {
   background: #145c51;
+}
+
+.pane-listen-btn:disabled,
+.pane-download-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .pane-listen-btn.active {

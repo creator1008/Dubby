@@ -351,7 +351,11 @@ async def get_source_url(
     if not source_key:
         raise NotFoundError("Source not uploaded yet")
     expires_in = get_settings().download_expires_seconds
-    url = await storage.presign_get(source_key, expires_in=expires_in)
+    url = await storage.presign_get(
+        source_key,
+        expires_in=expires_in,
+        download_filename=f"{row.get('title') or 'dubby-output'}-original.mp4",
+    )
     return DownloadUrlResponse(url=url, expires_in=expires_in)
 
 

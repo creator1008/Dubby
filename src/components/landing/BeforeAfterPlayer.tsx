@@ -15,6 +15,9 @@ type Props = {
   listenBeforeLabel?: string;
   listenAfterLabel?: string;
   pauseLabel?: string;
+  downloadLabel?: string;
+  onDownloadBefore?: () => void | Promise<void>;
+  onDownloadAfter?: () => void | Promise<void>;
   segments?: Segment[];
   subtitleMode?: SubtitleMode | string;
 };
@@ -27,6 +30,9 @@ export function BeforeAfterPlayer({
   listenBeforeLabel,
   listenAfterLabel,
   pauseLabel,
+  downloadLabel,
+  onDownloadBefore,
+  onDownloadAfter,
   subtitleMode = "none",
 }: Props) {
   const text = useAppDictionary();
@@ -34,11 +40,13 @@ export function BeforeAfterPlayer({
   const afterRef = useRef<HTMLVideoElement>(null);
   const [active, setActive] = useState<ListenMode>(null);
   const [popup, setPopup] = useState<ListenMode>(null);
+  const [downloading, setDownloading] = useState<ListenMode>(null);
   const resolvedBeforeLabel = beforeLabel ?? text.original;
   const resolvedAfterLabel = afterLabel ?? text.dubbedVoice;
   const resolvedListenBefore = listenBeforeLabel ?? text.originalListen;
   const resolvedListenAfter = listenAfterLabel ?? text.dubbedListen;
   const resolvedPause = pauseLabel ?? text.pause;
+  const resolvedDownload = downloadLabel ?? text.download;
 
   useEffect(() => {
     const before = beforeRef.current;
@@ -76,6 +84,53 @@ export function BeforeAfterPlayer({
     setPopup(mode);
   };
 
+  const runDownload = async (
+    mode: "before" | "after",
+    handler?: () => void | Promise<void>,
+  ) => {
+    if (!handler || downloading) return;
+    setDownloading(mode);
+    try {
+      await handler();
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const renderActions = (
+    mode: "before" | "after",
+    listenLabel: string,
+    canListen: boolean,
+    onDownload?: () => void | Promise<void>,
+  ) => {
+    const listenBtn = (
+      <button
+        type="button"
+        className={`pane-listen-btn${active === mode ? " active" : ""}`}
+        disabled={!canListen}
+        onClick={() => playOnly(mode)}
+      >
+        {active === mode ? resolvedPause : listenLabel}
+      </button>
+    );
+
+    if (!onDownload) return listenBtn;
+
+    return (
+      <div className="pane-actions">
+        {listenBtn}
+        <button
+          type="button"
+          className="pane-download-btn"
+          disabled={mode === "after" ? !afterSrc : !beforeSrc}
+          onClick={() => void runDownload(mode, onDownload)}
+        >
+          {downloading === mode ? text.loading : resolvedDownload}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="compare-stage compare-stage-app">
       <div className="compare-grid compare-grid-spaced">
@@ -93,13 +148,7 @@ export function BeforeAfterPlayer({
               }}
             />
           </div>
-          <button
-            type="button"
-            className={`pane-listen-btn${active === "before" ? " active" : ""}`}
-            onClick={() => playOnly("before")}
-          >
-            {active === "before" ? resolvedPause : resolvedListenBefore}
-          </button>
+          {renderActions("before", resolvedListenBefore, true, onDownloadBefore)}
         </figure>
 
         <figure className="compare-pane">
@@ -122,14 +171,12 @@ export function BeforeAfterPlayer({
               </div>
             )}
           </div>
-          <button
-            type="button"
-            className={`pane-listen-btn${active === "after" ? " active" : ""}`}
-            disabled={!afterSrc}
-            onClick={() => playOnly("after")}
-          >
-            {active === "after" ? resolvedPause : resolvedListenAfter}
-          </button>
+          {renderActions(
+            "after",
+            resolvedListenAfter,
+            Boolean(afterSrc),
+            onDownloadAfter,
+          )}
         </figure>
       </div>
       {popup && createPortal(

@@ -247,6 +247,28 @@ function ProjectEditor() {
     }
   };
 
+  const downloadOriginal = async () => {
+    if (!projectId) return;
+    setError(null);
+    try {
+      await downloadProjectOutput({
+        filename: `${project?.title ?? "dubby-output"}-original.mp4`,
+        getSignedUrl: async () => {
+          const { url } = await api.projects.sourceUrl(projectId);
+          return url;
+        },
+        getBlob: async () => {
+          const { url } = await api.projects.sourceUrl(projectId);
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+          return res.blob();
+        },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "다운로드하지 못했습니다.");
+    }
+  };
+
   if (!projectId) return <p className="form-msg err">프로젝트 ID가 없습니다.</p>;
   if (!project) return <p className="muted">{error ?? text.loadingProject}</p>;
 
@@ -317,6 +339,8 @@ function ProjectEditor() {
               afterLabel={text.afterDubbed}
               segments={segments}
               subtitleMode={project.subtitle_mode}
+              onDownloadBefore={() => void downloadOriginal()}
+              onDownloadAfter={() => void download()}
             />
           ) : (
             <p className="muted">{text.noSourceVideo}</p>
@@ -363,14 +387,6 @@ function ProjectEditor() {
             </label>
           </div>
           <div className="action-row">
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={project.status !== "completed"}
-              onClick={download}
-            >
-              {text.downloadDub}
-            </button>
             <button
               className="btn-primary"
               type="button"
