@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.fn();
+const refreshSession = vi.fn();
 
 vi.mock("@/lib/supabase", () => ({
-  getSupabase: () => ({ auth: { getSession } }),
+  getSupabase: () => ({ auth: { getSession, refreshSession } }),
 }));
 
 describe("API client", () => {
@@ -11,7 +12,21 @@ describe("API client", () => {
     vi.resetModules();
     vi.stubEnv("NEXT_PUBLIC_API_ORIGIN", "https://api.example.test");
     getSession.mockResolvedValue({
-      data: { session: { access_token: "test-access-token" } },
+      data: {
+        session: {
+          access_token: "test-access-token",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+        },
+      },
+    });
+    refreshSession.mockResolvedValue({
+      data: {
+        session: {
+          access_token: "refreshed-access-token",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+        },
+      },
+      error: null,
     });
   });
 
@@ -22,12 +37,18 @@ describe("API client", () => {
   });
 
   it("adds the Supabase bearer token and parses JSON", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ balance_minutes: 12, entries: [] }), {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/healthz")) {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ balance_minutes: 12, entries: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
-    );
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     const { api } = await import("@/lib/api");
 
@@ -45,12 +66,18 @@ describe("API client", () => {
   it("surfaces backend details and status", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ detail: "Insufficient credits" }), {
+      vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).endsWith("/healthz")) {
+          return new Response(JSON.stringify({ status: "ok" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ detail: "Insufficient credits" }), {
           status: 402,
           headers: { "Content-Type": "application/json" },
-        }),
-      ),
+        });
+      }),
     );
     const { api } = await import("@/lib/api");
 

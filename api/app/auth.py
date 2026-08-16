@@ -85,7 +85,7 @@ class JwtVerifier:
         except jwt.ExpiredSignatureError as exc:
             raise UnauthorizedError("Token expired") from exc
         except (jwt.InvalidTokenError, jwt.PyJWKClientError, jwt.DecodeError) as exc:
-            logger.debug("JWT rejected: %s", exc)
+            logger.warning("JWT rejected (%s): %s", type(exc).__name__, exc)
             raise UnauthorizedError("Invalid token") from exc
 
         try:

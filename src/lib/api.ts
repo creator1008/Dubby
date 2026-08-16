@@ -90,7 +90,7 @@ async function readOriginPointer(
   timeoutMs = 4000,
 ): Promise<string | null> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       cache: "no-store",
@@ -102,7 +102,7 @@ async function readOriginPointer(
   } catch {
     return null;
   } finally {
-    window.clearTimeout(timer);
+    globalThis.clearTimeout(timer);
   }
 }
 
@@ -134,7 +134,7 @@ export async function fetchPublishedApiOrigin(): Promise<string | null> {
 
 async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${origin}/healthz`, {
       method: "GET",
@@ -152,7 +152,7 @@ async function healthOk(origin: string, timeoutMs: number): Promise<boolean> {
   } catch {
     return false;
   } finally {
-    window.clearTimeout(timer);
+    globalThis.clearTimeout(timer);
   }
 }
 
@@ -275,41 +275,40 @@ export async function pingApi(timeoutMs = 8000): Promise<void> {
     await Promise.race([
       ensureApiOrigin(timeoutMs),
       new Promise<never>((_, reject) => {
-        timer = window.setTimeout(() => {
+        timer = globalThis.setTimeout(() => {
           reject(new ApiError(apiUnreachableMessage(), 0));
         }, overall);
       }),
     ]);
   } finally {
-    if (timer !== undefined) window.clearTimeout(timer);
+    if (timer !== undefined) globalThis.clearTimeout(timer);
   }
 }
 
 async function requestBlob(path: string): Promise<Blob> {
-  const supabase = getSupabase();
-  const { data } = supabase
-    ? await supabase.auth.getSession()
-    : { data: { session: null } };
-  if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
+  let accessToken = await getAccessToken();
   const apiOrigin = await ensureApiOrigin();
 
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 10 * 60 * 1000);
+  const timer = globalThis.setTimeout(() => controller.abort(), 10 * 60 * 1000);
   try {
-    const response = await fetch(`${apiOrigin}${path}`, {
-      headers: {
-        Authorization: `Bearer ${data.session.access_token}`,
-        ...tunnelExtraHeaders(apiOrigin),
-      },
-      signal: controller.signal,
-    });
+    const doFetch = (token: string) =>
+      fetch(`${apiOrigin}${path}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...tunnelExtraHeaders(apiOrigin),
+        },
+        signal: controller.signal,
+      });
+
+    let response = await doFetch(accessToken);
+    if (response.status === 401) {
+      accessToken = await getAccessToken(true);
+      response = await doFetch(accessToken);
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      const detail =
-        typeof body?.detail === "string"
-          ? body.detail
-          : `요청 실패 (${response.status})`;
-      throw new ApiError(detail, response.status);
+      throw new ApiError(authErrorMessage(body?.detail, response.status), response.status);
     }
     return await response.blob();
   } catch (err) {
@@ -325,25 +324,68 @@ async function requestBlob(path: string): Promise<Blob> {
       0,
     );
   } finally {
-    window.clearTimeout(timer);
+    globalThis.clearTimeout(timer);
   }
 }
 
 async function sleep(ms: number) {
-  await new Promise((resolve) => window.setTimeout(resolve, ms));
+  await new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function authErrorMessage(detail: unknown, status: number): string {
+  const raw = typeof detail === "string" ? detail : "";
+  if (
+    status === 401 &&
+    (/invalid token/i.test(raw) ||
+      /token expired/i.test(raw) ||
+      /missing bearer/i.test(raw))
+  ) {
+    return "로그인이 만료되었거나 유효하지 않습니다. 다시 로그인해 주세요.";
+  }
+  return raw || `요청 실패 (${status})`;
+}
+
+/** Prefer a freshly refreshed access token before authenticated API calls. */
+async function getAccessToken(forceRefresh = false): Promise<string> {
+  const supabase = getSupabase();
+  if (!supabase) throw new ApiError("로그인이 필요합니다.", 401);
+
+  if (forceRefresh) {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error || !data.session?.access_token) {
+      throw new ApiError(
+        "로그인이 만료되었거나 유효하지 않습니다. 다시 로그인해 주세요.",
+        401,
+      );
+    }
+    return data.session.access_token;
+  }
+
+  const { data } = await supabase.auth.getSession();
+  const session = data.session;
+  if (!session?.access_token) {
+    throw new ApiError("로그인이 필요합니다.", 401);
+  }
+
+  const expiresAt = session.expires_at ?? 0;
+  const skewSeconds = 60;
+  if (expiresAt > 0 && expiresAt * 1000 <= Date.now() + skewSeconds * 1000) {
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (!error && refreshed.session?.access_token) {
+      return refreshed.session.access_token;
+    }
+  }
+  return session.access_token;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const supabase = getSupabase();
-  const { data } = supabase
-    ? await supabase.auth.getSession()
-    : { data: { session: null } };
-  if (!data.session) throw new ApiError("로그인이 필요합니다.", 401);
+  let accessToken = await getAccessToken();
   let apiOrigin = await ensureApiOrigin();
 
   const method = (init?.method || "GET").toUpperCase();
   const retries = method === "GET" || method === "HEAD" ? 4 : 3;
   let lastError: unknown;
+  let refreshedForAuth = false;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
     try {
@@ -352,7 +394,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       response = await fetch(`${apiOrigin}${path}`, {
         ...init,
         headers: {
-          Authorization: `Bearer ${data.session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           ...(init?.body && !isForm ? { "Content-Type": "application/json" } : {}),
           ...tunnelExtraHeaders(apiOrigin),
           ...init?.headers,
@@ -376,9 +418,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       }
       throw err;
     }
+    if (response.status === 401 && !refreshedForAuth) {
+      refreshedForAuth = true;
+      accessToken = await getAccessToken(true);
+      continue;
+    }
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      throw new ApiError(body?.detail ?? `요청 실패 (${response.status})`, response.status);
+      throw new ApiError(
+        authErrorMessage(body?.detail, response.status),
+        response.status,
+      );
     }
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
