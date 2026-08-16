@@ -202,7 +202,7 @@ async def clone_into_voice_box(
     gender: str = Form(...),
     file: UploadFile = File(...),
 ) -> UserVoiceOut:
-    """Instant Voice Clone from an uploaded 1–5 minute audio/video file."""
+    """Instant Voice Clone from uploaded audio/video (≤1 min full; >5 min → first 5)."""
     settings = get_settings()
     filename = (file.filename or "sample.bin").strip() or "sample.bin"
     suffix = Path(filename).suffix.lower() or ".bin"

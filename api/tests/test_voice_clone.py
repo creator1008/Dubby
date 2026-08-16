@@ -6,7 +6,9 @@ import pytest
 
 from app.errors import BadRequestError
 from app.voice_clone import (
+    CLONE_MAX_SECONDS,
     CLONE_NICKNAME_STAR,
+    clone_sample_seconds,
     is_cloned_voice_row,
     starred_nickname,
     validate_clone_duration,
@@ -22,12 +24,21 @@ def test_starred_nickname_prefixes_once() -> None:
 
 
 def test_validate_clone_duration_bounds() -> None:
+    validate_clone_duration(1.0)
+    validate_clone_duration(45.0)
     validate_clone_duration(60)
     validate_clone_duration(300)
+    validate_clone_duration(600)
     with pytest.raises(BadRequestError):
-        validate_clone_duration(59.9)
-    with pytest.raises(BadRequestError):
-        validate_clone_duration(301)
+        validate_clone_duration(0.5)
+
+
+def test_clone_sample_seconds_caps_long_clips() -> None:
+    assert clone_sample_seconds(30.0) == 30.0
+    assert clone_sample_seconds(60.0) == 60.0
+    assert clone_sample_seconds(180.0) == 180.0
+    assert clone_sample_seconds(300.0) == CLONE_MAX_SECONDS
+    assert clone_sample_seconds(601.0) == CLONE_MAX_SECONDS
 
 
 def test_is_cloned_voice_row() -> None:

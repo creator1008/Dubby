@@ -19,7 +19,9 @@ from .worker.elevenlabs_client import ElevenLabsClient
 logger = logging.getLogger("dubby.voice_clone")
 
 CLONE_NICKNAME_STAR = "★"
-CLONE_MIN_SECONDS = 60.0
+# Reject near-empty media; short clips (≤1 min) are cloned in full.
+CLONE_MIN_SECONDS = 1.0
+# Longer uploads are truncated to the first 5 minutes for IVC.
 CLONE_MAX_SECONDS = 300.0
 CLONE_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 IVC_SHARED_PREFIX = "ivc:"
@@ -85,19 +87,25 @@ async def probe_duration_seconds(settings: Settings, path: Path) -> float:
 
 def validate_clone_duration(duration: float) -> None:
     if duration < CLONE_MIN_SECONDS:
-        raise BadRequestError(
-            f"복제용 파일은 최소 {int(CLONE_MIN_SECONDS)}초(약 1분) 이상이어야 합니다."
-        )
-    if duration > CLONE_MAX_SECONDS:
-        raise BadRequestError(
-            f"복제용 파일은 최대 {int(CLONE_MAX_SECONDS // 60)}분까지 지원합니다."
-        )
+        raise BadRequestError("복제용 파일에 유효한 오디오가 없습니다.")
+
+
+def clone_sample_seconds(duration: float) -> float:
+    """Use the full clip when short; cap at 5 minutes when longer."""
+    if duration <= 0:
+        return 0.0
+    return min(float(duration), CLONE_MAX_SECONDS)
 
 
 async def extract_clone_sample(
-    settings: Settings, source: Path, dest_mp3: Path
+    settings: Settings,
+    source: Path,
+    dest_mp3: Path,
+    *,
+    max_seconds: float,
 ) -> None:
-    """Mono MP3 sample for ElevenLabs Instant Voice Clone."""
+    """Mono MP3 sample for ElevenLabs Instant Voice Clone (first N seconds)."""
+    seconds = max(CLONE_MIN_SECONDS, float(max_seconds))
     cmd = [
         settings.ffmpeg_path,
         "-y",
@@ -105,6 +113,8 @@ async def extract_clone_sample(
         "-i",
         str(source),
         "-vn",
+        "-t",
+        f"{seconds:.3f}",
         "-ac",
         "1",
         "-ar",
@@ -172,13 +182,16 @@ async def clone_voice_into_box(
 
     duration = await probe_duration_seconds(settings, upload_path)
     validate_clone_duration(duration)
+    sample_seconds = clone_sample_seconds(duration)
 
     voice_row_id = uuid4()
     with tempfile.TemporaryDirectory(prefix="dubby-ivc-") as tmp:
         tmp_dir = Path(tmp)
         sample_mp3 = tmp_dir / "clone_sample.mp3"
         preview_mp3 = tmp_dir / "preview.mp3"
-        await extract_clone_sample(settings, upload_path, sample_mp3)
+        await extract_clone_sample(
+            settings, upload_path, sample_mp3, max_seconds=sample_seconds
+        )
         await extract_first_sentence_preview(settings, upload_path, preview_mp3)
 
         client = ElevenLabsClient(settings)
