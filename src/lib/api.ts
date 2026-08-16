@@ -270,7 +270,7 @@ export class ApiError extends Error {
 /** Lightweight reachability check used before long extract/dub flows. */
 export async function pingApi(timeoutMs = 8000): Promise<void> {
   const overall = Math.max(timeoutMs * 2, 16_000);
-  let timer: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       ensureApiOrigin(timeoutMs),
