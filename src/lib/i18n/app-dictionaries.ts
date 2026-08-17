@@ -338,6 +338,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     qualityWarning: "품질 경고",
     qualityWarningHint:
       "더빙 음성을 자막 구간에 맞출 때 생긴 참고 메시지입니다. 작업 실패가 아니며, 결과 영상은 정상 생성됩니다.",
+    speakRate: "발화 속도",
+    speakRateSlower: "느리게",
+    speakRateFaster: "빠르게",
+    speakRateReset: "자동 속도로 돌아가기",
     cancelJob: "작업 취소",
     subtitles: "자막",
     noSourceVideo: "원본 영상이 아직 없습니다.",
@@ -682,6 +686,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     qualityWarning: "Quality warning",
     qualityWarningHint:
       "Informational notes from fitting dubbed speech into subtitle slots. These are not failures; the output video was still produced.",
+    speakRate: "Speak rate",
+    speakRateSlower: "Slower",
+    speakRateFaster: "Faster",
+    speakRateReset: "Reset to auto speed",
     cancelJob: "Cancel job",
     subtitles: "Subtitles",
     noSourceVideo: "The original video is not available yet.",
@@ -1027,6 +1035,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     qualityWarning: "Cảnh báo chất lượng",
     qualityWarningHint:
       "Ghi chú khi căn giọng lồng tiếng vào khung phụ đề. Không phải lỗi; video kết quả vẫn được tạo.",
+    speakRate: "Tốc độ nói",
+    speakRateSlower: "Chậm hơn",
+    speakRateFaster: "Nhanh hơn",
+    speakRateReset: "Về tốc độ tự động",
     cancelJob: "Hủy tác vụ",
     subtitles: "Phụ đề",
     noSourceVideo: "Chưa có video gốc.",

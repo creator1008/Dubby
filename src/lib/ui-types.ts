@@ -51,6 +51,10 @@ export type Segment = {
   audio_url?: string;
   /** ElevenLabs preview generated from the reviewed translated text. */
   dubbed_audio_url?: string;
+  /** Auto-fitted TTS speak speed for this segment (1.0 = natural). */
+  speak_speed?: number;
+  /** Original auto-fitted speed; used by the reset control. */
+  baseline_speak_speed?: number;
 };
 
 export type Job = {

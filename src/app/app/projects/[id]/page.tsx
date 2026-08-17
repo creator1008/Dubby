@@ -10,9 +10,9 @@ import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
 import { api, isDemoMode } from "@/lib/api";
 import { downloadProjectOutput } from "@/lib/mobile";
 import { retranslateLocalSegments } from "@/lib/local-step12";
-import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
+import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
-import { formatQualityWarning, preferStableMediaUrl } from "@/lib/media-url";
+import { preferStableMediaUrl } from "@/lib/media-url";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 
 function snapshotSourceTexts(rows: Segment[]) {
@@ -21,7 +21,6 @@ function snapshotSourceTexts(rows: Segment[]) {
 
 function ProjectEditor() {
   const text = useAppDictionary();
-  const { locale } = useLocale();
   const projectId = useSearchParams().get("id");
   const [project, setProject] = useState<Project | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -289,19 +288,6 @@ function ProjectEditor() {
       </div>
 
       {error && <p className="form-msg err">{error}</p>}
-      {project.quality_warnings.length > 0 && (
-        <div className="app-panel" role="status">
-          <strong>{text.qualityWarning}</strong>
-          <p className="muted" style={{ margin: "0.35rem 0 0.75rem" }}>
-            {text.qualityWarningHint}
-          </p>
-          <ul>
-            {project.quality_warnings.map((warning) => (
-              <li key={warning}>{formatQualityWarning(warning, locale)}</li>
-            ))}
-          </ul>
-        </div>
-      )}
       {activeJob && (
         <>
           <JobProgress job={activeJob} />
@@ -398,8 +384,7 @@ function ProjectEditor() {
           </div>
         </div>
 
-        {project.status !== "completed" && (
-          <div className="app-panel editor-panel">
+        <div className="app-panel editor-panel">
             <div className="editor-panel-head">
               <h2>{text.subtitleEditor}</h2>
               <p className="muted">{text.reviewThenDub}</p>
@@ -409,7 +394,15 @@ function ProjectEditor() {
               sourceLang={project.source_lang}
               targetLang={project.target_lang}
               disabled={busy || Boolean(activeJob)}
+              showSpeakRate={project.status === "completed"}
               onChange={onSegmentChange}
+              onSpeakSpeedChange={(id, speed) => {
+                setSegments((prev) =>
+                  prev.map((row) =>
+                    row.id === id ? { ...row, speak_speed: speed } : row,
+                  ),
+                );
+              }}
             />
             <div className="action-row editor-actions">
               <button
@@ -439,7 +432,7 @@ function ProjectEditor() {
               <button
                 type="button"
                 className="btn-primary btn-dub"
-                disabled={isDemoMode || busy || Boolean(activeJob) || segments.length === 0}
+                disabled={isDemoMode || busy || Boolean(activeJob) || segments.length === 0 || project.status === "completed"}
                 onClick={startDub}
               >
                 {isDemoMode ? text.continueAfterVerification : text.startDubbing}
@@ -447,7 +440,6 @@ function ProjectEditor() {
             </div>
             {message && <p className="form-msg ok">{message}</p>}
           </div>
-        )}
       </div>
     </>
   );

@@ -727,16 +727,6 @@ export default function NewDubPage() {
       </div>
 
       {error && <p className="form-msg err">{error}</p>}
-      {project && (project.quality_warnings?.length ?? 0) > 0 && (
-        <div className="app-panel" role="status">
-          <strong>{text.qualityWarning}</strong>
-          <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
-            {project.quality_warnings.map((warning) => (
-              <li key={warning}>{formatQualityWarning(warning, locale)}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* 1. 파일선택 및 자막추출 */}
       {!project && (
@@ -1048,7 +1038,15 @@ export default function NewDubPage() {
                 sourceLang={project.source_lang}
                 targetLang={project.target_lang}
                 disabled={editorLocked}
+                showSpeakRate={hasDubVoice}
                 onChange={onSegmentChange}
+                onSpeakSpeedChange={(id, speed) => {
+                  setSegments((prev) =>
+                    prev.map((row) =>
+                      row.id === id ? { ...row, speak_speed: speed } : row,
+                    ),
+                  );
+                }}
               />
 
               <div className="action-row editor-actions">

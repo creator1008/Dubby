@@ -964,7 +964,7 @@ export const demoApi = {
 
   applyDubVoice: async (
     projectId: string,
-    outputs: Array<{ idx: number; audio_url: string }>,
+    outputs: Array<{ idx: number; audio_url: string; speak_speed?: number }>,
   ) => {
     await chargeDubCredits(projectId);
     const st = loadState();
@@ -975,6 +975,12 @@ export const demoApi = {
       if (!row) continue;
       const base = output.audio_url.split("#")[0].split("?")[0];
       row.dubbed_audio_url = `${base}?${bust}`;
+      const speed =
+        typeof output.speak_speed === "number" && Number.isFinite(output.speak_speed)
+          ? output.speak_speed
+          : 1;
+      row.speak_speed = speed;
+      row.baseline_speak_speed = speed;
     }
     persist();
     return clone(rows);

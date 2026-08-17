@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { Segment } from "@/lib/ui-types";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 
@@ -9,6 +10,10 @@ const LANG_NAMES: Record<string, string> = {
   vi: "Tiếng Việt",
 };
 
+const SPEAK_MIN = 0.5;
+const SPEAK_MAX = 1.5;
+const SPEAK_STEP = 0.05;
+
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
@@ -17,7 +22,6 @@ function formatMs(ms: number) {
   return `${m}:${String(r).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
-/** Map raw speaker ids (A/B/speaker_1) to 1-based display order for 화자 N. */
 function speakerOrderIndex(segments: Segment[], speakerId: string): number {
   const order: string[] = [];
   for (const seg of segments) {
@@ -28,20 +32,142 @@ function speakerOrderIndex(segments: Segment[], speakerId: string): number {
   return idx >= 0 ? idx + 1 : 0;
 }
 
+function clampSpeakSpeed(value: number): number {
+  const stepped = Math.round(value / SPEAK_STEP) * SPEAK_STEP;
+  return Math.min(SPEAK_MAX, Math.max(SPEAK_MIN, Number(stepped.toFixed(2))));
+}
+
 type Props = {
   segments: Segment[];
   sourceLang: string;
   targetLang: string;
   disabled?: boolean;
+  showSpeakRate?: boolean;
   onChange: (id: string, field: "source_text" | "target_text", value: string) => void;
+  onSpeakSpeedChange?: (id: string, speed: number) => void;
 };
+
+function SpeakRateControl({
+  segment,
+  disabled,
+  onChange,
+}: {
+  segment: Segment;
+  disabled?: boolean;
+  onChange?: (speed: number) => void;
+}) {
+  const text = useAppDictionary();
+  const baseline = segment.baseline_speak_speed ?? segment.speak_speed ?? 1;
+  const speed = clampSpeakSpeed(segment.speak_speed ?? baseline);
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current && playing) {
+      const base = Math.max(0.01, baseline);
+      audioRef.current.playbackRate = clampSpeakSpeed(speed) / base;
+    }
+  }, [speed, baseline, playing]);
+
+  const setSpeed = (next: number) => {
+    onChange?.(clampSpeakSpeed(next));
+  };
+
+  const togglePreview = async () => {
+    if (!segment.dubbed_audio_url || disabled) return;
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.onended = () => setPlaying(false);
+    }
+    const audio = audioRef.current;
+    if (playing) {
+      audio.pause();
+      audio.currentTime = 0;
+      setPlaying(false);
+      return;
+    }
+    audio.src = segment.dubbed_audio_url;
+    audio.playbackRate = speed / Math.max(0.01, baseline);
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch {
+      setPlaying(false);
+    }
+  };
+
+  return (
+    <div className="speak-rate-row" aria-label={text.speakRate}>
+      <button
+        type="button"
+        className="speak-rate-btn"
+        disabled={disabled || speed <= SPEAK_MIN}
+        aria-label={text.speakRateSlower}
+        onClick={() => setSpeed(speed - SPEAK_STEP)}
+      >
+        −
+      </button>
+      <div className="speak-rate-track">
+        <input
+          type="range"
+          min={SPEAK_MIN}
+          max={SPEAK_MAX}
+          step={SPEAK_STEP}
+          value={speed}
+          disabled={disabled}
+          onChange={(e) => setSpeed(Number(e.target.value))}
+        />
+        <span className="speak-rate-meta">
+          {text.speakRate}: {speed.toFixed(2)}×
+        </span>
+      </div>
+      <button
+        type="button"
+        className="speak-rate-btn"
+        disabled={disabled || speed >= SPEAK_MAX}
+        aria-label={text.speakRateFaster}
+        onClick={() => setSpeed(speed + SPEAK_STEP)}
+      >
+        +
+      </button>
+      <button
+        type="button"
+        className="speak-rate-icon"
+        disabled={disabled || Math.abs(speed - baseline) < 0.001}
+        aria-label={text.speakRateReset}
+        title={text.speakRateReset}
+        onClick={() => setSpeed(baseline)}
+      >
+        ↺
+      </button>
+      <button
+        type="button"
+        className={`speak-rate-icon${playing ? " is-active" : ""}`}
+        disabled={disabled || !segment.dubbed_audio_url}
+        aria-label={playing ? text.voicePreviewStop : text.voicePreview}
+        title={playing ? text.voicePreviewStop : text.voicePreview}
+        onClick={() => void togglePreview()}
+      >
+        {playing ? "■" : "▶"}
+      </button>
+    </div>
+  );
+}
 
 export function SubtitleEditor({
   segments,
   sourceLang,
   targetLang,
   disabled,
+  showSpeakRate = false,
   onChange,
+  onSpeakSpeedChange,
 }: Props) {
   const text = useAppDictionary();
   const sourceLabel = LANG_NAMES[sourceLang] ?? sourceLang.toUpperCase();
@@ -88,18 +214,29 @@ export function SubtitleEditor({
                     onChange={(e) => onChange(seg.id, "source_text", e.target.value)}
                   />
                 </label>
-                <label className="seg-field">
-                  <span className="sr-only">
-                    {text.translation} {i + 1}
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={seg.target_text}
-                    disabled={disabled}
-                    placeholder={text.translation}
-                    onChange={(e) => onChange(seg.id, "target_text", e.target.value)}
-                  />
-                </label>
+                <div className="seg-field">
+                  <label>
+                    <span className="sr-only">
+                      {text.translation} {i + 1}
+                    </span>
+                    <textarea
+                      rows={3}
+                      value={seg.target_text}
+                      disabled={disabled}
+                      placeholder={text.translation}
+                      onChange={(e) =>
+                        onChange(seg.id, "target_text", e.target.value)
+                      }
+                    />
+                  </label>
+                  {showSpeakRate && seg.dubbed_audio_url ? (
+                    <SpeakRateControl
+                      segment={seg}
+                      disabled={disabled}
+                      onChange={(speed) => onSpeakSpeedChange?.(seg.id, speed)}
+                    />
+                  ) : null}
+                </div>
               </div>
               {seg.audio_url && (
                 <div className="seg-audio-verify">

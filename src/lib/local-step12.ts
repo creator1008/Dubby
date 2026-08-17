@@ -286,7 +286,7 @@ export async function generateLocalDubVoice(
   segments: Array<{ idx: number; target_text: string }>,
   toneStyle: string,
   voiceIds: string[] = [],
-): Promise<Array<{ idx: number; audio_url: string }>> {
+): Promise<Array<{ idx: number; audio_url: string; speak_speed?: number }>> {
   let response: Response;
   try {
     response = await fetch(`${getLocalPipelineOrigin()}/v1/local/dub-voice`, {
@@ -309,16 +309,15 @@ export async function generateLocalDubVoice(
     throw new Error(body?.detail ?? `더빙 음성 생성 실패 (${response.status})`);
   }
   const started = (await response.json()) as LocalJobResponse<{
-    segments: Array<{ idx: number; audio_url: string }>;
+    segments: Array<{ idx: number; audio_url: string; speak_speed?: number }>;
   }> & {
-    segments?: Array<{ idx: number; audio_url: string }>;
+    segments?: Array<{ idx: number; audio_url: string; speak_speed?: number }>;
   };
   const body =
     started.job_id && started.status === "running"
-      ? await waitForLocalJob<{ segments: Array<{ idx: number; audio_url: string }> }>(
-          started.job_id,
-          "더빙 음성 생성",
-        )
+      ? await waitForLocalJob<{
+          segments: Array<{ idx: number; audio_url: string; speak_speed?: number }>;
+        }>(started.job_id, "더빙 음성 생성")
       : started;
   if (!body.segments) {
     throw new Error("더빙 음성 결과가 비어 있습니다.");
@@ -326,6 +325,10 @@ export async function generateLocalDubVoice(
   const bust = `t=${Date.now()}`;
   return body.segments.map((segment) => ({
     ...segment,
+    speak_speed:
+      typeof segment.speak_speed === "number" && Number.isFinite(segment.speak_speed)
+        ? segment.speak_speed
+        : 1,
     audio_url: `${absoluteAssetUrl(segment.audio_url)}?${bust}`,
   }));
 }

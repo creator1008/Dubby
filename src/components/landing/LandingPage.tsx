@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { SiteHeader } from "./SiteHeader";
 import { Hero } from "./Hero";
 import { HowItWorks, LangsBand, SiteFooter } from "./LandingSections";
-import { WaitlistForm } from "./WaitlistForm";
 import { useLocale } from "@/lib/i18n/locale-context";
 import { PwaInstallPrompt, shouldOfferPwaInstall } from "@/components/pwa/PwaInstallPrompt";
 
@@ -22,7 +21,7 @@ function LocalizedLandingPage() {
   }, []);
 
   return (
-    <div className="page-shell">
+    <div className="page-shell page-shell-landing">
       <title>{dict.pageTitle}</title>
       <SiteHeader
         showInstallLink={installAvailable}
@@ -32,7 +31,6 @@ function LocalizedLandingPage() {
         <Hero />
         <HowItWorks />
         <LangsBand />
-        <WaitlistForm />
       </main>
       <SiteFooter />
       <PwaInstallPrompt

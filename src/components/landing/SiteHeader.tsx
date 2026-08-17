@@ -16,7 +16,7 @@ export function SiteHeader({
   const { dict } = useLocale();
 
   return (
-    <header className="site-header">
+    <header className="site-header site-header-v2">
       <Link href="/" className="brand-mark">
         {dict.brand}
       </Link>
@@ -31,13 +31,7 @@ export function SiteHeader({
             {dict.addToHome}
           </button>
         ) : null}
-        <Link href="/app/new" className="header-app-link header-app-link-primary">
-          {dict.newDub}
-        </Link>
-        <Link href="/app" className="header-app-link">
-          {dict.dubbingHistory}
-        </Link>
-        <Link href="/login" className="header-app-link">
+        <Link href="/login" className="header-app-link header-app-link-primary">
           {dict.login}
         </Link>
       </nav>
