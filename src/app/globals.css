@@ -1148,6 +1148,45 @@ body {
   gap: 0.4rem;
 }
 
+.voice-clone-source {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.voice-clone-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.voice-clone-recorder {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.voice-clone-recorder-hint {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.voice-clone-recorder-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.voice-clone-recorder-stop {
+  background: #9b2c2c;
+}
+
+.voice-clone-recorder-status {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
 .voice-clone-file-label {
   display: flex;
   flex-wrap: wrap;

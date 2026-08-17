@@ -285,7 +285,7 @@ def test_build_ass_target_mode() -> None:
     assert "Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,Hello" in doc
     assert "World" in doc
     assert ",2,60,60,160,1" in doc
-    assert "Noto Sans,56," in doc
+    assert "Noto Sans,40," in doc
     assert doc.startswith("[Script Info]")
 
 

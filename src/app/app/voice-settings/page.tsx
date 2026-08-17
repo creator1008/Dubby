@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileUploader } from "@/components/app/FileUploader";
+import { VoiceCloneRecorder } from "@/components/app/VoiceCloneRecorder";
 import { api } from "@/lib/api";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import type {
@@ -70,6 +71,9 @@ export default function VoiceSettingsPage() {
   const [cloneLanguage, setCloneLanguage] = useState("ko");
   const [cloneGender, setCloneGender] = useState("female");
   const [cloneFile, setCloneFile] = useState<File | null>(null);
+  const [cloneSourceMode, setCloneSourceMode] = useState<"file" | "record">(
+    "file",
+  );
   const [cloning, setCloning] = useState(false);
   const [activeTab, setActiveTab] = useState<"box" | "clone" | "library">(
     "box",
@@ -487,16 +491,66 @@ export default function VoiceSettingsPage() {
               ))}
             </select>
           </label>
-          <div className="voice-clone-file">
-            <span className="voice-clone-file-label">
-              {text.voiceCloneFile}
-              <small>{text.voiceCloneFileHint}</small>
-            </span>
-            <FileUploader
-              file={cloneFile}
-              onFile={setCloneFile}
-              disabled={cloning}
-            />
+          <div className="voice-clone-source">
+            <div className="voice-clone-source-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cloneSourceMode === "file"}
+                className={
+                  cloneSourceMode === "file" ? "btn-primary" : "btn-ghost"
+                }
+                disabled={cloning}
+                onClick={() => {
+                  setCloneSourceMode("file");
+                  setCloneFile(null);
+                }}
+              >
+                {text.voiceCloneFile}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={cloneSourceMode === "record"}
+                className={
+                  cloneSourceMode === "record" ? "btn-primary" : "btn-ghost"
+                }
+                disabled={cloning}
+                onClick={() => {
+                  setCloneSourceMode("record");
+                  setCloneFile(null);
+                }}
+              >
+                {text.voiceCloneRecord}
+              </button>
+            </div>
+            {cloneSourceMode === "file" ? (
+              <div className="voice-clone-file">
+                <span className="voice-clone-file-label">
+                  {text.voiceCloneFile}
+                  <small>{text.voiceCloneFileHint}</small>
+                </span>
+                <FileUploader
+                  file={cloneFile}
+                  onFile={setCloneFile}
+                  disabled={cloning}
+                />
+              </div>
+            ) : (
+              <VoiceCloneRecorder
+                file={cloneFile}
+                disabled={cloning}
+                onFile={setCloneFile}
+                startLabel={text.voiceCloneRecordStart}
+                stopLabel={text.voiceCloneRecordStop}
+                clearLabel={text.voiceCloneRecordClear}
+                recordingLabel={text.voiceCloneRecording}
+                readyLabel={text.voiceCloneRecordReady}
+                hint={text.voiceCloneRecordHint}
+                unsupportedLabel={text.voiceCloneRecordUnsupported}
+                permissionDeniedLabel={text.voiceCloneRecordPermission}
+              />
+            )}
           </div>
           <button
             type="button"

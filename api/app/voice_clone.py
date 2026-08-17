@@ -21,8 +21,8 @@ logger = logging.getLogger("dubby.voice_clone")
 CLONE_NICKNAME_STAR = "★"
 # Reject near-empty media; short clips (≤1 min) are cloned in full.
 CLONE_MIN_SECONDS = 1.0
-# Longer uploads are truncated to the first 5 minutes for IVC.
-CLONE_MAX_SECONDS = 300.0
+# Longer uploads are truncated to the first 3 minutes for IVC.
+CLONE_MAX_SECONDS = 180.0
 CLONE_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 IVC_SHARED_PREFIX = "ivc:"
 IVC_PUBLIC_OWNER = "dubby:ivc"
@@ -91,7 +91,7 @@ def validate_clone_duration(duration: float) -> None:
 
 
 def clone_sample_seconds(duration: float) -> float:
-    """Use the full clip when short; cap at 5 minutes when longer."""
+    """Use the full clip when short; cap at 3 minutes when longer."""
     if duration <= 0:
         return 0.0
     return min(float(duration), CLONE_MAX_SECONDS)

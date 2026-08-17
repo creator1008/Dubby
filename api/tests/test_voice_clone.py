@@ -36,7 +36,7 @@ def test_validate_clone_duration_bounds() -> None:
 def test_clone_sample_seconds_caps_long_clips() -> None:
     assert clone_sample_seconds(30.0) == 30.0
     assert clone_sample_seconds(60.0) == 60.0
-    assert clone_sample_seconds(180.0) == 180.0
+    assert clone_sample_seconds(180.0) == CLONE_MAX_SECONDS
     assert clone_sample_seconds(300.0) == CLONE_MAX_SECONDS
     assert clone_sample_seconds(601.0) == CLONE_MAX_SECONDS
 
