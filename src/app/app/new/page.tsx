@@ -30,6 +30,7 @@ import type {
   ToneStyle,
   UserVoice,
 } from "@/lib/ui-types";
+import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 
 const MAX_SPEAKER_VOICES = 6;
 
@@ -575,9 +576,10 @@ export default function NewDubPage() {
         target_text,
       })),
     );
-    setSegments(next);
+    const merged = mergeSegmentVoiceFields(segments, next);
+    setSegments(merged);
     setMessage("자막을 저장했습니다.");
-    return next;
+    return merged;
   };
 
   const onRetranslate = async () => {
@@ -633,7 +635,7 @@ export default function NewDubPage() {
           changed.map(({ id, source_text }) => ({ id, source_text })),
         );
       }
-      setSegments(saved);
+      setSegments(mergeSegmentVoiceFields(segments, saved));
       baselineSourceRef.current = snapshotSourceTexts(saved);
       if (outputUrl) setOutputUrl(null);
       setMessage(text.retranslateDone);
@@ -707,9 +709,13 @@ export default function NewDubPage() {
   const editorLocked =
     uploading || Boolean(activeJob) || Boolean(localStage);
   const canEdit = segments.length > 0;
-  const hasDubVoice =
-    isDemoMode &&
-    segments.some((segment) => Boolean(segment.dubbed_audio_url));
+  const hasDubVoice = segments.some((segment) =>
+    Boolean(segment.dubbed_audio_url),
+  );
+  const showSpeakRate =
+    hasDubVoice ||
+    project?.status === "completed" ||
+    project?.status === "dubbed_ready";
   const canRegenerateDub = hasDubVoice || Boolean(outputUrl);
 
   return (
@@ -1038,7 +1044,7 @@ export default function NewDubPage() {
                 sourceLang={project.source_lang}
                 targetLang={project.target_lang}
                 disabled={editorLocked}
-                showSpeakRate={hasDubVoice}
+                showSpeakRate={showSpeakRate}
                 onChange={onSegmentChange}
                 onSpeakSpeedChange={(id, speed) => {
                   setSegments((prev) =>
@@ -1088,7 +1094,7 @@ export default function NewDubPage() {
                       ? text.creatingDub
                       : text.createDubFile}
                 </button>
-                {hasDubVoice && (
+                {isDemoMode && hasDubVoice && (
                   <button
                     type="button"
                     className="btn-primary"

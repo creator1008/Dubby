@@ -14,6 +14,7 @@ import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
 import { preferStableMediaUrl } from "@/lib/media-url";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
+import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 
 function snapshotSourceTexts(rows: Segment[]) {
   return Object.fromEntries(rows.map((row) => [row.id, row.source_text]));
@@ -113,16 +114,15 @@ function ProjectEditor() {
     if (!projectId) return;
     setBusy(true);
     try {
-      setSegments(
-        await api.segments.update(
-          projectId,
-          segments.map(({ id, source_text, target_text }) => ({
-            id,
-            source_text,
-            target_text,
-          })),
-        ),
+      const next = await api.segments.update(
+        projectId,
+        segments.map(({ id, source_text, target_text }) => ({
+          id,
+          source_text,
+          target_text,
+        })),
       );
+      setSegments(mergeSegmentVoiceFields(segments, next));
       setMessage("자막을 저장했습니다.");
     } finally {
       setBusy(false);
@@ -182,7 +182,7 @@ function ProjectEditor() {
           changed.map(({ id, source_text }) => ({ id, source_text })),
         );
       }
-      setSegments(saved);
+      setSegments(mergeSegmentVoiceFields(segments, saved));
       baselineSourceRef.current = snapshotSourceTexts(saved);
       setMessage(text.retranslateDone);
     } catch (err) {
@@ -394,7 +394,10 @@ function ProjectEditor() {
               sourceLang={project.source_lang}
               targetLang={project.target_lang}
               disabled={busy || Boolean(activeJob)}
-              showSpeakRate={project.status === "completed"}
+              showSpeakRate={
+                project.status === "completed" ||
+                segments.some((segment) => Boolean(segment.dubbed_audio_url))
+              }
               onChange={onSegmentChange}
               onSpeakSpeedChange={(id, speed) => {
                 setSegments((prev) =>

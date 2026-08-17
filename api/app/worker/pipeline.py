@@ -48,6 +48,7 @@ from .dub_quality import (
     source_loudness_levels_async,
     voice_removal_ranges,
 )
+from .dub_voice_assets import persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
 from .media import ffmpeg_has_rubberband, validate_source
@@ -1167,6 +1168,16 @@ async def run_dub(ctx: JobContext) -> None:
                 gain_db,
             )
             placed_clips.append((str(fitted), int(seg["start_ms"])))
+
+        try:
+            await persist_dub_voice_assets(
+                ctx.storage,
+                source_key=str(project.get("source_key") or ""),
+                items=list(refined),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("persist dub voice assets failed: %s", exc)
+            quality_warnings.append("dub_voice_preview_not_persisted")
 
         await ctx.report(0.78, "mix_bgm")
         mixed_wav = scratch / "mixed.wav"

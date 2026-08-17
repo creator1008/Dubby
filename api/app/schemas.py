@@ -150,6 +150,10 @@ class SegmentOut(BaseModel):
     target_text: str
     speaker_id: str | None = None
     speaker_overlap: bool = False
+    # Presigned URL for the dubbed TTS clip (subtitle editor preview).
+    dubbed_audio_url: str | None = None
+    speak_speed: float | None = None
+    baseline_speak_speed: float | None = None
 
 
 # --- Jobs -------------------------------------------------------------------

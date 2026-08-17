@@ -229,7 +229,7 @@ export function SubtitleEditor({
                       }
                     />
                   </label>
-                  {showSpeakRate && seg.dubbed_audio_url ? (
+                  {showSpeakRate ? (
                     <SpeakRateControl
                       segment={seg}
                       disabled={disabled}

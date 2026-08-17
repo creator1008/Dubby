@@ -2,46 +2,74 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
 
 from ..auth import CurrentUser
 from ..config import get_settings
-from ..deps import Repo
+from ..deps import Repo, Storage
 from ..errors import BadRequestError, NotFoundError
 from ..schemas import (
     SegmentOut,
     SegmentsBulkUpdate,
     SegmentsRetranslateRequest,
 )
+from ..worker.dub_voice_assets import enrich_segments_with_dub_voice
 from ..worker.openai_client import OpenAIClient
 from ..worker.utterance_pipeline import UtteranceChunk
 
 router = APIRouter(prefix="/v1/projects/{project_id}/segments", tags=["segments"])
 
 
+async def _segment_outs(
+    rows: list[dict[str, Any]],
+    *,
+    storage: Storage,
+    source_key: str | None,
+) -> list[SegmentOut]:
+    settings = get_settings()
+    enriched = await enrich_segments_with_dub_voice(
+        storage,
+        rows,
+        source_key=source_key,
+        expires_in=settings.download_expires_seconds,
+    )
+    return [SegmentOut.model_validate(r) for r in enriched]
+
+
 @router.get("", response_model=list[SegmentOut])
 async def list_segments(
-    project_id: UUID, user: CurrentUser, repo: Repo
+    project_id: UUID, user: CurrentUser, repo: Repo, storage: Storage
 ) -> list[SegmentOut]:
     owned = await repo.get_project(user.id, project_id)
     if owned is None:
         if not user.is_admin or await repo.get_project_for_worker(project_id) is None:
             raise NotFoundError("Project not found")
         rows = await repo.list_segments_for_worker(project_id)
+        worker_project = await repo.get_project_for_worker(project_id)
+        source_key = (
+            str(worker_project.get("source_key") or "") if worker_project else None
+        )
     else:
         rows = await repo.list_segments(user.id, project_id)
-    return [SegmentOut.model_validate(r) for r in rows]
+        source_key = str(owned.get("source_key") or "") or None
+    return await _segment_outs(rows, storage=storage, source_key=source_key)
 
 
 @router.put("", response_model=list[SegmentOut])
 async def update_segments(
-    project_id: UUID, body: SegmentsBulkUpdate, user: CurrentUser, repo: Repo
+    project_id: UUID,
+    body: SegmentsBulkUpdate,
+    user: CurrentUser,
+    repo: Repo,
+    storage: Storage,
 ) -> list[SegmentOut]:
     """Bulk-update segment texts, then return the full ordered segment list
     so the editor can re-render from truth."""
-    if await repo.get_project(user.id, project_id) is None:
+    project = await repo.get_project(user.id, project_id)
+    if project is None:
         raise NotFoundError("Project not found")
     await repo.update_segment_texts(
         user.id,
@@ -49,7 +77,11 @@ async def update_segments(
         [(seg.id, seg.target_text, seg.source_text) for seg in body.segments],
     )
     rows = await repo.list_segments(user.id, project_id)
-    return [SegmentOut.model_validate(r) for r in rows]
+    return await _segment_outs(
+        rows,
+        storage=storage,
+        source_key=str(project.get("source_key") or "") or None,
+    )
 
 
 @router.post("/retranslate", response_model=list[SegmentOut])
@@ -58,6 +90,7 @@ async def retranslate_segments(
     body: SegmentsRetranslateRequest,
     user: CurrentUser,
     repo: Repo,
+    storage: Storage,
 ) -> list[SegmentOut]:
     """Correct edited sources in context, full-document translate, re-align."""
     project = await repo.get_project(user.id, project_id)
@@ -141,4 +174,8 @@ async def retranslate_segments(
 
     await repo.update_segment_texts(user.id, project_id, updates)
     out_rows = await repo.list_segments(user.id, project_id)
-    return [SegmentOut.model_validate(r) for r in out_rows]
+    return await _segment_outs(
+        out_rows,
+        storage=storage,
+        source_key=str(project.get("source_key") or "") or None,
+    )

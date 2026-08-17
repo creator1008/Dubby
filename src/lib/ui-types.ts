@@ -57,6 +57,25 @@ export type Segment = {
   baseline_speak_speed?: number;
 };
 
+/** Keep preview clips / speak-rate edits when the API omits optional voice fields. */
+export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segment[] {
+  const byId = new Map(prev.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const prior = byId.get(row.id);
+    if (!prior) return row;
+    return {
+      ...row,
+      dubbed_audio_url: row.dubbed_audio_url ?? prior.dubbed_audio_url,
+      speak_speed:
+        typeof prior.speak_speed === "number" ? prior.speak_speed : row.speak_speed,
+      baseline_speak_speed:
+        typeof row.baseline_speak_speed === "number"
+          ? row.baseline_speak_speed
+          : prior.baseline_speak_speed,
+    };
+  });
+}
+
 export type Job = {
   id: string;
   project_id: string;
