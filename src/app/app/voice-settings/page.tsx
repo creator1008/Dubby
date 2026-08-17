@@ -448,7 +448,6 @@ export default function VoiceSettingsPage() {
         <h2 id="voice-clone-title" className="voice-panel-title-sr">
           {text.voiceClone}
         </h2>
-        <p className="voice-clone-lead">{text.voiceCloneDescription}</p>
         <div className="voice-clone-form">
           <label className="voice-nickname-field">
             <span className="voice-nickname-label">

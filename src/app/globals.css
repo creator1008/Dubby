@@ -1161,7 +1161,7 @@ body {
 
 .voice-clone-recorder {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.55rem;
 }
 
 .voice-clone-recorder-hint {
@@ -1178,20 +1178,84 @@ body {
   gap: 0.5rem;
 }
 
-.voice-clone-recorder-row .btn-secondary:disabled,
-.voice-clone-recorder-row .btn-ghost:disabled,
-.voice-clone-recorder-row .btn-primary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.voice-rec-btn {
+  border: 0;
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
-.voice-clone-recorder-stop {
-  background: #9b2c2c;
+.voice-rec-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.15);
+}
+
+.voice-rec-btn-start {
+  color: #04120f;
+  background: #1ec9a8;
+}
+
+.voice-rec-btn-start:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.voice-rec-btn-stop {
+  color: #fff;
+  background: #d62828;
+}
+
+.voice-rec-btn-stop:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.voice-rec-btn-listen {
+  color: #06263a;
+  background: #7dd3fc;
+}
+
+.voice-rec-btn-listen:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.voice-rec-btn-clear {
+  color: #1f2933;
+  background: #e5e7eb;
+}
+
+.voice-rec-btn-clear:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.voice-clone-meter {
+  position: relative;
+  width: 100%;
+  height: 0.7rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 61, 54, 0.14);
+  border: 1px solid rgba(15, 61, 54, 0.18);
+}
+
+.voice-clone-meter-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f9c8a, #1ec9a8);
+  transition: width 0.2s linear;
+}
+
+.voice-clone-meter-fill.is-recording {
+  background: linear-gradient(90deg, #d62828, #f97316);
 }
 
 .voice-clone-recorder-status {
   font-size: 0.82rem;
-  color: var(--ink-soft);
+  font-weight: 650;
+  color: var(--ink);
 }
 
 .voice-clone-file-label {

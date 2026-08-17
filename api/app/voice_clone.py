@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import tempfile
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -82,7 +83,44 @@ async def probe_duration_seconds(settings: Settings, path: Path) -> float:
     has_audio = any(s.get("codec_type") == "audio" for s in streams)
     if not has_audio:
         raise BadRequestError("오디오 트랙이 있는 파일만 복제할 수 있습니다.")
+    if duration <= 0:
+        for stream in streams:
+            if stream.get("codec_type") != "audio":
+                continue
+            try:
+                duration = max(duration, float(stream.get("duration") or 0))
+            except (TypeError, ValueError):
+                continue
+    if duration <= 0:
+        # Browser MediaRecorder webm/ogg often omits container duration.
+        duration = await _measure_duration_ffmpeg(settings, path)
     return duration
+
+
+async def _measure_duration_ffmpeg(settings: Settings, path: Path) -> float:
+    """Decode length via ffmpeg when ffprobe reports no container duration."""
+    cmd = [
+        settings.ffmpeg_path,
+        "-nostdin",
+        "-i",
+        str(path),
+        "-f",
+        "null",
+        "-",
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _out, err = await proc.communicate()
+    text = (err or b"").decode("utf-8", "replace")
+    # Last ``time=HH:MM:SS.xx`` in the progress line.
+    matches = re.findall(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    if not matches:
+        return 0.0
+    hours, minutes, seconds = matches[-1]
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
 def validate_clone_duration(duration: float) -> None:
