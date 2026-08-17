@@ -1178,6 +1178,13 @@ body {
   gap: 0.5rem;
 }
 
+.voice-clone-recorder-row .btn-secondary:disabled,
+.voice-clone-recorder-row .btn-ghost:disabled,
+.voice-clone-recorder-row .btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .voice-clone-recorder-stop {
   background: #9b2c2c;
 }

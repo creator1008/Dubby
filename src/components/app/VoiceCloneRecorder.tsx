@@ -8,8 +8,12 @@ type Props = {
   file: File | null;
   disabled?: boolean;
   onFile: (file: File | null) => void;
+  onRecordingChange?: (recording: boolean) => void;
   startLabel: string;
   stopLabel: string;
+  listenLabel: string;
+  listenStopLabel: string;
+  listenFailedLabel: string;
   clearLabel: string;
   recordingLabel: string;
   readyLabel: string;
@@ -42,8 +46,12 @@ export function VoiceCloneRecorder({
   file,
   disabled = false,
   onFile,
+  onRecordingChange,
   startLabel,
   stopLabel,
+  listenLabel,
+  listenStopLabel,
+  listenFailedLabel,
   clearLabel,
   recordingLabel,
   readyLabel,
@@ -54,11 +62,14 @@ export function VoiceCloneRecorder({
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const supported =
     typeof window !== "undefined" &&
     typeof MediaRecorder !== "undefined" &&
@@ -69,12 +80,42 @@ export function VoiceCloneRecorder({
     return () => {
       stopTracks();
       if (tickRef.current) clearInterval(tickRef.current);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      audioRef.current?.pause();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanup on unmount only
   }, []);
+
+  useEffect(() => {
+    onRecordingChange?.(recording);
+  }, [recording, onRecordingChange]);
+
+  useEffect(() => {
+    if (!file) {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+      }
+      setPlaying(false);
+      audioRef.current?.pause();
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+    setPlaying(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to file identity
+  }, [file]);
 
   const stopTracks = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+  };
+
+  const setRecordingState = (next: boolean) => {
+    setRecording(next);
   };
 
   const finishRecording = (recorder: MediaRecorder) => {
@@ -87,7 +128,7 @@ export function VoiceCloneRecorder({
     chunksRef.current = [];
     stopTracks();
     mediaRef.current = null;
-    setRecording(false);
+    setRecordingState(false);
     if (blob.size <= 0) {
       setError(permissionDeniedLabel);
       onFile(null);
@@ -108,7 +149,7 @@ export function VoiceCloneRecorder({
   const stopRecording = () => {
     const recorder = mediaRef.current;
     if (!recorder || recorder.state === "inactive") {
-      setRecording(false);
+      setRecordingState(false);
       stopTracks();
       return;
     }
@@ -116,8 +157,10 @@ export function VoiceCloneRecorder({
   };
 
   const startRecording = async () => {
-    if (disabled || !supported) return;
+    if (disabled || recording || !supported) return;
     setError(null);
+    audioRef.current?.pause();
+    setPlaying(false);
     onFile(null);
     setElapsed(0);
     try {
@@ -140,24 +183,48 @@ export function VoiceCloneRecorder({
       recorder.onstop = () => finishRecording(recorder);
       recorder.onerror = () => {
         setError(permissionDeniedLabel);
-        setRecording(false);
+        setRecordingState(false);
         stopTracks();
       };
       mediaRef.current = recorder;
       startedAtRef.current = Date.now();
       recorder.start(250);
-      setRecording(true);
+      setRecordingState(true);
       tickRef.current = setInterval(() => {
         const seconds = (Date.now() - startedAtRef.current) / 1000;
         setElapsed(seconds);
         if (seconds >= MAX_RECORD_SECONDS) {
-          stopRecording();
+          const active = mediaRef.current;
+          if (active && active.state !== "inactive") active.stop();
         }
       }, 200);
     } catch {
       setError(permissionDeniedLabel);
       stopTracks();
-      setRecording(false);
+      setRecordingState(false);
+    }
+  };
+
+  const toggleListen = async () => {
+    if (!previewUrl || recording || disabled) return;
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.onended = () => setPlaying(false);
+    }
+    const audio = audioRef.current;
+    if (playing) {
+      audio.pause();
+      audio.currentTime = 0;
+      setPlaying(false);
+      return;
+    }
+    audio.src = previewUrl;
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch {
+      setPlaying(false);
+      setError(listenFailedLabel);
     }
   };
 
@@ -169,31 +236,38 @@ export function VoiceCloneRecorder({
     <div className="voice-clone-recorder">
       <p className="voice-clone-recorder-hint">{hint}</p>
       <div className="voice-clone-recorder-row">
-        {!recording ? (
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={disabled}
-            onClick={() => void startRecording()}
-          >
-            {startLabel}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn-primary voice-clone-recorder-stop"
-            disabled={disabled}
-            onClick={stopRecording}
-          >
-            {stopLabel}
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={disabled || recording}
+          onClick={() => void startRecording()}
+        >
+          {startLabel}
+        </button>
+        <button
+          type="button"
+          className="btn-primary voice-clone-recorder-stop"
+          disabled={!recording}
+          onClick={stopRecording}
+        >
+          {stopLabel}
+        </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          disabled={disabled || recording || !file || !previewUrl}
+          onClick={() => void toggleListen()}
+        >
+          {playing ? listenStopLabel : listenLabel}
+        </button>
         {file && !recording ? (
           <button
             type="button"
             className="btn-ghost"
             disabled={disabled}
             onClick={() => {
+              audioRef.current?.pause();
+              setPlaying(false);
               onFile(null);
               setElapsed(0);
               setError(null);
@@ -202,14 +276,14 @@ export function VoiceCloneRecorder({
             {clearLabel}
           </button>
         ) : null}
-        <span className="voice-clone-recorder-status" aria-live="polite">
-          {recording
-            ? `${recordingLabel} ${formatClock(elapsed)} / ${formatClock(MAX_RECORD_SECONDS)}`
-            : file
-              ? `${readyLabel} · ${file.name}`
-              : formatClock(0)}
-        </span>
       </div>
+      <span className="voice-clone-recorder-status" aria-live="polite">
+        {recording
+          ? `${recordingLabel} ${formatClock(elapsed)} / ${formatClock(MAX_RECORD_SECONDS)}`
+          : file
+            ? `${readyLabel} · ${formatClock(elapsed || 0)}`
+            : formatClock(0)}
+      </span>
       {error ? <p className="form-msg err">{error}</p> : null}
     </div>
   );

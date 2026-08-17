@@ -74,6 +74,7 @@ export default function VoiceSettingsPage() {
   const [cloneSourceMode, setCloneSourceMode] = useState<"file" | "record">(
     "file",
   );
+  const [cloneRecording, setCloneRecording] = useState(false);
   const [cloning, setCloning] = useState(false);
   const [activeTab, setActiveTab] = useState<"box" | "clone" | "library">(
     "box",
@@ -327,6 +328,7 @@ export default function VoiceSettingsPage() {
           role="tab"
           aria-selected={activeTab === "box"}
           className={activeTab === "box" ? "btn-primary" : "btn-ghost"}
+          disabled={cloneRecording}
           onClick={() => setActiveTab("box")}
         >
           {text.myVoiceBox}
@@ -336,6 +338,7 @@ export default function VoiceSettingsPage() {
           role="tab"
           aria-selected={activeTab === "clone"}
           className={activeTab === "clone" ? "btn-primary" : "btn-ghost"}
+          disabled={cloneRecording}
           onClick={() => setActiveTab("clone")}
         >
           {text.voiceClone}
@@ -345,6 +348,7 @@ export default function VoiceSettingsPage() {
           role="tab"
           aria-selected={activeTab === "library"}
           className={activeTab === "library" ? "btn-primary" : "btn-ghost"}
+          disabled={cloneRecording}
           onClick={() => setActiveTab("library")}
         >
           {text.voiceLibrary}
@@ -455,7 +459,7 @@ export default function VoiceSettingsPage() {
               type="text"
               maxLength={29}
               value={cloneNickname}
-              disabled={cloning}
+              disabled={cloning || cloneRecording}
               placeholder={text.voiceCloneNicknamePlaceholder}
               onChange={(e) => setCloneNickname(e.target.value.slice(0, 29))}
             />
@@ -464,7 +468,7 @@ export default function VoiceSettingsPage() {
             <span>{text.voiceLanguage}</span>
             <select
               value={cloneLanguage}
-              disabled={cloning}
+              disabled={cloning || cloneRecording}
               onChange={(e) => setCloneLanguage(e.target.value)}
             >
               {cloneLanguageOptions.map((code) => (
@@ -478,7 +482,7 @@ export default function VoiceSettingsPage() {
             <span>{text.voiceGender}</span>
             <select
               value={cloneGender}
-              disabled={cloning}
+              disabled={cloning || cloneRecording}
               onChange={(e) => setCloneGender(e.target.value)}
             >
               {(filters.genders.length
@@ -500,10 +504,11 @@ export default function VoiceSettingsPage() {
                 className={
                   cloneSourceMode === "file" ? "btn-primary" : "btn-ghost"
                 }
-                disabled={cloning}
+                disabled={cloning || cloneRecording}
                 onClick={() => {
                   setCloneSourceMode("file");
                   setCloneFile(null);
+                  setCloneRecording(false);
                 }}
               >
                 {text.voiceCloneFile}
@@ -515,10 +520,11 @@ export default function VoiceSettingsPage() {
                 className={
                   cloneSourceMode === "record" ? "btn-primary" : "btn-ghost"
                 }
-                disabled={cloning}
+                disabled={cloning || cloneRecording}
                 onClick={() => {
                   setCloneSourceMode("record");
                   setCloneFile(null);
+                  setCloneRecording(false);
                 }}
               >
                 {text.voiceCloneRecord}
@@ -541,8 +547,12 @@ export default function VoiceSettingsPage() {
                 file={cloneFile}
                 disabled={cloning}
                 onFile={setCloneFile}
+                onRecordingChange={setCloneRecording}
                 startLabel={text.voiceCloneRecordStart}
                 stopLabel={text.voiceCloneRecordStop}
+                listenLabel={text.voicePreview}
+                listenStopLabel={text.voicePreviewStop}
+                listenFailedLabel={text.voicePreviewFailed}
                 clearLabel={text.voiceCloneRecordClear}
                 recordingLabel={text.voiceCloneRecording}
                 readyLabel={text.voiceCloneRecordReady}
@@ -557,6 +567,7 @@ export default function VoiceSettingsPage() {
             className="btn-primary voice-clone-submit"
             disabled={
               cloning ||
+              cloneRecording ||
               !cloneNickname.trim() ||
               !cloneFile ||
               !cloneLanguage ||
