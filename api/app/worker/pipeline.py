@@ -785,7 +785,7 @@ async def run_dub(ctx: JobContext) -> None:
     try:
         project = await _load_project(ctx)
         segments = await ctx.repo.list_segments_for_worker(ctx.project_id)
-        # Editor-saved speak rates may live in R2 when the DB column is absent.
+        # Editor-saved speak rates / original ends may live in R2 when DB lacks them.
         try:
             from .dub_voice_assets import load_dub_voice_manifest
 
@@ -793,20 +793,76 @@ async def run_dub(ctx: JobContext) -> None:
                 ctx.storage, str(project.get("source_key") or "") or None
             )
             for row in segments:
-                if row.get("speak_speed") is not None:
-                    continue
                 try:
                     idx = int(row["idx"])
                 except (KeyError, TypeError, ValueError):
                     continue
                 meta = manifest_speeds.get(idx) or {}
-                speed = meta.get("speak_speed")
+                if row.get("speak_speed") is None:
+                    speed = meta.get("speak_speed")
+                    try:
+                        speed_f = float(speed) if speed is not None else None
+                    except (TypeError, ValueError):
+                        speed_f = None
+                    if speed_f is not None and speed_f > 0:
+                        row["speak_speed"] = speed_f
+
+                # Freeze original ASR end; never overwrite with a rate-adjusted end_ms.
+                source_end = row.get("source_end_ms")
+                if source_end is None:
+                    source_end = meta.get("source_end_ms")
                 try:
-                    speed_f = float(speed) if speed is not None else None
+                    source_end_i = int(source_end) if source_end is not None else None
                 except (TypeError, ValueError):
-                    speed_f = None
-                if speed_f is not None and speed_f > 0:
-                    row["speak_speed"] = speed_f
+                    source_end_i = None
+                try:
+                    start_i = int(row["start_ms"])
+                    end_i = int(row["end_ms"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if source_end_i is None or source_end_i <= start_i:
+                    # Recover original span when only shortened translation end remains.
+                    try:
+                        speed_for_recover = float(row.get("speak_speed") or 1.0)
+                    except (TypeError, ValueError):
+                        speed_for_recover = 1.0
+                    translation_ms = max(120, end_i - start_i)
+                    if abs(speed_for_recover - 1.0) >= 0.001:
+                        source_end_i = start_i + int(
+                            round(translation_ms * max(0.5, speed_for_recover))
+                        )
+                    else:
+                        source_end_i = end_i
+                row["source_end_ms"] = source_end_i
+
+                # Translation end = original_duration / speak_speed (capped later by fit).
+                try:
+                    locked_speed = float(row.get("speak_speed") or 0)
+                except (TypeError, ValueError):
+                    locked_speed = 0.0
+                if locked_speed > 0 and source_end_i > start_i:
+                    source_ms = max(120, source_end_i - start_i)
+                    desired_end = start_i + int(round(source_ms / locked_speed))
+                    row["end_ms"] = max(start_i + 120, desired_end)
+            # Cap slowed-down translation ends so they do not cross the next stamp.
+            ordered = sorted(
+                segments,
+                key=lambda r: int(r.get("idx", 0)),
+            )
+            for i, row in enumerate(ordered):
+                try:
+                    start_i = int(row["start_ms"])
+                    end_i = int(row["end_ms"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if i + 1 < len(ordered):
+                    try:
+                        next_start = int(ordered[i + 1]["start_ms"]) - 80
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    capped = max(start_i + 120, min(end_i, next_start))
+                    if capped != end_i:
+                        row["end_ms"] = capped
         except Exception as exc:  # noqa: BLE001
             logger.warning("could not load editor speak speeds: %s", exc)
         translated = [s for s in segments if str(s.get("target_text", "")).strip()]
@@ -987,6 +1043,10 @@ async def run_dub(ctx: JobContext) -> None:
                     "speak_speed": editor_speak_speed,
                     "tts_speak_speed": speak_speed,
                     "speak_speed_locked": speak_speed_locked,
+                    "source_end_ms": int(
+                        seg.get("source_end_ms")
+                        or end_ms
+                    ),
                 }
 
         primary = await asyncio.gather(
@@ -1072,10 +1132,12 @@ async def run_dub(ctx: JobContext) -> None:
                             f"segment_{item['seg']['idx']}:timing_rewrite_failed"
                         )
 
-                # 2) Extend end timestamp into trailing silence (no overlap).
+                # 2) Extend translation end into trailing silence (no overlap).
+                # Never touch source_end_ms. Skip when the editor locked speak_speed
+                # so translation_duration stays original_duration / speak_speed.
                 clip_s = float(item["clip_s"])
                 need = max(0.0, clip_s - slot_s)
-                if need > 0.05:
+                if need > 0.05 and not locked:
                     new_end = extend_end_ms(
                         int(item["seg"]["start_ms"]),
                         end_ms,

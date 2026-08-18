@@ -1,4 +1,13 @@
-/** Speak-rate ↔ timestamp helpers for the subtitle editor. */
+/** Speak-rate ↔ timestamp helpers for the subtitle editor.
+
+Model:
+- ``start_ms`` + ``source_end_ms`` = original (ASR) span — never changed by speak rate
+- ``start_ms`` + ``end_ms`` = translation/dub span
+- Initially ``end_ms === source_end_ms``
+- ``speak_speed`` is relative to the original span:
+  translation_duration = original_duration / speak_speed
+  (1.2× ⇒ translation slot is ~20% shorter than the original)
+*/
 
 import type { Segment } from "@/lib/ui-types";
 
@@ -91,7 +100,7 @@ export function videoEndMsFromSegments(
       ? Math.round(durationSeconds * 1000)
       : 0;
   const fromSegments = segments.reduce(
-    (max, row) => Math.max(max, row.end_ms),
+    (max, row) => Math.max(max, row.end_ms, row.source_end_ms ?? 0),
     0,
   );
   return Math.max(fromDuration, fromSegments);
@@ -106,31 +115,63 @@ export function maxEndMsForSegment(
   const index = ordered.findIndex((row) => row.id === segmentId);
   if (index < 0) return videoEndMs;
   const next = ordered[index + 1];
-  if (next) return Math.max(ordered[index].start_ms + MIN_SLOT_MS, next.start_ms - END_PAD_MS);
+  if (next) {
+    return Math.max(ordered[index].start_ms + MIN_SLOT_MS, next.start_ms - END_PAD_MS);
+  }
   return Math.max(ordered[index].start_ms + MIN_SLOT_MS, videoEndMs);
 }
 
-function contentDurationMs(segment: Segment): number {
+/** Original (ASR) span end — immutable under speak-rate edits. */
+export function sourceEndMsOf(segment: Segment): number {
+  if (
+    typeof segment.source_end_ms === "number" &&
+    segment.source_end_ms > segment.start_ms
+  ) {
+    return segment.source_end_ms;
+  }
   const speed = segment.speak_speed ?? 1;
-  const slot = Math.max(MIN_SLOT_MS, segment.end_ms - segment.start_ms);
-  return slot * Math.max(SPEAK_MIN, speed);
+  const translationMs = Math.max(MIN_SLOT_MS, segment.end_ms - segment.start_ms);
+  // Recover original span when only the shortened translation end was stored.
+  if (Math.abs(speed - 1) >= 0.001) {
+    return segment.start_ms + Math.round(translationMs * Math.max(SPEAK_MIN, speed));
+  }
+  return segment.end_ms;
+}
+
+export function originalDurationMs(segment: Segment): number {
+  return Math.max(MIN_SLOT_MS, sourceEndMsOf(segment) - segment.start_ms);
 }
 
 /**
- * Apply a speak-rate change and grow/shrink ``end_ms`` to match.
- * Cannot push past the next segment start or the video end — speed is
- * clamped to the slowest rate that still fits.
+ * Ensure every row has a frozen original end. Never copies a speak-rate-adjusted
+ * ``end_ms`` over an already-known ``source_end_ms``.
  */
 export function ensureSourceEndMs(segments: Segment[]): Segment[] {
-  return segments.map((row) => ({
-    ...row,
-    source_end_ms:
-      typeof row.source_end_ms === "number" && row.source_end_ms > row.start_ms
-        ? row.source_end_ms
-        : row.end_ms,
-  }));
+  return segments.map((row) => {
+    const sourceEnd = sourceEndMsOf(row);
+    const speed = row.speak_speed ?? 1;
+    // Keep translation end consistent with speed × original when possible.
+    const expectedEnd =
+      row.start_ms + Math.round(originalDurationMs({ ...row, source_end_ms: sourceEnd }) / Math.max(0.01, speed));
+    const endMs =
+      typeof row.end_ms === "number" && row.end_ms > row.start_ms
+        ? row.end_ms
+        : expectedEnd;
+    return {
+      ...row,
+      source_end_ms: sourceEnd,
+      end_ms: endMs,
+      speak_speed: speed,
+      baseline_speak_speed: 1,
+    };
+  });
 }
 
+/**
+ * Apply a speak-rate change. Translation ``end_ms`` = original_duration / speed.
+ * Original ``source_end_ms`` is never modified. Slowing down is capped by the
+ * next segment start / video end.
+ */
 export function applySpeakRateChange(
   segments: Segment[],
   segmentId: string,
@@ -140,24 +181,30 @@ export function applySpeakRateChange(
   const maxEnd = maxEndMsForSegment(segments, segmentId, videoEndMs);
   return segments.map((row) => {
     if (row.id !== segmentId) return row;
-    const contentMs = contentDurationMs(row);
+    const sourceEnd = sourceEndMsOf(row);
+    const sourceMs = Math.max(MIN_SLOT_MS, sourceEnd - row.start_ms);
     const maxSlot = Math.max(MIN_SLOT_MS, maxEnd - row.start_ms);
-    const minSpeedForCap = contentMs / maxSlot;
+    // Slowest allowed rate that still fits before the next stamp.
+    const minSpeedForCap = sourceMs / maxSlot;
     const speed = clampSpeakSpeed(Math.max(requestedSpeed, minSpeedForCap));
-    const desiredEnd = row.start_ms + Math.round(contentMs / Math.max(0.01, speed));
-    const endMs = Math.min(maxEnd, Math.max(row.start_ms + MIN_SLOT_MS, desiredEnd));
+    const translationMs = Math.round(sourceMs / Math.max(0.01, speed));
+    const endMs = Math.min(
+      maxEnd,
+      Math.max(row.start_ms + MIN_SLOT_MS, row.start_ms + translationMs),
+    );
     return {
       ...row,
       speak_speed: speed,
+      baseline_speak_speed: 1,
       end_ms: endMs,
-      source_end_ms: row.source_end_ms ?? row.end_ms,
+      source_end_ms: sourceEnd,
     };
   });
 }
 
 /**
- * When translation text changes, recompute speak speed (and extend end when
- * needed) so the line still fits without overlapping the next stamp.
+ * When translation text changes, recompute speak speed against the original
+ * span, then set translation ``end_ms`` from original_duration / speed.
  */
 export function refitSegmentAfterTranslation(
   segment: Segment,
@@ -166,30 +213,35 @@ export function refitSegmentAfterTranslation(
   targetLang: string,
   videoEndMs: number,
 ): Segment {
+  const sourceEnd = sourceEndMsOf(segment);
+  const sourceMs = Math.max(MIN_SLOT_MS, sourceEnd - segment.start_ms);
+  const sourceSec = sourceMs / 1000;
   const maxEnd = maxEndMsForSegment(segments, segment.id, videoEndMs);
-  const slotSec = Math.max(0.12, (segment.end_ms - segment.start_ms) / 1000);
   let speed = speakSpeedMatchingSource(
     segment.source_text,
     sourceLang,
     segment.target_text,
     targetLang,
-    slotSec,
+    sourceSec,
   );
   const natural = estimateTtsSeconds(segment.target_text, targetLang);
-  let needSec = natural / Math.max(0.01, speed);
-  let endMs = segment.end_ms;
-  if (needSec > slotSec + 0.02) {
-    const desired = segment.start_ms + Math.ceil(needSec * 1000);
-    endMs = Math.min(maxEnd, Math.max(segment.end_ms, desired));
+  // Prefer fitting into the original span; only lengthen translation end when
+  // even the max useful speed cannot cover the line.
+  if (natural / Math.max(0.01, speed) > sourceSec * 1.03) {
+    speed = speakSpeedForSlot(natural, sourceSec);
   }
-  const fittedSlot = Math.max(0.12, (endMs - segment.start_ms) / 1000);
-  if (natural / Math.max(0.01, speed) > fittedSlot * 1.03) {
-    speed = speakSpeedForSlot(natural, fittedSlot);
-  }
+  const maxSlot = Math.max(MIN_SLOT_MS, maxEnd - segment.start_ms);
+  const minSpeedForCap = sourceMs / maxSlot;
+  speed = clampSpeakSpeed(Math.max(speed, minSpeedForCap));
+  const translationMs = Math.round(sourceMs / Math.max(0.01, speed));
+  const endMs = Math.min(
+    maxEnd,
+    Math.max(segment.start_ms + MIN_SLOT_MS, segment.start_ms + translationMs),
+  );
   return {
     ...segment,
+    source_end_ms: sourceEnd,
     end_ms: endMs,
-    source_end_ms: segment.source_end_ms ?? segment.end_ms,
     speak_speed: speed,
     baseline_speak_speed: 1,
   };
@@ -202,8 +254,8 @@ export function prepareSegmentsForSave(
   targetLang: string,
   videoEndMs: number,
 ): Segment[] {
-  let next = segments;
-  for (const row of segments) {
+  let next = ensureSourceEndMs(segments);
+  for (const row of next) {
     const baseline = baselineTargets[row.id] ?? row.target_text;
     if (baseline !== row.target_text) {
       const fitted = refitSegmentAfterTranslation(

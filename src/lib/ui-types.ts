@@ -69,12 +69,26 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
   return next.map((row) => {
     const prior = byId.get(row.id);
     if (!prior) return { ...row, baseline_speak_speed: 1 };
+    const speed =
+      typeof row.speak_speed === "number"
+        ? row.speak_speed
+        : prior.speak_speed ?? 1;
+    let sourceEnd = row.source_end_ms ?? prior.source_end_ms;
+    if (
+      (typeof sourceEnd !== "number" || sourceEnd <= row.start_ms) &&
+      Math.abs(speed - 1) >= 0.001
+    ) {
+      const translationMs = Math.max(120, row.end_ms - row.start_ms);
+      sourceEnd = row.start_ms + Math.round(translationMs * Math.max(0.5, speed));
+    }
+    if (typeof sourceEnd !== "number" || sourceEnd <= row.start_ms) {
+      sourceEnd = prior.source_end_ms ?? row.end_ms;
+    }
     return {
       ...row,
       dubbed_audio_url: row.dubbed_audio_url ?? prior.dubbed_audio_url,
-      source_end_ms: row.source_end_ms ?? prior.source_end_ms ?? row.end_ms,
-      speak_speed:
-        typeof row.speak_speed === "number" ? row.speak_speed : prior.speak_speed ?? 1,
+      source_end_ms: sourceEnd,
+      speak_speed: speed,
       baseline_speak_speed: 1,
       clip_speak_speed:
         typeof row.clip_speak_speed === "number"

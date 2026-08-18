@@ -8,6 +8,7 @@ import {
   SPEAK_MIN,
   SPEAK_STEP,
   clampSpeakSpeed,
+  sourceEndMsOf,
 } from "@/lib/speak-rate";
 
 const LANG_NAMES: Record<string, string> = {
@@ -189,10 +190,7 @@ export function SubtitleEditor({
           const speakerNo = seg.speaker_id
             ? speakerOrderIndex(segments, seg.speaker_id)
             : 0;
-          const sourceEnd =
-            typeof seg.source_end_ms === "number" && seg.source_end_ms > seg.start_ms
-              ? seg.source_end_ms
-              : seg.end_ms;
+          const sourceEnd = sourceEndMsOf(seg);
           return (
             <article className="seg-item" key={seg.id}>
               <div className="seg-meta">

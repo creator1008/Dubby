@@ -78,16 +78,42 @@ async def persist_dub_voice_assets(
                 clip_speak_speed = clip_speed
         except (TypeError, ValueError):
             pass
-        segments_meta.append(
-            {
-                "idx": idx,
-                # Editor-facing rate (must survive re-dub refresh).
-                "speak_speed": speak_speed,
-                # Rate used to synthesize the uploaded clip (preview playback).
-                "clip_speak_speed": clip_speak_speed,
-                "audio_key": clip_key,
-            }
-        )
+        source_end_ms = None
+        for candidate in (seg.get("source_end_ms"), item.get("source_end_ms")):
+            try:
+                value = int(candidate) if candidate is not None else None
+            except (TypeError, ValueError):
+                value = None
+            if value is not None and value > 0:
+                source_end_ms = value
+                break
+        if source_end_ms is None:
+            # Never treat a rate-shortened translation end as the original span.
+            try:
+                start_i = int(seg.get("start_ms") or 0)
+                end_i = int(item.get("end_ms") or seg.get("end_ms") or 0)
+                speed_i = float(item.get("speak_speed") or 1.0)
+            except (TypeError, ValueError):
+                start_i, end_i, speed_i = 0, 0, 1.0
+            if end_i > start_i:
+                translation_ms = end_i - start_i
+                if abs(speed_i - 1.0) >= 0.001:
+                    source_end_ms = start_i + int(
+                        round(translation_ms * max(0.5, speed_i))
+                    )
+                else:
+                    source_end_ms = end_i
+        meta_row: dict[str, Any] = {
+            "idx": idx,
+            # Editor-facing rate (must survive re-dub refresh).
+            "speak_speed": speak_speed,
+            # Rate used to synthesize the uploaded clip (preview playback).
+            "clip_speak_speed": clip_speak_speed,
+            "audio_key": clip_key,
+        }
+        if source_end_ms is not None:
+            meta_row["source_end_ms"] = source_end_ms
+        segments_meta.append(meta_row)
     if not segments_meta:
         return
     manifest = {"segments": segments_meta}
@@ -239,18 +265,26 @@ async def enrich_segments_with_dub_voice(
             clip_f = None
         if clip_f is not None and clip_f > 0:
             copied["clip_speak_speed"] = clip_f
-        source_end = meta.get("source_end_ms")
+        source_end = meta.get("source_end_ms", copied.get("source_end_ms"))
         try:
             source_end_i = int(source_end) if source_end is not None else None
         except (TypeError, ValueError):
             source_end_i = None
+        try:
+            start_i = int(copied.get("start_ms") or 0)
+            end_i = int(copied.get("end_ms") or 0)
+        except (TypeError, ValueError):
+            start_i, end_i = 0, 0
+        if source_end_i is None or source_end_i <= start_i:
+            # Recover original span from translation_end × speak_speed when needed.
+            speed = float(speed_f or 1.0)
+            translation_ms = max(120, end_i - start_i)
+            if abs(speed - 1.0) >= 0.001 and translation_ms > 0:
+                source_end_i = start_i + int(round(translation_ms * max(0.5, speed)))
+            else:
+                source_end_i = end_i if end_i > start_i else None
         if source_end_i is not None and source_end_i > 0:
             copied["source_end_ms"] = source_end_i
-        elif copied.get("source_end_ms") is None:
-            try:
-                copied["source_end_ms"] = int(copied.get("end_ms") or 0)
-            except (TypeError, ValueError):
-                pass
         audio_key = str(meta.get("audio_key") or "").strip()
         if audio_key:
             try:
