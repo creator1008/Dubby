@@ -26,7 +26,14 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     # Comma-separated list of allowed browser origins (Cloudflare Pages UI).
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = (
+        "http://localhost:3000,"
+        "https://dubbyai.com,"
+        "https://www.dubbyai.com,"
+        "https://creator1008.github.io,"
+        "https://localhost,"
+        "capacitor://localhost"
+    )
 
     # --- Supabase ----------------------------------------------------------
     supabase_url: str = ""  # e.g. https://<project-ref>.supabase.co

@@ -384,16 +384,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let apiOrigin = await ensureApiOrigin();
 
   const method = (init?.method || "GET").toUpperCase();
-  const retries = method === "GET" || method === "HEAD" ? 4 : 3;
+  const retries = method === "GET" || method === "HEAD" ? 5 : 4;
   let lastError: unknown;
   let refreshedForAuth = false;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
+    const controller = new AbortController();
+    const timer = globalThis.setTimeout(() => controller.abort(), 45_000);
     try {
       const isForm =
         typeof FormData !== "undefined" && init?.body instanceof FormData;
       response = await fetch(`${apiOrigin}${path}`, {
         ...init,
+        cache: "no-store",
+        mode: "cors",
+        signal: init?.signal ?? controller.signal,
         headers: {
           Authorization: `Bearer ${accessToken}`,
           ...(init?.body && !isForm ? { "Content-Type": "application/json" } : {}),
@@ -403,21 +408,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       });
     } catch (err) {
       lastError = err;
-      if (err instanceof TypeError && attempt < retries) {
-        // Tunnel URL may have rotated — refresh once mid-retry.
+      if (
+        (err instanceof TypeError ||
+          (err instanceof DOMException && err.name === "AbortError")) &&
+        attempt < retries
+      ) {
         healthyOriginCache = null;
         try {
           apiOrigin = await ensureApiOrigin();
         } catch {
           /* keep previous origin */
         }
-        await sleep(900 * attempt);
+        await sleep(700 * attempt);
         continue;
       }
-      if (err instanceof TypeError) {
+      if (err instanceof TypeError || (err instanceof DOMException && err.name === "AbortError")) {
         throw new ApiError(apiUnreachableMessage(), 0);
       }
       throw err;
+    } finally {
+      globalThis.clearTimeout(timer);
     }
     if (response.status === 401 && !refreshedForAuth) {
       refreshedForAuth = true;
@@ -434,7 +444,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
-  if (lastError instanceof TypeError) {
+  if (
+    lastError instanceof TypeError ||
+    (lastError instanceof DOMException && lastError.name === "AbortError")
+  ) {
     throw new ApiError(apiUnreachableMessage(), 0);
   }
   throw lastError instanceof Error

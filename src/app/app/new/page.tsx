@@ -225,7 +225,12 @@ export default function NewDubPage() {
   const runExtract = async (trimmedUrl: string) => {
     if (!isDemoMode) {
       setLocalStage(text.checkingApi);
-      await pingApi();
+      try {
+        await pingApi(12_000);
+      } catch {
+        // Named origin stays selected; the first real API call is the source of truth.
+        // Browser /healthz probes often abort on IPv6/HTTP3 while POST /v1 still works.
+      }
     }
     setLocalStage(text.preparingProject);
     const projectTitle =
