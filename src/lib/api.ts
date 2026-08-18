@@ -169,6 +169,16 @@ function tunnelExtraHeaders(origin: string): Record<string, string> {
  * only as fallback. All network waits are bounded so mobile never hangs on
  * "API 연결 확인 중…".
  */
+function namedApiOrigin(): string | null {
+  const candidates = [BUILTIN_API_ORIGIN, getApiOrigin()];
+  for (const origin of candidates) {
+    if (origin && /api\.dubbyai\.com$/i.test(origin) && !isEphemeralOrigin(origin)) {
+      return origin;
+    }
+  }
+  return null;
+}
+
 export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
   // Drop sticky quick-tunnel URLs immediately — they cause Failed to fetch on
   // mobile long after the PC tunnel rotated.
@@ -178,6 +188,13 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
     current = getApiOrigin();
   }
 
+  // Stable named origin: do not block the app on /healthz. Mobile and some
+  // browsers flake on the health probe even while API calls succeed.
+  const named = namedApiOrigin();
+  if (named) {
+    return markHealthy(rememberApiOrigin(named));
+  }
+
   const cached = healthyOriginCache;
   if (
     cached &&
@@ -185,7 +202,6 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
     cached.origin &&
     !isEphemeralOrigin(cached.origin)
   ) {
-    // Re-validate cheaply; a stale cache entry should not stick across tunnel flaps.
     if (await healthOk(cached.origin, Math.min(timeoutMs, 4000))) {
       return markHealthy(cached.origin);
     }
@@ -203,35 +219,20 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
     return null;
   };
 
-  // 1) Build-time / secret origin (api.dubbyai.com) — usually the right one.
   {
     const hit = await tryOrigin(BUILTIN_API_ORIGIN);
     if (hit) return hit;
   }
 
-  // 2) Non-ephemeral localStorage / ?api= override.
   if (current && !isEphemeralOrigin(current)) {
     const hit = await tryOrigin(current);
     if (hit) return hit;
   }
 
-  // 3) Published pointer (Pages / GitHub), with fetch timeouts.
   const published = await fetchPublishedApiOrigin();
   {
     const hit = await tryOrigin(published);
     if (hit) return hit;
-  }
-
-  // 4) Mobile networks often flake on /healthz even when the API is fine.
-  // Prefer the stable named origin over blocking dubbing entirely.
-  const trusted =
-    (BUILTIN_API_ORIGIN && /api\.dubbyai\.com$/i.test(BUILTIN_API_ORIGIN)
-      ? BUILTIN_API_ORIGIN
-      : null) ||
-    (current && /api\.dubbyai\.com$/i.test(current) ? current : null) ||
-    (published && /api\.dubbyai\.com$/i.test(published) ? published : null);
-  if (trusted && !isEphemeralOrigin(trusted)) {
-    return markHealthy(rememberApiOrigin(trusted));
   }
 
   if (current) forgetApiOrigin();
@@ -269,20 +270,12 @@ export class ApiError extends Error {
 
 /** Lightweight reachability check used before long extract/dub flows. */
 export async function pingApi(timeoutMs = 8000): Promise<void> {
-  const overall = Math.max(timeoutMs * 2, 16_000);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      ensureApiOrigin(timeoutMs),
-      new Promise<never>((_, reject) => {
-        timer = globalThis.setTimeout(() => {
-          reject(new ApiError(apiUnreachableMessage(), 0));
-        }, overall);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) globalThis.clearTimeout(timer);
+  const origin = namedApiOrigin() || (await ensureApiOrigin(timeoutMs));
+  if (await healthOk(origin, Math.max(timeoutMs, 12_000))) {
+    markHealthy(rememberApiOrigin(origin));
+    return;
   }
+  throw new ApiError(apiUnreachableMessage(), 0);
 }
 
 async function requestBlob(path: string): Promise<Blob> {

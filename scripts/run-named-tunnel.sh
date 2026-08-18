@@ -26,5 +26,5 @@ if ! curl -sS -m 3 "http://127.0.0.1:8000/healthz" >/dev/null 2>&1; then
   echo "WARN: nothing healthy on :8000 — start uvicorn first"
 fi
 
-echo "Starting named tunnel with $CONFIG"
-exec "$CF" tunnel --config "$CONFIG" run
+echo "Starting named tunnel with $CONFIG (http2)"
+exec "$CF" tunnel --config "$CONFIG" --protocol http2 run
