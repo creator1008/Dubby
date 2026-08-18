@@ -116,6 +116,7 @@ class SpeechPair:
 class DubSegment(BaseModel):
     idx: int
     target_text: str = Field(min_length=1, max_length=2000)
+    speak_speed: float | None = Field(default=None, ge=0.5, le=1.5)
 
 
 class DubVoiceRequest(BaseModel):
@@ -2178,13 +2179,22 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
             )
             / 1000,
         )
-        speak_speed = initial_speak_speed(
-            segment.target_text,
-            slot_seconds,
-            target_language,
-            min_speed=speak_min,
-            max_speed=speak_max,
+        user_locked_speed = (
+            segment.speak_speed is not None and float(segment.speak_speed) > 0
         )
+        if user_locked_speed:
+            speak_speed = min(
+                max(float(segment.speak_speed), ELEVENLABS_SPEAK_SPEED_MIN),
+                ELEVENLABS_SPEAK_SPEED_MAX,
+            )
+        else:
+            speak_speed = initial_speak_speed(
+                segment.target_text,
+                slot_seconds,
+                target_language,
+                min_speed=speak_min,
+                max_speed=speak_max,
+            )
         tts_body: dict[str, object] = {
             "text": segment.target_text,
             "model_id": model,
@@ -2216,35 +2226,35 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         output_path = output_dir / filename
         output_path.write_bytes(response.content)
         duration = _audio_duration(output_path)
-        # If the estimate was badly off, one corrective resynth is still cheaper
-        # than always doing a calibration pass.
-        measured_speed = speak_speed_for_slot(
-            duration,
-            slot_seconds,
-            min_speed=speak_min,
-            max_speed=speak_max,
-        )
-        if abs(measured_speed - speak_speed) >= 0.12 and measured_speed > 1.03:
-            tts_body["voice_settings"] = {
-                **settings,
-                "use_speaker_boost": True,
-                "speed": min(
-                    max(measured_speed, ELEVENLABS_SPEAK_SPEED_MIN),
-                    ELEVENLABS_SPEAK_SPEED_MAX,
-                ),
-            }
-            response = _eleven_request(
-                "POST",
-                f"{base}/v1/text-to-speech/{voice_id}",
-                label="TTS",
-                params={"output_format": "mp3_44100_128"},
-                headers={**_eleven_headers(), "Content-Type": "application/json"},
-                json=tts_body,
-                timeout=300,
+        # Auto-correct only when the editor did not lock a speak rate.
+        if not user_locked_speed:
+            measured_speed = speak_speed_for_slot(
+                duration,
+                slot_seconds,
+                min_speed=speak_min,
+                max_speed=speak_max,
             )
-            output_path.write_bytes(response.content)
-            duration = _audio_duration(output_path)
-            speak_speed = measured_speed
+            if abs(measured_speed - speak_speed) >= 0.12 and measured_speed > 1.03:
+                tts_body["voice_settings"] = {
+                    **settings,
+                    "use_speaker_boost": True,
+                    "speed": min(
+                        max(measured_speed, ELEVENLABS_SPEAK_SPEED_MIN),
+                        ELEVENLABS_SPEAK_SPEED_MAX,
+                    ),
+                }
+                response = _eleven_request(
+                    "POST",
+                    f"{base}/v1/text-to-speech/{voice_id}",
+                    label="TTS",
+                    params={"output_format": "mp3_44100_128"},
+                    headers={**_eleven_headers(), "Content-Type": "application/json"},
+                    json=tts_body,
+                    timeout=300,
+                )
+                output_path.write_bytes(response.content)
+                duration = _audio_duration(output_path)
+                speak_speed = measured_speed
         tts_level = _mean_volume_db(
             output_path,
             0,
@@ -2258,7 +2268,11 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
             "source_level_db": source_level,
             "tts_level_db": tts_level,
             "gain_db": gain_db,
-            "speak_speed": speak_speed if speak_speed > 1.03 else 1.0,
+            "speak_speed": (
+                float(segment.speak_speed)
+                if user_locked_speed
+                else (speak_speed if speak_speed > 1.03 else 1.0)
+            ),
             "audio_url": (
                 f"/v1/local/step12/{request.run_id}/dubbed_speech/{filename}"
             ),

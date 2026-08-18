@@ -51,31 +51,32 @@ export type Segment = {
   audio_url?: string;
   /** ElevenLabs preview generated from the reviewed translated text. */
   dubbed_audio_url?: string;
-  /** Auto-fitted TTS speak speed for this segment (1.0 = natural). */
+  /** Auto-fitted / editor TTS speak speed for this segment (1.0 = natural). */
   speak_speed?: number;
-  /** Original auto-fitted speed; used by the reset control. */
+  /** Reset target for the speak-rate control (always natural 1.0). */
   baseline_speak_speed?: number;
+  /** Speak rate used when the current dubbed preview clip was synthesized. */
+  clip_speak_speed?: number;
 };
 
 /** Keep preview clips when the API omits optional voice fields.
- * Prefer server speak_speed/end_ms after save (auto-refit).
+ * Prefer server speak_speed after save; reset target is always natural 1.0×.
  */
 export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segment[] {
   const byId = new Map(prev.map((row) => [row.id, row]));
   return next.map((row) => {
     const prior = byId.get(row.id);
-    if (!prior) return row;
+    if (!prior) return { ...row, baseline_speak_speed: 1 };
     return {
       ...row,
       dubbed_audio_url: row.dubbed_audio_url ?? prior.dubbed_audio_url,
       speak_speed:
-        typeof row.speak_speed === "number" ? row.speak_speed : prior.speak_speed,
-      baseline_speak_speed:
-        typeof row.baseline_speak_speed === "number"
-          ? row.baseline_speak_speed
-          : typeof row.speak_speed === "number"
-            ? row.speak_speed
-            : prior.baseline_speak_speed,
+        typeof row.speak_speed === "number" ? row.speak_speed : prior.speak_speed ?? 1,
+      baseline_speak_speed: 1,
+      clip_speak_speed:
+        typeof row.clip_speak_speed === "number"
+          ? row.clip_speak_speed
+          : prior.clip_speak_speed,
     };
   });
 }

@@ -362,6 +362,10 @@ export default function NewDubPage() {
       .map((segment) => ({
         idx: segment.idx,
         target_text: segment.target_text.trim(),
+        speak_speed:
+          typeof segment.speak_speed === "number" && Number.isFinite(segment.speak_speed)
+            ? segment.speak_speed
+            : 1,
       }));
     if (!speakable.length) {
       throw new Error("더빙할 번역 텍스트가 없습니다.");
@@ -605,7 +609,11 @@ export default function NewDubPage() {
         source_text,
         target_text,
         end_ms,
-        speak_speed,
+        // Always persist a concrete rate so the next dub honors the editor.
+        speak_speed:
+          typeof speak_speed === "number" && Number.isFinite(speak_speed)
+            ? speak_speed
+            : 1,
       })),
     );
     const merged = mergeSegmentVoiceFields(prepared, next);
@@ -1218,12 +1226,4 @@ export default function NewDubPage() {
               <p className="muted" style={{ marginTop: "0.75rem" }}>
                 {project.status === "completed" && hasDubVoice
                   ? text.afterPendingAfterEdit
-                  : text.afterPending}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+               

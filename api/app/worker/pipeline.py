@@ -48,7 +48,7 @@ from .dub_quality import (
     source_loudness_levels_async,
     voice_removal_ranges,
 )
-from .dub_voice_assets import persist_dub_voice_assets
+from .dub_voice_assets import load_dub_voice_manifest, persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
 from .media import ffmpeg_has_rubberband, validate_source
@@ -785,6 +785,30 @@ async def run_dub(ctx: JobContext) -> None:
     try:
         project = await _load_project(ctx)
         segments = await ctx.repo.list_segments_for_worker(ctx.project_id)
+        # Editor-saved speak rates may live in R2 when the DB column is absent.
+        try:
+            from .dub_voice_assets import load_dub_voice_manifest
+
+            manifest_speeds = await load_dub_voice_manifest(
+                ctx.storage, str(project.get("source_key") or "") or None
+            )
+            for row in segments:
+                if row.get("speak_speed") is not None:
+                    continue
+                try:
+                    idx = int(row["idx"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                meta = manifest_speeds.get(idx) or {}
+                speed = meta.get("speak_speed")
+                try:
+                    speed_f = float(speed) if speed is not None else None
+                except (TypeError, ValueError):
+                    speed_f = None
+                if speed_f is not None and speed_f > 0:
+                    row["speak_speed"] = speed_f
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not load editor speak speeds: %s", exc)
         translated = [s for s in segments if str(s.get("target_text", "")).strip()]
         if not translated:
             raise PipelineError(
@@ -918,18 +942,13 @@ async def run_dub(ctx: JobContext) -> None:
                     saved_f = float(saved_speed) if saved_speed is not None else None
                 except (TypeError, ValueError):
                     saved_f = None
-                if saved_f is not None and saved_f > 0:
+                speak_speed_locked = saved_f is not None and saved_f > 0
+                if speak_speed_locked:
+                    # Honor editor-saved rate (ElevenLabs API bounds).
                     speak_speed = max(0.7, min(1.2, saved_f))
                 else:
-                    speak_speed = speak_speed_matching_source(
-                        source_text,
-                        source_lang,
-                        text,
-                        target_lang,
-                        slot_s,
-                        min_speed=0.7,
-                        max_speed=1.2,
-                    )
+                    # Natural translation delivery defaults to 1.0×.
+                    speak_speed = 1.0
                 await _with_retries(
                     ctx,
                     lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
@@ -965,6 +984,7 @@ async def run_dub(ctx: JobContext) -> None:
                     "next_start": next_start,
                     "clip_s": clip_s,
                     "speak_speed": speak_speed,
+                    "speak_speed_locked": speak_speed_locked,
                 }
 
         primary = await asyncio.gather(
@@ -990,6 +1010,7 @@ async def run_dub(ctx: JobContext) -> None:
                 next_start = item["next_start"]
                 source_text = item["source_text"]
                 speak_speed = float(item.get("speak_speed") or 1.0)
+                locked = bool(item.get("speak_speed_locked"))
 
                 # 1) Compress translation (same meaning, fewer spoken syllables).
                 if ctx.settings.translation_timing_rewrite:
@@ -1004,15 +1025,16 @@ async def run_dub(ctx: JobContext) -> None:
                         rewritten = str(compressed or "").strip()
                         if rewritten and not _rewrite_diverges(text, rewritten):
                             text = rewritten
-                            speak_speed = speak_speed_matching_source(
-                                source_text,
-                                source_lang,
-                                text,
-                                target_lang,
-                                slot_s,
-                                min_speed=0.7,
-                                max_speed=1.2,
-                            )
+                            if not locked:
+                                speak_speed = speak_speed_matching_source(
+                                    source_text,
+                                    source_lang,
+                                    text,
+                                    target_lang,
+                                    slot_s,
+                                    min_speed=0.7,
+                                    max_speed=1.2,
+                                )
                             await _with_retries(
                                 ctx,
                                 lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
@@ -1066,10 +1088,15 @@ async def run_dub(ctx: JobContext) -> None:
                         if clip_s / slot_s <= 1 + tolerance:
                             return item
 
-                # 3) Next subtitle blocks further extend — speed up TTS instead of cutting.
+                # 3) Speed up TTS only when the editor did not lock speak_speed.
+                # Locked rates rely on residual tempo fit instead of re-synthesis.
                 clip_s = float(item["clip_s"])
                 slot_s = float(item["slot_s"])
-                if slot_s > 0 and clip_s / slot_s > 1 + tolerance:
+                if (
+                    not locked
+                    and slot_s > 0
+                    and clip_s / slot_s > 1 + tolerance
+                ):
                     current_speed = float(item.get("speak_speed") or 1.0)
                     # Estimate duration at speed=1.0, then pick EL speed to fit slot.
                     natural_s = clip_s * max(current_speed, 0.01)

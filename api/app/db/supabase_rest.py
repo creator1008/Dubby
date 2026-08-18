@@ -327,6 +327,37 @@ class SupabaseRestRepository(Repository):
                 ],
             },
         )
+        # Guarantee end_ms / speak_speed persistence even when the RPC is an
+        # older revision that only updates texts.
+        for seg_id, _target, _source, end_ms, speak_speed in updates:
+            patch: dict[str, object] = {}
+            if end_ms is not None and end_ms > 0:
+                patch["end_ms"] = int(end_ms)
+            if speak_speed is not None:
+                patch["speak_speed"] = float(speak_speed)
+            if not patch:
+                continue
+            resp = await self.client.patch(
+                "/segments",
+                params={"id": f"eq.{seg_id}", "project_id": f"eq.{project_id}"},
+                json=patch,
+            )
+            if resp.status_code >= 400 and "speak_speed" in patch:
+                patch.pop("speak_speed", None)
+                if not patch:
+                    continue
+                resp = await self.client.patch(
+                    "/segments",
+                    params={"id": f"eq.{seg_id}", "project_id": f"eq.{project_id}"},
+                    json=patch,
+                )
+            if resp.status_code >= 400:
+                logger = __import__("logging").getLogger("dubby.db")
+                logger.warning(
+                    "segment timing patch failed id=%s: %s",
+                    seg_id,
+                    resp.text[:200],
+                )
         return int(result or 0)
 
     # --- jobs -------------------------------------------------------------------

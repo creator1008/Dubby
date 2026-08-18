@@ -89,25 +89,31 @@ async def update_segments(
         ],
     )
     rows = await repo.list_segments(user.id, project_id)
-    speeds = {
-        int(row["idx"]): float(row["speak_speed"])
-        for row in rows
-        if row.get("speak_speed") is not None
-    }
-    # Fallback to request body when DB column is not yet migrated.
-    if not speeds:
-        id_to_idx = {str(row["id"]): int(row["idx"]) for row in rows}
-        for seg in body.segments:
-            if seg.speak_speed is None:
-                continue
-            idx = id_to_idx.get(str(seg.id))
-            if idx is not None:
-                speeds[idx] = float(seg.speak_speed)
+    id_to_idx = {str(row["id"]): int(row["idx"]) for row in rows}
+    speeds: dict[int, float] = {}
+    for row in rows:
+        if row.get("speak_speed") is not None:
+            try:
+                speeds[int(row["idx"])] = float(row["speak_speed"])
+            except (TypeError, ValueError):
+                pass
+    # Request body wins — this is the editor-saved rate for the next dub.
+    for seg in body.segments:
+        if seg.speak_speed is None:
+            continue
+        idx = id_to_idx.get(str(seg.id))
+        if idx is not None:
+            speeds[idx] = float(seg.speak_speed)
     await update_manifest_speak_speeds(
         storage,
         source_key=str(project.get("source_key") or "") or None,
         speeds_by_idx=speeds,
     )
+    # Reflect saved rates in the response even when DB lacks the column.
+    for row in rows:
+        idx = int(row["idx"])
+        if idx in speeds:
+            row["speak_speed"] = speeds[idx]
     return await _segment_outs(
         rows,
         storage=storage,

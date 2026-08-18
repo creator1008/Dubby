@@ -283,7 +283,7 @@ export async function retranslateLocalSegments(
 
 export async function generateLocalDubVoice(
   runId: string,
-  segments: Array<{ idx: number; target_text: string }>,
+  segments: Array<{ idx: number; target_text: string; speak_speed?: number }>,
   toneStyle: string,
   voiceIds: string[] = [],
 ): Promise<Array<{ idx: number; audio_url: string; speak_speed?: number }>> {

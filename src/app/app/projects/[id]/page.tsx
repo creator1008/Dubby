@@ -148,7 +148,10 @@ function ProjectEditor() {
           source_text,
           target_text,
           end_ms,
-          speak_speed,
+          speak_speed:
+            typeof speak_speed === "number" && Number.isFinite(speak_speed)
+              ? speak_speed
+              : 1,
         })),
       );
       const merged = mergeSegmentVoiceFields(prepared, next);

@@ -75,6 +75,8 @@ async def persist_dub_voice_assets(
             {
                 "idx": idx,
                 "speak_speed": speak_speed,
+                # Rate used to synthesize the uploaded clip (preview playback).
+                "clip_speak_speed": speak_speed,
                 "audio_key": clip_key,
             }
         )
@@ -127,24 +129,29 @@ async def update_manifest_speak_speeds(
     source_key: str | None,
     speeds_by_idx: dict[int, float],
 ) -> None:
-    """Patch speak_speed values in the existing dub-voice manifest."""
+    """Upsert speak_speed values into the dub-voice manifest (create if needed)."""
     if not source_key or not speeds_by_idx:
         return
     by_idx = await load_dub_voice_manifest(storage, source_key)
-    if not by_idx:
-        return
     changed = False
     for idx, speed in speeds_by_idx.items():
-        row = by_idx.get(idx)
-        if not row:
-            continue
         try:
             speed_f = float(speed)
         except (TypeError, ValueError):
             continue
         if speed_f <= 0:
             continue
-        if abs(float(row.get("speak_speed") or 0) - speed_f) >= 0.001:
+        row = by_idx.get(idx)
+        if not row:
+            by_idx[idx] = {"idx": idx, "speak_speed": speed_f, "audio_key": ""}
+            changed = True
+            continue
+        prev = row.get("speak_speed")
+        try:
+            prev_f = float(prev) if prev is not None else None
+        except (TypeError, ValueError):
+            prev_f = None
+        if prev_f is None or abs(prev_f - speed_f) >= 0.001:
             row["speak_speed"] = speed_f
             changed = True
     if not changed:
@@ -191,7 +198,17 @@ async def enrich_segments_with_dub_voice(
                 break
         if speed_f is not None:
             copied["speak_speed"] = speed_f
-            copied["baseline_speak_speed"] = speed_f
+        else:
+            copied["speak_speed"] = 1.0
+        # Natural delivery is always 1.0×; reset returns here.
+        copied["baseline_speak_speed"] = 1.0
+        clip_speed = meta.get("clip_speak_speed", meta.get("speak_speed"))
+        try:
+            clip_f = float(clip_speed) if clip_speed is not None else None
+        except (TypeError, ValueError):
+            clip_f = None
+        if clip_f is not None and clip_f > 0:
+            copied["clip_speak_speed"] = clip_f
         audio_key = str(meta.get("audio_key") or "").strip()
         if audio_key:
             try:
