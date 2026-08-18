@@ -122,7 +122,13 @@ class DubSegment(BaseModel):
 class DubVoiceRequest(BaseModel):
     run_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     segments: list[DubSegment] = Field(min_length=1, max_length=500)
-    tone_style: str = Field(default="neutral", pattern="^(neutral|warm|energetic|serious)$")
+    tone_style: str = Field(
+        default="calm",
+        pattern=(
+            "^(sad|angry|whisper|excited|energetic|calm|cheerful|"
+            "neutral|warm|serious)$"
+        ),
+    )
     voice_ids: list[str] = Field(default_factory=list, max_length=8)
 
 class RenderSegment(BaseModel):
@@ -2144,18 +2150,19 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         )
         voices = voices_future.result()
         source_levels = levels_future.result()
+    from .worker.emotion import (
+        detect_segment_emotion,
+        normalize_emotion_tone,
+        voice_settings_for_emotion,
+    )
+
+    project_tone = normalize_emotion_tone(request.tone_style)
     base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
     target_language = str(manifest.get("target_language") or "")
     model = tts_model_for_language(
         os.getenv("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5"),
         target_language,
     )
-    settings = {
-        "neutral": {"stability": 0.55, "similarity_boost": 0.75, "style": 0.0},
-        "warm": {"stability": 0.48, "similarity_boost": 0.78, "style": 0.25},
-        "energetic": {"stability": 0.32, "similarity_boost": 0.72, "style": 0.65},
-        "serious": {"stability": 0.75, "similarity_boost": 0.8, "style": 0.15},
-    }[request.tone_style]
     output_dir = work_dir / "dubbed_speech"
     output_dir.mkdir(exist_ok=True)
     speak_min = float(
@@ -2166,18 +2173,34 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
     )
     concurrency = max(1, int(os.getenv("TTS_CONCURRENCY", "4")))
 
+    vocals_path = work_dir / "stems" / "htdemucs" / "original_audio" / "vocals.wav"
+    if not vocals_path.is_file():
+        # Fallback path used by some local scratch layouts.
+        candidates = list(work_dir.glob("stems/**/vocals.wav"))
+        vocals_path = candidates[0] if candidates else vocals_path
+
     def _synthesize_one(position: int, segment: DubSegment) -> dict[str, object]:
         filename = f"{segment.idx + 1:04d}.mp3"
         speaker_id = speaker_by_idx[segment.idx]
         voice_id = voices[speaker_id][0]
         source_meta = source_segments.get(segment.idx, {})
+        start_ms = int(source_meta.get("start_ms", 0))
+        end_ms = int(source_meta.get("end_ms", 0))
+        source_text = str(source_meta.get("text") or source_meta.get("source_text") or "")
+        if vocals_path.is_file() and end_ms > start_ms:
+            emotion_tone = detect_segment_emotion(
+                str(vocals_path),
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source_text=source_text,
+                fallback=project_tone,
+            )
+        else:
+            emotion_tone = project_tone
+        settings = voice_settings_for_emotion(emotion_tone)
         slot_seconds = max(
             0.001,
-            (
-                int(source_meta.get("end_ms", 0))
-                - int(source_meta.get("start_ms", 0))
-            )
-            / 1000,
+            (end_ms - start_ms) / 1000,
         )
         user_locked_speed = (
             segment.speak_speed is not None and float(segment.speak_speed) > 0
@@ -2268,6 +2291,7 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
             "source_level_db": source_level,
             "tts_level_db": tts_level,
             "gain_db": gain_db,
+            "emotion_tone": emotion_tone,
             "speak_speed": (
                 float(segment.speak_speed)
                 if user_locked_speed

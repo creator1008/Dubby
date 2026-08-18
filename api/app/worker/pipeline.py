@@ -906,9 +906,13 @@ async def run_dub(ctx: JobContext) -> None:
         vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
 
         segment_bounds = [
-            (int(segment["start_ms"]), int(segment["end_ms"]))
+            (
+                int(segment["start_ms"]),
+                int(segment.get("source_end_ms") or segment["end_ms"]),
+            )
             for segment in speakable
-            if int(segment["end_ms"]) > int(segment["start_ms"])
+            if int(segment.get("source_end_ms") or segment["end_ms"])
+            > int(segment["start_ms"])
         ]
         if not segment_bounds:
             raise PipelineError(
@@ -928,13 +932,40 @@ async def run_dub(ctx: JobContext) -> None:
         )
         speakable_indices = {int(segment["idx"]) for segment in speakable}
         source_levels = await source_loudness_levels_async(
-            speakable,
+            [
+                {
+                    **segment,
+                    # Match loudness to the original ASR span, not a rate-shortened end.
+                    "end_ms": int(
+                        segment.get("source_end_ms") or segment["end_ms"]
+                    ),
+                }
+                for segment in speakable
+            ],
             segment_bounds,
             speakable_indices,
             lambda start_ms, end_ms: engine.measure_segment_loudness(
                 vocals, start_ms, end_ms
             ),
         )
+
+        from .emotion import detect_emotions_for_segments, normalize_emotion_tone
+
+        project_tone = normalize_emotion_tone(
+            str(project.get("tone_style") or "calm")
+        )
+        emotion_by_idx = detect_emotions_for_segments(
+            str(vocals),
+            speakable,
+            fallback=project_tone,
+        )
+        for segment in speakable:
+            try:
+                idx = int(segment["idx"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            tone = emotion_by_idx.get(idx, project_tone)
+            segment["emotion_tone"] = tone
 
         await ctx.report(0.40, "dub_voice_tts")
         speakers: list[str] = []
@@ -972,7 +1003,7 @@ async def run_dub(ctx: JobContext) -> None:
         clips_dir.mkdir()
         total = len(speakable)
         target_lang = str(project["target_lang"])
-        tone_style = str(project.get("tone_style") or "neutral")
+        tone_style = str(project.get("tone_style") or "calm")
         tolerance = ctx.settings.translation_timing_tolerance
         tts_concurrency = max(1, int(ctx.settings.tts_concurrency))
         sem = asyncio.Semaphore(tts_concurrency)
@@ -1005,13 +1036,16 @@ async def run_dub(ctx: JobContext) -> None:
                 )
                 # ElevenLabs TTS rate (clamped).
                 speak_speed = max(0.7, min(1.2, editor_speak_speed))
+                segment_tone = str(
+                    seg.get("emotion_tone") or tone_style or "calm"
+                )
                 await _with_retries(
                     ctx,
-                    lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                    lambda t=text, p=str(raw), v=voice_id, s=speak_speed, tone=segment_tone: engine.tts(
                         t,
                         v,
                         p,
-                        tone_style,
+                        tone,
                         target_lang,
                         s,
                     ),
@@ -1043,6 +1077,7 @@ async def run_dub(ctx: JobContext) -> None:
                     "speak_speed": editor_speak_speed,
                     "tts_speak_speed": speak_speed,
                     "speak_speed_locked": speak_speed_locked,
+                    "emotion_tone": segment_tone,
                     "source_end_ms": int(
                         seg.get("source_end_ms")
                         or end_ms
@@ -1076,6 +1111,12 @@ async def run_dub(ctx: JobContext) -> None:
                     item.get("tts_speak_speed") or speak_speed or 1.0
                 )
                 locked = bool(item.get("speak_speed_locked"))
+                segment_tone = str(
+                    item.get("emotion_tone")
+                    or item.get("seg", {}).get("emotion_tone")
+                    or tone_style
+                    or "calm"
+                )
 
                 # 1) Compress translation (same meaning, fewer spoken syllables).
                 if ctx.settings.translation_timing_rewrite:
@@ -1103,11 +1144,11 @@ async def run_dub(ctx: JobContext) -> None:
                                 tts_speak_speed = max(0.7, min(1.2, speak_speed))
                             await _with_retries(
                                 ctx,
-                                lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed: engine.tts(
+                                lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed, tone=segment_tone: engine.tts(
                                     t,
                                     v,
                                     p,
-                                    tone_style,
+                                    tone,
                                     target_lang,
                                     s,
                                 ),
@@ -1181,11 +1222,11 @@ async def run_dub(ctx: JobContext) -> None:
                         tts_speak_speed = faster
                         await _with_retries(
                             ctx,
-                            lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed: engine.tts(
+                            lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed, tone=segment_tone: engine.tts(
                                 t,
                                 v,
                                 p,
-                                tone_style,
+                                tone,
                                 target_lang,
                                 s,
                             ),

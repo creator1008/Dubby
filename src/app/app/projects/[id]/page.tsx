@@ -384,16 +384,25 @@ function ProjectEditor() {
             <label>
               {text.tone}
               <select
-                value={project.tone_style}
+                value={
+                  ["sad", "angry", "whisper", "excited", "energetic", "calm", "cheerful"].includes(
+                    project.tone_style,
+                  )
+                    ? project.tone_style
+                    : "calm"
+                }
                 disabled={Boolean(activeJob)}
                 onChange={(e) => void updateQualitySetting({
                   tone_style: e.target.value as ToneStyle,
                 })}
               >
-                <option value="neutral">Neutral</option>
-                <option value="warm">Warm</option>
-                <option value="energetic">Energetic</option>
-                <option value="serious">Serious</option>
+                <option value="sad">{text.toneSad}</option>
+                <option value="angry">{text.toneAngry}</option>
+                <option value="whisper">{text.toneWhisper}</option>
+                <option value="excited">{text.toneExcited}</option>
+                <option value="energetic">{text.toneEnergetic}</option>
+                <option value="calm">{text.toneCalm}</option>
+                <option value="cheerful">{text.toneCheerful}</option>
               </select>
             </label>
             <label>

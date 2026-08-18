@@ -90,7 +90,7 @@ export default function NewDubPage() {
   const [sourceLang, setSourceLang] = useState<LangCode>("ko");
   const [targetLang, setTargetLang] = useState<LangCode>("en");
   const [subtitleMode, setSubtitleMode] = useState<SubtitleMode>("none");
-  const [toneStyle, setToneStyle] = useState<ToneStyle>("neutral");
+  const [toneStyle, setToneStyle] = useState<ToneStyle>("calm");
   const [diarizationEnabled, setDiarizationEnabled] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"voice_box" | "auto_clone">("voice_box");
   const [boxVoices, setBoxVoices] = useState<UserVoice[]>([]);
@@ -839,11 +839,15 @@ export default function NewDubPage() {
                 disabled={uploading}
                 onChange={(e) => setToneStyle(e.target.value as ToneStyle)}
               >
-                <option value="neutral">Neutral</option>
-                <option value="warm">Warm</option>
-                <option value="energetic">Energetic</option>
-                <option value="serious">Serious</option>
+                <option value="sad">{text.toneSad}</option>
+                <option value="angry">{text.toneAngry}</option>
+                <option value="whisper">{text.toneWhisper}</option>
+                <option value="excited">{text.toneExcited}</option>
+                <option value="energetic">{text.toneEnergetic}</option>
+                <option value="calm">{text.toneCalm}</option>
+                <option value="cheerful">{text.toneCheerful}</option>
               </select>
+              <small className="field-hint">{text.toneHelp}</small>
             </label>
             <label>
               {text.speakerSeparation}

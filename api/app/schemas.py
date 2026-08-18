@@ -32,7 +32,19 @@ LangCode = Literal[
     "vi",
 ]
 SubtitleMode = Literal["none", "source", "target"]
-ToneStyle = Literal["neutral", "warm", "energetic", "serious"]
+ToneStyle = Literal[
+    "sad",
+    "angry",
+    "whisper",
+    "excited",
+    "energetic",
+    "calm",
+    "cheerful",
+    # Legacy values still accepted from older clients / DB rows.
+    "neutral",
+    "warm",
+    "serious",
+]
 VoiceMode = Literal["voice_box", "auto_clone"]
 ProjectStatus = Literal[
     "created",
@@ -56,7 +68,7 @@ class ProjectCreate(BaseModel):
     source_lang: LangCode = "ko"
     target_lang: LangCode = "en"
     subtitle_mode: SubtitleMode = "none"
-    tone_style: ToneStyle = "neutral"
+    tone_style: ToneStyle = "calm"
     diarization_enabled: bool = False
     voice_mode: VoiceMode = "voice_box"
     dub_voice_ids: list[str] = Field(default_factory=list, max_length=8)
@@ -81,7 +93,7 @@ class ProjectOut(BaseModel):
     source_lang: str
     target_lang: str
     subtitle_mode: str
-    tone_style: str = "neutral"
+    tone_style: str = "calm"
     diarization_enabled: bool = False
     voice_mode: VoiceMode = "voice_box"
     dub_voice_ids: list[str] = Field(default_factory=list)
@@ -161,6 +173,8 @@ class SegmentOut(BaseModel):
     clip_speak_speed: float | None = None
     # Original ASR end; may differ from end_ms after dub slot extension.
     source_end_ms: int | None = None
+    # Detected / applied emotion tone for this segment's dub.
+    emotion_tone: str | None = None
 
 
 # --- Jobs -------------------------------------------------------------------

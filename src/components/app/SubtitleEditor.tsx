@@ -25,6 +25,23 @@ function formatMs(ms: number) {
   return `${m}:${String(r).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
+function emotionToneLabel(
+  text: Record<string, string>,
+  tone: string | undefined,
+): string | null {
+  if (!tone) return null;
+  const labels: Record<string, string> = {
+    sad: text.toneSad,
+    angry: text.toneAngry,
+    whisper: text.toneWhisper,
+    excited: text.toneExcited,
+    energetic: text.toneEnergetic,
+    calm: text.toneCalm,
+    cheerful: text.toneCheerful,
+  };
+  return labels[tone] ?? tone;
+}
+
 function speakerOrderIndex(segments: Segment[], speakerId: string): number {
   const order: string[] = [];
   for (const seg of segments) {
@@ -200,6 +217,11 @@ export function SubtitleEditor({
                     {text.speaker} {speakerNo}
                   </span>
                 )}
+                {emotionToneLabel(text, seg.emotion_tone) ? (
+                  <span>
+                    {text.tone}: {emotionToneLabel(text, seg.emotion_tone)}
+                  </span>
+                ) : null}
               </div>
               <div className="seg-pair-grid">
                 <div className="seg-field">

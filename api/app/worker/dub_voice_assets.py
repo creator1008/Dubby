@@ -113,6 +113,9 @@ async def persist_dub_voice_assets(
         }
         if source_end_ms is not None:
             meta_row["source_end_ms"] = source_end_ms
+        emotion = item.get("emotion_tone") or seg.get("emotion_tone")
+        if emotion:
+            meta_row["emotion_tone"] = str(emotion)
         segments_meta.append(meta_row)
     if not segments_meta:
         return
@@ -285,6 +288,9 @@ async def enrich_segments_with_dub_voice(
                 source_end_i = end_i if end_i > start_i else None
         if source_end_i is not None and source_end_i > 0:
             copied["source_end_ms"] = source_end_i
+        emotion = meta.get("emotion_tone", copied.get("emotion_tone"))
+        if emotion:
+            copied["emotion_tone"] = str(emotion)
         audio_key = str(meta.get("audio_key") or "").strip()
         if audio_key:
             try:

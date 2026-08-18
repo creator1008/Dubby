@@ -297,12 +297,9 @@ class ElevenLabsClient:
         model = tts_model_for_language(
             self._settings.elevenlabs_tts_model, language
         )
-        voice_settings = {
-            "neutral": {"stability": 0.55, "similarity_boost": 0.75, "style": 0.0},
-            "warm": {"stability": 0.48, "similarity_boost": 0.78, "style": 0.25},
-            "energetic": {"stability": 0.32, "similarity_boost": 0.72, "style": 0.65},
-            "serious": {"stability": 0.75, "similarity_boost": 0.8, "style": 0.15},
-        }.get(tone_style, {"stability": 0.55, "similarity_boost": 0.75, "style": 0.0})
+        from .emotion import voice_settings_for_emotion
+
+        voice_settings = voice_settings_for_emotion(tone_style)
         clamped_speed = min(
             max(float(speed), 0.7),
             1.2,

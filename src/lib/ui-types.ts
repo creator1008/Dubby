@@ -2,7 +2,14 @@ import type { DubLangCode } from "@/lib/languages";
 
 export type LangCode = DubLangCode;
 export type SubtitleMode = "none" | "source" | "target";
-export type ToneStyle = "neutral" | "warm" | "energetic" | "serious";
+export type ToneStyle =
+  | "sad"
+  | "angry"
+  | "whisper"
+  | "excited"
+  | "energetic"
+  | "calm"
+  | "cheerful";
 
 export type Session = {
   user_id: string;
@@ -59,6 +66,8 @@ export type Segment = {
   baseline_speak_speed?: number;
   /** Speak rate used when the current dubbed preview clip was synthesized. */
   clip_speak_speed?: number;
+  /** Detected emotion tone applied when synthesizing this segment's dub. */
+  emotion_tone?: ToneStyle | string;
 };
 
 /** Keep preview clips when the API omits optional voice fields.
@@ -94,6 +103,7 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
         typeof row.clip_speak_speed === "number"
           ? row.clip_speak_speed
           : prior.clip_speak_speed,
+      emotion_tone: row.emotion_tone ?? prior.emotion_tone,
     };
   });
 }
