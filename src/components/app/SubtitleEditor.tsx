@@ -3,16 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { Segment } from "@/lib/ui-types";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
+import {
+  SPEAK_MAX,
+  SPEAK_MIN,
+  SPEAK_STEP,
+  clampSpeakSpeed,
+} from "@/lib/speak-rate";
 
 const LANG_NAMES: Record<string, string> = {
   ko: "한국어",
   en: "English",
   vi: "Tiếng Việt",
 };
-
-const SPEAK_MIN = 0.5;
-const SPEAK_MAX = 1.5;
-const SPEAK_STEP = 0.05;
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -30,11 +32,6 @@ function speakerOrderIndex(segments: Segment[], speakerId: string): number {
   }
   const idx = order.indexOf(speakerId);
   return idx >= 0 ? idx + 1 : 0;
-}
-
-function clampSpeakSpeed(value: number): number {
-  const stepped = Math.round(value / SPEAK_STEP) * SPEAK_STEP;
-  return Math.min(SPEAK_MAX, Math.max(SPEAK_MIN, Number(stepped.toFixed(2))));
 }
 
 type Props = {
@@ -238,18 +235,6 @@ export function SubtitleEditor({
                   ) : null}
                 </div>
               </div>
-              {seg.audio_url && (
-                <div className="seg-audio-verify">
-                  <span>{text.originalSegment}</span>
-                  <audio controls preload="none" src={seg.audio_url} />
-                  {seg.dubbed_audio_url && (
-                    <>
-                      <span>{text.dubbedVoice}</span>
-                      <audio controls preload="none" src={seg.dubbed_audio_url} />
-                    </>
-                  )}
-                </div>
-              )}
             </article>
           );
         })}

@@ -511,7 +511,13 @@ const realApi = {
       request<Segment[]>(`/v1/projects/${projectId}/segments`),
     update: (
       projectId: string,
-      segments: Array<Pick<Segment, "id" | "target_text"> & { source_text?: string }>,
+      segments: Array<
+        Pick<Segment, "id" | "target_text"> & {
+          source_text?: string;
+          end_ms?: number;
+          speak_speed?: number;
+        }
+      >,
     ) =>
       request<Segment[]>(`/v1/projects/${projectId}/segments`, {
         method: "PUT",

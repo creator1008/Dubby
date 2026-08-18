@@ -125,6 +125,8 @@ class SegmentUpdate(BaseModel):
     id: UUID
     target_text: str = Field(max_length=2000)
     source_text: str | None = Field(default=None, max_length=2000)
+    end_ms: int | None = Field(default=None, ge=0)
+    speak_speed: float | None = Field(default=None, ge=0.5, le=1.5)
 
 
 class SegmentsBulkUpdate(BaseModel):

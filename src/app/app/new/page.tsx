@@ -31,11 +31,20 @@ import type {
   UserVoice,
 } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
+import {
+  applySpeakRateChange,
+  prepareSegmentsForSave,
+  videoEndMsFromSegments,
+} from "@/lib/speak-rate";
 
 const MAX_SPEAKER_VOICES = 6;
 
 function snapshotSourceTexts(rows: Segment[]) {
   return Object.fromEntries(rows.map((row) => [row.id, row.source_text]));
+}
+
+function snapshotTargetTexts(rows: Segment[]) {
+  return Object.fromEntries(rows.map((row) => [row.id, row.target_text]));
 }
 
 function speakerLabel(template: string, n: number) {
@@ -105,6 +114,7 @@ export default function NewDubPage() {
   const [error, setError] = useState<string | null>(null);
   const [retranslating, setRetranslating] = useState(false);
   const baselineSourceRef = useRef<Record<string, string>>({});
+  const baselineTargetRef = useRef<Record<string, string>>({});
   const voiceConsent = useVoiceConsent();
 
   useEffect(() => {
@@ -151,6 +161,10 @@ export default function NewDubPage() {
       setSegments(nextSegments);
       if (Object.keys(baselineSourceRef.current).length === 0) {
         baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+      baselineTargetRef.current = snapshotTargetTexts(nextSegments);
+      }
+      if (Object.keys(baselineTargetRef.current).length === 0) {
+        baselineTargetRef.current = snapshotTargetTexts(nextSegments);
       }
       void api.projects
         .voiceRemovedUrl(project.id)
@@ -285,6 +299,7 @@ export default function NewDubPage() {
             );
       nextSegments = await demoApi.applyStep12(created.id, result);
       baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+      baselineTargetRef.current = snapshotTargetTexts(nextSegments);
       nextRunId = result.run_id;
       nextSourceUrl = result.source_url;
       setSegments(nextSegments);
@@ -435,6 +450,7 @@ export default function NewDubPage() {
             const nextSegments = await api.segments.list(projectId);
             setSegments(nextSegments);
             baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+      baselineTargetRef.current = snapshotTargetTexts(nextSegments);
             void api.projects
               .voiceRemovedUrl(projectId)
               .then(({ url }) =>
@@ -568,16 +584,33 @@ export default function NewDubPage() {
 
   const saveSegments = async () => {
     if (!project) return segments;
+    const videoEndMs = videoEndMsFromSegments(
+      segments,
+      project.duration_seconds,
+    );
+    const prepared = prepareSegmentsForSave(
+      segments,
+      baselineTargetRef.current,
+      project.source_lang,
+      project.target_lang,
+      videoEndMs,
+    );
+    if (prepared !== segments) {
+      setSegments(prepared);
+    }
     const next = await api.segments.update(
       project.id,
-      segments.map(({ id, source_text, target_text }) => ({
+      prepared.map(({ id, source_text, target_text, end_ms, speak_speed }) => ({
         id,
         source_text,
         target_text,
+        end_ms,
+        speak_speed,
       })),
     );
-    const merged = mergeSegmentVoiceFields(segments, next);
+    const merged = mergeSegmentVoiceFields(prepared, next);
     setSegments(merged);
+    baselineTargetRef.current = snapshotTargetTexts(merged);
     setMessage("자막을 저장했습니다.");
     return merged;
   };
@@ -637,6 +670,7 @@ export default function NewDubPage() {
       }
       setSegments(mergeSegmentVoiceFields(segments, saved));
       baselineSourceRef.current = snapshotSourceTexts(saved);
+      baselineTargetRef.current = snapshotTargetTexts(saved);
       if (outputUrl) setOutputUrl(null);
       setMessage(text.retranslateDone);
     } catch (err) {
@@ -1048,8 +1082,14 @@ export default function NewDubPage() {
                 onChange={onSegmentChange}
                 onSpeakSpeedChange={(id, speed) => {
                   setSegments((prev) =>
-                    prev.map((row) =>
-                      row.id === id ? { ...row, speak_speed: speed } : row,
+                    applySpeakRateChange(
+                      prev,
+                      id,
+                      speed,
+                      videoEndMsFromSegments(
+                        prev,
+                        project.duration_seconds,
+                      ),
                     ),
                   );
                 }}

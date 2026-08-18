@@ -15,9 +15,18 @@ import { isDubLangCode } from "@/lib/languages";
 import { preferStableMediaUrl } from "@/lib/media-url";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
+import {
+  applySpeakRateChange,
+  prepareSegmentsForSave,
+  videoEndMsFromSegments,
+} from "@/lib/speak-rate";
 
 function snapshotSourceTexts(rows: Segment[]) {
   return Object.fromEntries(rows.map((row) => [row.id, row.source_text]));
+}
+
+function snapshotTargetTexts(rows: Segment[]) {
+  return Object.fromEntries(rows.map((row) => [row.id, row.target_text]));
 }
 
 function ProjectEditor() {
@@ -35,6 +44,7 @@ function ProjectEditor() {
   const [busy, setBusy] = useState(false);
   const [retranslating, setRetranslating] = useState(false);
   const baselineSourceRef = useRef<Record<string, string>>({});
+  const baselineTargetRef = useRef<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -47,6 +57,9 @@ function ProjectEditor() {
     setSegments(nextSegments);
     if (Object.keys(baselineSourceRef.current).length === 0) {
       baselineSourceRef.current = snapshotSourceTexts(nextSegments);
+    }
+    if (Object.keys(baselineTargetRef.current).length === 0) {
+      baselineTargetRef.current = snapshotTargetTexts(nextSegments);
     }
     setJobs(nextJobs);
     if (nextProject.source_key) {
@@ -111,18 +124,36 @@ function ProjectEditor() {
   };
 
   const save = async () => {
-    if (!projectId) return;
+    if (!projectId || !project) return;
     setBusy(true);
     try {
+      const videoEndMs = videoEndMsFromSegments(
+        segments,
+        project.duration_seconds,
+      );
+      const prepared = prepareSegmentsForSave(
+        segments,
+        baselineTargetRef.current,
+        project.source_lang,
+        project.target_lang,
+        videoEndMs,
+      );
+      if (prepared !== segments) {
+        setSegments(prepared);
+      }
       const next = await api.segments.update(
         projectId,
-        segments.map(({ id, source_text, target_text }) => ({
+        prepared.map(({ id, source_text, target_text, end_ms, speak_speed }) => ({
           id,
           source_text,
           target_text,
+          end_ms,
+          speak_speed,
         })),
       );
-      setSegments(mergeSegmentVoiceFields(segments, next));
+      const merged = mergeSegmentVoiceFields(prepared, next);
+      setSegments(merged);
+      baselineTargetRef.current = snapshotTargetTexts(merged);
       setMessage("자막을 저장했습니다.");
     } finally {
       setBusy(false);
@@ -184,6 +215,7 @@ function ProjectEditor() {
       }
       setSegments(mergeSegmentVoiceFields(segments, saved));
       baselineSourceRef.current = snapshotSourceTexts(saved);
+      baselineTargetRef.current = snapshotTargetTexts(saved);
       setMessage(text.retranslateDone);
     } catch (err) {
       setError(err instanceof Error ? err.message : text.retranslate);
@@ -197,6 +229,7 @@ function ProjectEditor() {
     setError(null);
     try {
       await save();
+      setOutputUrl(null);
       await api.jobs.create(projectId, "dub");
       window.dispatchEvent(new Event("credits-changed"));
       await load();
@@ -401,8 +434,11 @@ function ProjectEditor() {
               onChange={onSegmentChange}
               onSpeakSpeedChange={(id, speed) => {
                 setSegments((prev) =>
-                  prev.map((row) =>
-                    row.id === id ? { ...row, speak_speed: speed } : row,
+                  applySpeakRateChange(
+                    prev,
+                    id,
+                    speed,
+                    videoEndMsFromSegments(prev, project.duration_seconds),
                   ),
                 );
               }}
@@ -435,10 +471,20 @@ function ProjectEditor() {
               <button
                 type="button"
                 className="btn-primary btn-dub"
-                disabled={isDemoMode || busy || Boolean(activeJob) || segments.length === 0 || project.status === "completed"}
+                disabled={
+                  isDemoMode ||
+                  busy ||
+                  Boolean(activeJob) ||
+                  segments.length === 0 ||
+                  (project.status !== "ready_for_edit" &&
+                    project.status !== "completed" &&
+                    project.status !== "failed")
+                }
                 onClick={startDub}
               >
-                {isDemoMode ? text.continueAfterVerification : text.startDubbing}
+                {project.status === "completed"
+                  ? text.regenerateDubFile
+                  : text.startDubbing}
               </button>
             </div>
             {message && <p className="form-msg ok">{message}</p>}

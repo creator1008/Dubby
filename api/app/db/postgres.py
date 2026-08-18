@@ -175,7 +175,8 @@ class PostgresRepository(Repository):
     async def list_segments(self, owner_id: UUID, project_id: UUID) -> list[Row]:
         rows = await self.pool.fetch(
             "SELECT s.id, s.project_id, s.idx, s.start_ms, s.end_ms, "
-            "s.source_text, s.target_text, s.speaker_id, s.speaker_overlap "
+            "s.source_text, s.target_text, s.speaker_id, s.speaker_overlap, "
+            "s.speak_speed "
             "FROM public.segments s "
             "JOIN public.projects p ON p.id = s.project_id "
             "WHERE p.owner_id = $1 AND s.project_id = $2 "
@@ -189,7 +190,7 @@ class PostgresRepository(Repository):
         self,
         owner_id: UUID,
         project_id: UUID,
-        updates: list[tuple[UUID, str, str | None]],
+        updates: list[tuple[UUID, str, str | None, int | None, float | None]],
     ) -> int:
         payload = json.dumps(
             [
@@ -197,8 +198,14 @@ class PostgresRepository(Repository):
                     "id": str(seg_id),
                     "target_text": target,
                     "source_text": source,
+                    **({"end_ms": end_ms} if end_ms is not None else {}),
+                    **(
+                        {"speak_speed": speak_speed}
+                        if speak_speed is not None
+                        else {}
+                    ),
                 }
-                for seg_id, target, source in updates
+                for seg_id, target, source, end_ms, speak_speed in updates
             ]
         )
         count = await self.pool.fetchval(
@@ -206,13 +213,31 @@ class PostgresRepository(Repository):
             WITH input AS (
                 SELECT (elem->>'id')::uuid AS id,
                        elem->>'target_text' AS target_text,
-                       elem->>'source_text' AS source_text
+                       elem->>'source_text' AS source_text,
+                       CASE
+                         WHEN elem ? 'end_ms'
+                              AND nullif(elem->>'end_ms', '') IS NOT NULL
+                         THEN (elem->>'end_ms')::integer
+                         ELSE NULL
+                       END AS end_ms,
+                       CASE
+                         WHEN elem ? 'speak_speed'
+                              AND nullif(elem->>'speak_speed', '') IS NOT NULL
+                         THEN (elem->>'speak_speed')::double precision
+                         ELSE NULL
+                       END AS speak_speed
                 FROM jsonb_array_elements($3::jsonb) AS elem
             ),
             updated AS (
                 UPDATE public.segments s
                 SET target_text = input.target_text,
-                    source_text = coalesce(input.source_text, s.source_text)
+                    source_text = coalesce(input.source_text, s.source_text),
+                    end_ms = CASE
+                      WHEN input.end_ms IS NOT NULL AND input.end_ms > s.start_ms
+                      THEN input.end_ms
+                      ELSE s.end_ms
+                    END,
+                    speak_speed = coalesce(input.speak_speed, s.speak_speed)
                 FROM input, public.projects p
                 WHERE s.id = input.id
                   AND s.project_id = $2
@@ -431,7 +456,7 @@ class PostgresRepository(Repository):
     async def list_segments_for_worker(self, project_id: UUID) -> list[Row]:
         rows = await self.pool.fetch(
             "SELECT id, project_id, idx, start_ms, end_ms, source_text, target_text, "
-            "speaker_id, speaker_overlap "
+            "speaker_id, speaker_overlap, speak_speed "
             "FROM public.segments WHERE project_id = $1 ORDER BY idx",
             project_id,
         )

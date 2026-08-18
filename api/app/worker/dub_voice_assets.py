@@ -121,6 +121,47 @@ async def load_dub_voice_manifest(
     return out
 
 
+async def update_manifest_speak_speeds(
+    storage: R2Storage,
+    *,
+    source_key: str | None,
+    speeds_by_idx: dict[int, float],
+) -> None:
+    """Patch speak_speed values in the existing dub-voice manifest."""
+    if not source_key or not speeds_by_idx:
+        return
+    by_idx = await load_dub_voice_manifest(storage, source_key)
+    if not by_idx:
+        return
+    changed = False
+    for idx, speed in speeds_by_idx.items():
+        row = by_idx.get(idx)
+        if not row:
+            continue
+        try:
+            speed_f = float(speed)
+        except (TypeError, ValueError):
+            continue
+        if speed_f <= 0:
+            continue
+        if abs(float(row.get("speak_speed") or 0) - speed_f) >= 0.001:
+            row["speak_speed"] = speed_f
+            changed = True
+    if not changed:
+        return
+    manifest = {
+        "segments": [by_idx[idx] for idx in sorted(by_idx.keys())],
+    }
+    try:
+        await storage.upload_bytes(
+            json.dumps(manifest, ensure_ascii=False).encode("utf-8"),
+            dub_manifest_key(storage, source_key),
+            "application/json",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("dub voice manifest speed update failed: %s", exc)
+
+
 async def enrich_segments_with_dub_voice(
     storage: R2Storage,
     rows: list[dict[str, Any]],
@@ -130,8 +171,6 @@ async def enrich_segments_with_dub_voice(
 ) -> list[dict[str, Any]]:
     """Attach dubbed_audio_url / speak_speed fields for the editor UI."""
     by_idx = await load_dub_voice_manifest(storage, source_key)
-    if not by_idx:
-        return rows
     enriched: list[dict[str, Any]] = []
     for row in rows:
         copied = dict(row)
@@ -140,19 +179,19 @@ async def enrich_segments_with_dub_voice(
         except (TypeError, ValueError):
             enriched.append(copied)
             continue
-        meta = by_idx.get(idx)
-        if not meta:
-            enriched.append(copied)
-            continue
-        speed = meta.get("speak_speed")
-        try:
-            speed_f = float(speed) if speed is not None else 1.0
-        except (TypeError, ValueError):
-            speed_f = 1.0
-        if speed_f <= 0:
-            speed_f = 1.0
-        copied["speak_speed"] = speed_f
-        copied["baseline_speak_speed"] = speed_f
+        meta = by_idx.get(idx) or {}
+        speed_f: float | None = None
+        for candidate in (copied.get("speak_speed"), meta.get("speak_speed")):
+            try:
+                value = float(candidate) if candidate is not None else None
+            except (TypeError, ValueError):
+                value = None
+            if value is not None and value > 0:
+                speed_f = value
+                break
+        if speed_f is not None:
+            copied["speak_speed"] = speed_f
+            copied["baseline_speak_speed"] = speed_f
         audio_key = str(meta.get("audio_key") or "").strip()
         if audio_key:
             try:

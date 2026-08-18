@@ -57,7 +57,9 @@ export type Segment = {
   baseline_speak_speed?: number;
 };
 
-/** Keep preview clips / speak-rate edits when the API omits optional voice fields. */
+/** Keep preview clips when the API omits optional voice fields.
+ * Prefer server speak_speed/end_ms after save (auto-refit).
+ */
 export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segment[] {
   const byId = new Map(prev.map((row) => [row.id, row]));
   return next.map((row) => {
@@ -67,11 +69,13 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
       ...row,
       dubbed_audio_url: row.dubbed_audio_url ?? prior.dubbed_audio_url,
       speak_speed:
-        typeof prior.speak_speed === "number" ? prior.speak_speed : row.speak_speed,
+        typeof row.speak_speed === "number" ? row.speak_speed : prior.speak_speed,
       baseline_speak_speed:
         typeof row.baseline_speak_speed === "number"
           ? row.baseline_speak_speed
-          : prior.baseline_speak_speed,
+          : typeof row.speak_speed === "number"
+            ? row.speak_speed
+            : prior.baseline_speak_speed,
     };
   });
 }

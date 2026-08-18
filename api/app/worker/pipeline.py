@@ -913,15 +913,23 @@ async def run_dub(ctx: JobContext) -> None:
                 slot_s = safe_slot_seconds(
                     int(seg["start_ms"]), end_ms, next_start
                 )
-                speak_speed = speak_speed_matching_source(
-                    source_text,
-                    source_lang,
-                    text,
-                    target_lang,
-                    slot_s,
-                    min_speed=0.7,
-                    max_speed=1.2,
-                )
+                saved_speed = seg.get("speak_speed")
+                try:
+                    saved_f = float(saved_speed) if saved_speed is not None else None
+                except (TypeError, ValueError):
+                    saved_f = None
+                if saved_f is not None and saved_f > 0:
+                    speak_speed = max(0.7, min(1.2, saved_f))
+                else:
+                    speak_speed = speak_speed_matching_source(
+                        source_text,
+                        source_lang,
+                        text,
+                        target_lang,
+                        slot_s,
+                        min_speed=0.7,
+                        max_speed=1.2,
+                    )
                 await _with_retries(
                     ctx,
                     lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
@@ -1101,18 +1109,25 @@ async def run_dub(ctx: JobContext) -> None:
             *[_fit_natural_delivery(item) for item in primary]
         )
 
-        # Persist compressed lines + extended ends so editor/ASS stay consistent.
-        text_updates: list[tuple] = []
+        # Persist compressed lines + extended ends + speak speeds for the editor.
+        persist_updates: list[tuple] = []
         end_by_idx: dict[int, int] = {}
         for item in refined:
             seg = item["seg"]
             idx = int(seg["idx"])
             end_by_idx[idx] = int(item["end_ms"])
-            new_text = str(item["text"]).strip()
-            old_text = str(seg.get("target_text") or "").strip()
-            if new_text and new_text != old_text and seg.get("id") is not None:
-                text_updates.append((seg["id"], new_text, None))
-        if text_updates:
+            if seg.get("id") is None:
+                continue
+            persist_updates.append(
+                (
+                    seg["id"],
+                    str(item.get("text") or seg.get("target_text") or ""),
+                    None,
+                    int(item["end_ms"]),
+                    float(item.get("speak_speed") or 1.0),
+                )
+            )
+        if persist_updates:
             try:
                 owner_id = project.get("owner_id")
                 if owner_id is not None:
@@ -1126,13 +1141,15 @@ async def run_dub(ctx: JobContext) -> None:
                                 else seg_id,
                                 target,
                                 source,
+                                end_ms,
+                                speak_speed,
                             )
-                            for seg_id, target, source in text_updates
+                            for seg_id, target, source, end_ms, speak_speed in persist_updates
                         ],
                     )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("persist compressed targets failed: %s", exc)
-                quality_warnings.append("compressed_targets_not_persisted")
+                logger.warning("persist segment timing/speeds failed: %s", exc)
+                quality_warnings.append("segment_timing_not_persisted")
 
         for item in sorted(refined, key=lambda row: int(row["n"])):
             await ctx.report(0.65 + 0.10 * item["n"] / max(1, total), "tts")

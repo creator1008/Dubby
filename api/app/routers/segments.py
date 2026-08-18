@@ -16,7 +16,10 @@ from ..schemas import (
     SegmentsBulkUpdate,
     SegmentsRetranslateRequest,
 )
-from ..worker.dub_voice_assets import enrich_segments_with_dub_voice
+from ..worker.dub_voice_assets import (
+    enrich_segments_with_dub_voice,
+    update_manifest_speak_speeds,
+)
 from ..worker.openai_client import OpenAIClient
 from ..worker.utterance_pipeline import UtteranceChunk
 
@@ -74,9 +77,37 @@ async def update_segments(
     await repo.update_segment_texts(
         user.id,
         project_id,
-        [(seg.id, seg.target_text, seg.source_text) for seg in body.segments],
+        [
+            (
+                seg.id,
+                seg.target_text,
+                seg.source_text,
+                seg.end_ms,
+                seg.speak_speed,
+            )
+            for seg in body.segments
+        ],
     )
     rows = await repo.list_segments(user.id, project_id)
+    speeds = {
+        int(row["idx"]): float(row["speak_speed"])
+        for row in rows
+        if row.get("speak_speed") is not None
+    }
+    # Fallback to request body when DB column is not yet migrated.
+    if not speeds:
+        id_to_idx = {str(row["id"]): int(row["idx"]) for row in rows}
+        for seg in body.segments:
+            if seg.speak_speed is None:
+                continue
+            idx = id_to_idx.get(str(seg.id))
+            if idx is not None:
+                speeds[idx] = float(seg.speak_speed)
+    await update_manifest_speak_speeds(
+        storage,
+        source_key=str(project.get("source_key") or "") or None,
+        speeds_by_idx=speeds,
+    )
     return await _segment_outs(
         rows,
         storage=storage,
@@ -165,12 +196,12 @@ async def retranslate_segments(
         document_context=full_source,
     )
 
-    updates: list[tuple[UUID, str, str | None]] = []
+    updates: list[tuple[UUID, str, str | None, int | None, float | None]] = []
     for index, (seg_id, chunk) in enumerate(zip(ordered_ids, chunks)):
         clean_target = (aligned_map.get(index) or "").strip()
         if not clean_target:
             raise BadRequestError(f"Translation missing for segment {seg_id}")
-        updates.append((seg_id, clean_target, chunk.text))
+        updates.append((seg_id, clean_target, chunk.text, None, None))
 
     await repo.update_segment_texts(user.id, project_id, updates)
     out_rows = await repo.list_segments(user.id, project_id)

@@ -275,15 +275,28 @@ class SupabaseRestRepository(Repository):
         # Ownership check first: segments has no owner_id column.
         if await self.get_project(owner_id, project_id) is None:
             return []
+        select_cols = (
+            "id,project_id,idx,start_ms,end_ms,source_text,target_text,"
+            "speaker_id,speaker_overlap,speak_speed"
+        )
         resp = await self.client.get(
             "/segments",
             params={
-                "select": "id,project_id,idx,start_ms,end_ms,source_text,target_text,"
-                "speaker_id,speaker_overlap",
+                "select": select_cols,
                 "project_id": f"eq.{project_id}",
                 "order": "idx.asc",
             },
         )
+        if resp.status_code >= 400 and "speak_speed" in (resp.text or ""):
+            resp = await self.client.get(
+                "/segments",
+                params={
+                    "select": "id,project_id,idx,start_ms,end_ms,source_text,target_text,"
+                    "speaker_id,speaker_overlap",
+                    "project_id": f"eq.{project_id}",
+                    "order": "idx.asc",
+                },
+            )
         resp.raise_for_status()
         return resp.json()
 
@@ -291,7 +304,7 @@ class SupabaseRestRepository(Repository):
         self,
         owner_id: UUID,
         project_id: UUID,
-        updates: list[tuple[UUID, str, str | None]],
+        updates: list[tuple[UUID, str, str | None, int | None, float | None]],
     ) -> int:
         result = await self._rpc(
             "update_segment_texts",
@@ -303,8 +316,14 @@ class SupabaseRestRepository(Repository):
                         "id": str(seg_id),
                         "target_text": target,
                         "source_text": source,
+                        **({"end_ms": end_ms} if end_ms is not None else {}),
+                        **(
+                            {"speak_speed": speak_speed}
+                            if speak_speed is not None
+                            else {}
+                        ),
                     }
-                    for seg_id, target, source in updates
+                    for seg_id, target, source, end_ms, speak_speed in updates
                 ],
             },
         )
@@ -482,11 +501,21 @@ class SupabaseRestRepository(Repository):
             "/segments",
             params={
                 "select": "id,project_id,idx,start_ms,end_ms,source_text,target_text,"
-                "speaker_id,speaker_overlap",
+                "speaker_id,speaker_overlap,speak_speed",
                 "project_id": f"eq.{project_id}",
                 "order": "idx.asc",
             },
         )
+        if resp.status_code >= 400 and "speak_speed" in (resp.text or ""):
+            resp = await self.client.get(
+                "/segments",
+                params={
+                    "select": "id,project_id,idx,start_ms,end_ms,source_text,target_text,"
+                    "speaker_id,speaker_overlap",
+                    "project_id": f"eq.{project_id}",
+                    "order": "idx.asc",
+                },
+            )
         resp.raise_for_status()
         return resp.json()
 

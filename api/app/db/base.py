@@ -69,10 +69,10 @@ class Repository(ABC):
         self,
         owner_id: UUID,
         project_id: UUID,
-        updates: list[tuple[UUID, str, str | None]],
+        updates: list[tuple[UUID, str, str | None, int | None, float | None]],
     ) -> int:
-        """Bulk-update ``target_text`` (and optionally ``source_text``);
-        returns the number of rows changed."""
+        """Bulk-update ``target_text`` (and optionally ``source_text``,
+        ``end_ms``, ``speak_speed``); returns the number of rows changed."""
 
     # --- jobs -------------------------------------------------------------------
 

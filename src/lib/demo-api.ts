@@ -733,7 +733,13 @@ export const demoApi = {
     },
     update: async (
       projectId: string,
-      updates: Array<Pick<Segment, "id" | "target_text"> & { source_text?: string }>,
+      updates: Array<
+        Pick<Segment, "id" | "target_text"> & {
+          source_text?: string;
+          end_ms?: number;
+          speak_speed?: number;
+        }
+      >,
     ) => {
       await requireOwnedProject(projectId);
       const st = loadState();
@@ -743,6 +749,22 @@ export const demoApi = {
         if (!row) continue;
         row.target_text = update.target_text;
         if (update.source_text !== undefined) row.source_text = update.source_text;
+        if (
+          typeof update.end_ms === "number" &&
+          Number.isFinite(update.end_ms) &&
+          update.end_ms > row.start_ms
+        ) {
+          row.end_ms = Math.round(update.end_ms);
+        }
+        if (
+          typeof update.speak_speed === "number" &&
+          Number.isFinite(update.speak_speed)
+        ) {
+          row.speak_speed = update.speak_speed;
+          if (row.baseline_speak_speed == null) {
+            row.baseline_speak_speed = update.speak_speed;
+          }
+        }
       }
       persist();
       return clone(rows);
