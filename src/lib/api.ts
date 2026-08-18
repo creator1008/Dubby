@@ -268,10 +268,18 @@ export class ApiError extends Error {
   }
 }
 
-/** Lightweight reachability check used before long extract/dub flows. */
+/** Reachability check before long extract/dub flows.
+ * Named origin (api.dubbyai.com) is not blocked on a flaky /healthz probe —
+ * browsers and mobile networks often fail that GET while real API calls work.
+ */
 export async function pingApi(timeoutMs = 8000): Promise<void> {
   const origin = namedApiOrigin() || (await ensureApiOrigin(timeoutMs));
-  if (await healthOk(origin, Math.max(timeoutMs, 12_000))) {
+  const named = Boolean(namedApiOrigin());
+  if (await healthOk(origin, named ? 4000 : Math.max(timeoutMs, 12_000))) {
+    markHealthy(rememberApiOrigin(origin));
+    return;
+  }
+  if (named) {
     markHealthy(rememberApiOrigin(origin));
     return;
   }
