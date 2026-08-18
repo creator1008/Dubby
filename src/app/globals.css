@@ -2018,6 +2018,14 @@ body {
   font-weight: 650;
 }
 
+.seg-timing {
+  margin-bottom: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
 .seg-pair-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -33,6 +33,7 @@ import type {
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 import {
   applySpeakRateChange,
+  ensureSourceEndMs,
   prepareSegmentsForSave,
   videoEndMsFromSegments,
 } from "@/lib/speak-rate";
@@ -158,10 +159,9 @@ export default function NewDubPage() {
     setJobs(nextJobs);
     if (nextProject.status === "ready_for_edit" || nextProject.status === "completed") {
       const nextSegments = await api.segments.list(project.id);
-      setSegments(nextSegments);
+      setSegments(ensureSourceEndMs(nextSegments));
       if (Object.keys(baselineSourceRef.current).length === 0) {
         baselineSourceRef.current = snapshotSourceTexts(nextSegments);
-      baselineTargetRef.current = snapshotTargetTexts(nextSegments);
       }
       if (Object.keys(baselineTargetRef.current).length === 0) {
         baselineTargetRef.current = snapshotTargetTexts(nextSegments);
@@ -604,11 +604,12 @@ export default function NewDubPage() {
     }
     const next = await api.segments.update(
       project.id,
-      prepared.map(({ id, source_text, target_text, end_ms, speak_speed }) => ({
+      prepared.map(({ id, source_text, target_text, end_ms, source_end_ms, speak_speed }) => ({
         id,
         source_text,
         target_text,
         end_ms,
+        source_end_ms: source_end_ms ?? end_ms,
         // Always persist a concrete rate so the next dub honors the editor.
         speak_speed:
           typeof speak_speed === "number" && Number.isFinite(speak_speed)
@@ -616,7 +617,7 @@ export default function NewDubPage() {
             : 1,
       })),
     );
-    const merged = mergeSegmentVoiceFields(prepared, next);
+    const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
     setSegments(merged);
     baselineTargetRef.current = snapshotTargetTexts(merged);
     setMessage("자막을 저장했습니다.");

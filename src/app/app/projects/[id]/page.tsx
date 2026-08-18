@@ -17,6 +17,7 @@ import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 import {
   applySpeakRateChange,
+  ensureSourceEndMs,
   prepareSegmentsForSave,
   videoEndMsFromSegments,
 } from "@/lib/speak-rate";
@@ -54,7 +55,7 @@ function ProjectEditor() {
       api.jobs.list(projectId),
     ]);
     setProject(nextProject);
-    setSegments(nextSegments);
+    setSegments(ensureSourceEndMs(nextSegments));
     if (Object.keys(baselineSourceRef.current).length === 0) {
       baselineSourceRef.current = snapshotSourceTexts(nextSegments);
     }
@@ -143,18 +144,19 @@ function ProjectEditor() {
       }
       const next = await api.segments.update(
         projectId,
-        prepared.map(({ id, source_text, target_text, end_ms, speak_speed }) => ({
+        prepared.map(({ id, source_text, target_text, end_ms, source_end_ms, speak_speed }) => ({
           id,
           source_text,
           target_text,
           end_ms,
+          source_end_ms: source_end_ms ?? end_ms,
           speak_speed:
             typeof speak_speed === "number" && Number.isFinite(speak_speed)
               ? speak_speed
               : 1,
         })),
       );
-      const merged = mergeSegmentVoiceFields(prepared, next);
+      const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
       setSegments(merged);
       baselineTargetRef.current = snapshotTargetTexts(merged);
       setMessage("자막을 저장했습니다.");

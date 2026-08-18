@@ -71,12 +71,20 @@ async def persist_dub_voice_assets(
                 speak_speed = speed
         except (TypeError, ValueError):
             pass
+        clip_speak_speed = speak_speed
+        try:
+            clip_speed = float(item.get("tts_speak_speed") or speak_speed)
+            if clip_speed > 0:
+                clip_speak_speed = clip_speed
+        except (TypeError, ValueError):
+            pass
         segments_meta.append(
             {
                 "idx": idx,
+                # Editor-facing rate (must survive re-dub refresh).
                 "speak_speed": speak_speed,
                 # Rate used to synthesize the uploaded clip (preview playback).
-                "clip_speak_speed": speak_speed,
+                "clip_speak_speed": clip_speak_speed,
                 "audio_key": clip_key,
             }
         )
@@ -128,9 +136,10 @@ async def update_manifest_speak_speeds(
     *,
     source_key: str | None,
     speeds_by_idx: dict[int, float],
+    source_end_by_idx: dict[int, int] | None = None,
 ) -> None:
-    """Upsert speak_speed values into the dub-voice manifest (create if needed)."""
-    if not source_key or not speeds_by_idx:
+    """Upsert speak_speed / source_end_ms into the dub-voice manifest."""
+    if not source_key or (not speeds_by_idx and not source_end_by_idx):
         return
     by_idx = await load_dub_voice_manifest(storage, source_key)
     changed = False
@@ -154,6 +163,27 @@ async def update_manifest_speak_speeds(
         if prev_f is None or abs(prev_f - speed_f) >= 0.001:
             row["speak_speed"] = speed_f
             changed = True
+    if source_end_by_idx:
+        for idx, end_ms in source_end_by_idx.items():
+            try:
+                end_i = int(end_ms)
+            except (TypeError, ValueError):
+                continue
+            if end_i <= 0:
+                continue
+            row = by_idx.get(idx)
+            if not row:
+                by_idx[idx] = {
+                    "idx": idx,
+                    "speak_speed": 1.0,
+                    "source_end_ms": end_i,
+                    "audio_key": "",
+                }
+                changed = True
+                continue
+            if int(row.get("source_end_ms") or 0) != end_i:
+                row["source_end_ms"] = end_i
+                changed = True
     if not changed:
         return
     manifest = {
@@ -209,6 +239,18 @@ async def enrich_segments_with_dub_voice(
             clip_f = None
         if clip_f is not None and clip_f > 0:
             copied["clip_speak_speed"] = clip_f
+        source_end = meta.get("source_end_ms")
+        try:
+            source_end_i = int(source_end) if source_end is not None else None
+        except (TypeError, ValueError):
+            source_end_i = None
+        if source_end_i is not None and source_end_i > 0:
+            copied["source_end_ms"] = source_end_i
+        elif copied.get("source_end_ms") is None:
+            try:
+                copied["source_end_ms"] = int(copied.get("end_ms") or 0)
+            except (TypeError, ValueError):
+                pass
         audio_key = str(meta.get("audio_key") or "").strip()
         if audio_key:
             try:

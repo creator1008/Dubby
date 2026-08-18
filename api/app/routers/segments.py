@@ -91,6 +91,7 @@ async def update_segments(
     rows = await repo.list_segments(user.id, project_id)
     id_to_idx = {str(row["id"]): int(row["idx"]) for row in rows}
     speeds: dict[int, float] = {}
+    source_ends: dict[int, int] = {}
     for row in rows:
         if row.get("speak_speed") is not None:
             try:
@@ -99,21 +100,26 @@ async def update_segments(
                 pass
     # Request body wins — this is the editor-saved rate for the next dub.
     for seg in body.segments:
-        if seg.speak_speed is None:
-            continue
         idx = id_to_idx.get(str(seg.id))
-        if idx is not None:
+        if idx is None:
+            continue
+        if seg.speak_speed is not None:
             speeds[idx] = float(seg.speak_speed)
+        if seg.source_end_ms is not None and seg.source_end_ms > 0:
+            source_ends[idx] = int(seg.source_end_ms)
     await update_manifest_speak_speeds(
         storage,
         source_key=str(project.get("source_key") or "") or None,
         speeds_by_idx=speeds,
+        source_end_by_idx=source_ends or None,
     )
     # Reflect saved rates in the response even when DB lacks the column.
     for row in rows:
         idx = int(row["idx"])
         if idx in speeds:
             row["speak_speed"] = speeds[idx]
+        if idx in source_ends:
+            row["source_end_ms"] = source_ends[idx]
     return await _segment_outs(
         rows,
         storage=storage,

@@ -189,6 +189,10 @@ export function SubtitleEditor({
           const speakerNo = seg.speaker_id
             ? speakerOrderIndex(segments, seg.speaker_id)
             : 0;
+          const sourceEnd =
+            typeof seg.source_end_ms === "number" && seg.source_end_ms > seg.start_ms
+              ? seg.source_end_ms
+              : seg.end_ms;
           return (
             <article className="seg-item" key={seg.id}>
               <div className="seg-meta">
@@ -198,24 +202,31 @@ export function SubtitleEditor({
                     {text.speaker} {speakerNo}
                   </span>
                 )}
-                <span>
-                  {formatMs(seg.start_ms)} – {formatMs(seg.end_ms)}
-                </span>
               </div>
               <div className="seg-pair-grid">
-                <label className="seg-field">
-                  <span className="sr-only">
-                    {text.original} {i + 1}
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={seg.source_text}
-                    disabled={disabled}
-                    placeholder={text.original}
-                    onChange={(e) => onChange(seg.id, "source_text", e.target.value)}
-                  />
-                </label>
                 <div className="seg-field">
+                  <div className="seg-timing" aria-label={`${text.original} timing`}>
+                    {formatMs(seg.start_ms)} – {formatMs(sourceEnd)}
+                  </div>
+                  <label>
+                    <span className="sr-only">
+                      {text.original} {i + 1}
+                    </span>
+                    <textarea
+                      rows={3}
+                      value={seg.source_text}
+                      disabled={disabled}
+                      placeholder={text.original}
+                      onChange={(e) =>
+                        onChange(seg.id, "source_text", e.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="seg-field">
+                  <div className="seg-timing" aria-label={`${text.translation} timing`}>
+                    {formatMs(seg.start_ms)} – {formatMs(seg.end_ms)}
+                  </div>
                   <label>
                     <span className="sr-only">
                       {text.translation} {i + 1}

@@ -943,12 +943,12 @@ async def run_dub(ctx: JobContext) -> None:
                 except (TypeError, ValueError):
                     saved_f = None
                 speak_speed_locked = saved_f is not None and saved_f > 0
-                if speak_speed_locked:
-                    # Honor editor-saved rate (ElevenLabs API bounds).
-                    speak_speed = max(0.7, min(1.2, saved_f))
-                else:
-                    # Natural translation delivery defaults to 1.0×.
-                    speak_speed = 1.0
+                # Editor rate to show/persist after the job (may be outside EL bounds).
+                editor_speak_speed = (
+                    float(saved_f) if speak_speed_locked else 1.0
+                )
+                # ElevenLabs TTS rate (clamped).
+                speak_speed = max(0.7, min(1.2, editor_speak_speed))
                 await _with_retries(
                     ctx,
                     lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
@@ -983,7 +983,9 @@ async def run_dub(ctx: JobContext) -> None:
                     "end_ms": end_ms,
                     "next_start": next_start,
                     "clip_s": clip_s,
-                    "speak_speed": speak_speed,
+                    # Keep the editor value for UI; TTS may have been clamped.
+                    "speak_speed": editor_speak_speed,
+                    "tts_speak_speed": speak_speed,
                     "speak_speed_locked": speak_speed_locked,
                 }
 
@@ -1010,6 +1012,9 @@ async def run_dub(ctx: JobContext) -> None:
                 next_start = item["next_start"]
                 source_text = item["source_text"]
                 speak_speed = float(item.get("speak_speed") or 1.0)
+                tts_speak_speed = float(
+                    item.get("tts_speak_speed") or speak_speed or 1.0
+                )
                 locked = bool(item.get("speak_speed_locked"))
 
                 # 1) Compress translation (same meaning, fewer spoken syllables).
@@ -1035,9 +1040,10 @@ async def run_dub(ctx: JobContext) -> None:
                                     min_speed=0.7,
                                     max_speed=1.2,
                                 )
+                                tts_speak_speed = max(0.7, min(1.2, speak_speed))
                             await _with_retries(
                                 ctx,
-                                lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                                lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed: engine.tts(
                                     t,
                                     v,
                                     p,
@@ -1053,6 +1059,7 @@ async def run_dub(ctx: JobContext) -> None:
                                 "text": text,
                                 "clip_s": clip_s,
                                 "speak_speed": speak_speed,
+                                "tts_speak_speed": tts_speak_speed,
                             }
                             if clip_s / slot_s <= 1 + tolerance:
                                 return item
@@ -1097,7 +1104,7 @@ async def run_dub(ctx: JobContext) -> None:
                     and slot_s > 0
                     and clip_s / slot_s > 1 + tolerance
                 ):
-                    current_speed = float(item.get("speak_speed") or 1.0)
+                    current_speed = float(item.get("tts_speak_speed") or item.get("speak_speed") or 1.0)
                     # Estimate duration at speed=1.0, then pick EL speed to fit slot.
                     natural_s = clip_s * max(current_speed, 0.01)
                     faster = speak_speed_for_slot(
@@ -1109,9 +1116,10 @@ async def run_dub(ctx: JobContext) -> None:
                     )
                     if faster >= current_speed + 0.08:
                         speak_speed = faster
+                        tts_speak_speed = faster
                         await _with_retries(
                             ctx,
-                            lambda t=text, p=str(raw), v=voice_id, s=speak_speed: engine.tts(
+                            lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed: engine.tts(
                                 t,
                                 v,
                                 p,
@@ -1126,6 +1134,7 @@ async def run_dub(ctx: JobContext) -> None:
                             **item,
                             "clip_s": clip_s,
                             "speak_speed": speak_speed,
+                            "tts_speak_speed": tts_speak_speed,
                         }
                         quality_warnings.append(
                             f"segment_{item['seg']['idx']}:speak_speed_fit"

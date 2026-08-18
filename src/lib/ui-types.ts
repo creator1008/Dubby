@@ -43,6 +43,8 @@ export type Segment = {
   idx: number;
   start_ms: number;
   end_ms: number;
+  /** Original ASR end; preserved when dub/speak-rate extends ``end_ms``. */
+  source_end_ms?: number;
   source_text: string;
   target_text: string;
   speaker_id: string | null;
@@ -70,6 +72,7 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
     return {
       ...row,
       dubbed_audio_url: row.dubbed_audio_url ?? prior.dubbed_audio_url,
+      source_end_ms: row.source_end_ms ?? prior.source_end_ms ?? row.end_ms,
       speak_speed:
         typeof row.speak_speed === "number" ? row.speak_speed : prior.speak_speed ?? 1,
       baseline_speak_speed: 1,

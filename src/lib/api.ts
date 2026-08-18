@@ -515,6 +515,7 @@ const realApi = {
         Pick<Segment, "id" | "target_text"> & {
           source_text?: string;
           end_ms?: number;
+          source_end_ms?: number;
           speak_speed?: number;
         }
       >,

@@ -121,6 +121,16 @@ function contentDurationMs(segment: Segment): number {
  * Cannot push past the next segment start or the video end — speed is
  * clamped to the slowest rate that still fits.
  */
+export function ensureSourceEndMs(segments: Segment[]): Segment[] {
+  return segments.map((row) => ({
+    ...row,
+    source_end_ms:
+      typeof row.source_end_ms === "number" && row.source_end_ms > row.start_ms
+        ? row.source_end_ms
+        : row.end_ms,
+  }));
+}
+
 export function applySpeakRateChange(
   segments: Segment[],
   segmentId: string,
@@ -136,7 +146,12 @@ export function applySpeakRateChange(
     const speed = clampSpeakSpeed(Math.max(requestedSpeed, minSpeedForCap));
     const desiredEnd = row.start_ms + Math.round(contentMs / Math.max(0.01, speed));
     const endMs = Math.min(maxEnd, Math.max(row.start_ms + MIN_SLOT_MS, desiredEnd));
-    return { ...row, speak_speed: speed, end_ms: endMs };
+    return {
+      ...row,
+      speak_speed: speed,
+      end_ms: endMs,
+      source_end_ms: row.source_end_ms ?? row.end_ms,
+    };
   });
 }
 
@@ -174,6 +189,7 @@ export function refitSegmentAfterTranslation(
   return {
     ...segment,
     end_ms: endMs,
+    source_end_ms: segment.source_end_ms ?? segment.end_ms,
     speak_speed: speed,
     baseline_speak_speed: 1,
   };

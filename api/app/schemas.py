@@ -127,6 +127,7 @@ class SegmentUpdate(BaseModel):
     source_text: str | None = Field(default=None, max_length=2000)
     end_ms: int | None = Field(default=None, ge=0)
     speak_speed: float | None = Field(default=None, ge=0.5, le=1.5)
+    source_end_ms: int | None = Field(default=None, ge=0)
 
 
 class SegmentsBulkUpdate(BaseModel):
@@ -158,6 +159,8 @@ class SegmentOut(BaseModel):
     baseline_speak_speed: float | None = None
     # Speak rate used when the current preview clip was synthesized.
     clip_speak_speed: float | None = None
+    # Original ASR end; may differ from end_ms after dub slot extension.
+    source_end_ms: int | None = None
 
 
 # --- Jobs -------------------------------------------------------------------
