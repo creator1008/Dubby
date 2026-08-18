@@ -156,6 +156,8 @@ class SegmentOut(BaseModel):
     dubbed_audio_url: str | None = None
     speak_speed: float | None = None
     baseline_speak_speed: float | None = None
+    # Speak rate used when the current preview clip was synthesized.
+    clip_speak_speed: float | None = None
 
 
 # --- Jobs -------------------------------------------------------------------

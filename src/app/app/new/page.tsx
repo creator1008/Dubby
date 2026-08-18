@@ -1226,4 +1226,12 @@ export default function NewDubPage() {
               <p className="muted" style={{ marginTop: "0.75rem" }}>
                 {project.status === "completed" && hasDubVoice
                   ? text.afterPendingAfterEdit
-               
+                  : text.afterPending}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

@@ -54,8 +54,13 @@ function SpeakRateControl({
   onChange?: (speed: number) => void;
 }) {
   const text = useAppDictionary();
-  const baseline = segment.baseline_speak_speed ?? segment.speak_speed ?? 1;
+  // Natural translation delivery is always 1.0×.
+  const baseline = 1;
   const speed = clampSpeakSpeed(segment.speak_speed ?? baseline);
+  const clipSpeed = Math.max(
+    0.01,
+    segment.clip_speak_speed ?? segment.speak_speed ?? baseline,
+  );
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -67,10 +72,9 @@ function SpeakRateControl({
 
   useEffect(() => {
     if (audioRef.current && playing) {
-      const base = Math.max(0.01, baseline);
-      audioRef.current.playbackRate = clampSpeakSpeed(speed) / base;
+      audioRef.current.playbackRate = clampSpeakSpeed(speed) / clipSpeed;
     }
-  }, [speed, baseline, playing]);
+  }, [speed, clipSpeed, playing]);
 
   const setSpeed = (next: number) => {
     onChange?.(clampSpeakSpeed(next));
@@ -90,7 +94,7 @@ function SpeakRateControl({
       return;
     }
     audio.src = segment.dubbed_audio_url;
-    audio.playbackRate = speed / Math.max(0.01, baseline);
+    audio.playbackRate = speed / clipSpeed;
     try {
       await audio.play();
       setPlaying(true);

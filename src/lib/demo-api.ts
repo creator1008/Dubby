@@ -1000,9 +1000,10 @@ export const demoApi = {
       const speed =
         typeof output.speak_speed === "number" && Number.isFinite(output.speak_speed)
           ? output.speak_speed
-          : 1;
+          : row.speak_speed ?? 1;
       row.speak_speed = speed;
-      row.baseline_speak_speed = speed;
+      row.baseline_speak_speed = 1;
+      row.clip_speak_speed = speed;
     }
     persist();
     return clone(rows);

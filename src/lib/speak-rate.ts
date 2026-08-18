@@ -111,7 +111,7 @@ export function maxEndMsForSegment(
 }
 
 function contentDurationMs(segment: Segment): number {
-  const speed = segment.speak_speed ?? segment.baseline_speak_speed ?? 1;
+  const speed = segment.speak_speed ?? 1;
   const slot = Math.max(MIN_SLOT_MS, segment.end_ms - segment.start_ms);
   return slot * Math.max(SPEAK_MIN, speed);
 }
@@ -175,7 +175,7 @@ export function refitSegmentAfterTranslation(
     ...segment,
     end_ms: endMs,
     speak_speed: speed,
-    baseline_speak_speed: speed,
+    baseline_speak_speed: 1,
   };
 }
 
