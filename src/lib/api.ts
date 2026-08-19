@@ -241,6 +241,13 @@ export async function ensureApiOrigin(timeoutMs = 8000): Promise<string> {
   throw new ApiError(apiUnreachableMessage(), 0);
 }
 
+function apiTimeoutMessage(): string {
+  return (
+    "API 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요. " +
+    "계속되면 PC에서 Cloudflare 터널이 끊기지 않았는지 확인해 주세요."
+  );
+}
+
 function apiUnreachableMessage(): string {
   const origin = getApiOrigin() || BUILTIN_API_ORIGIN || "(미설정)";
   const isNamed =
@@ -280,6 +287,7 @@ export function isTransientNetworkError(err: unknown): boolean {
   if (!message) return false;
   return (
     /연결할 수 없습니다/.test(message) ||
+    /응답이 지연/.test(message) ||
     /Failed to fetch/i.test(message) ||
     /NetworkError/i.test(message) ||
     /Load failed/i.test(message)
@@ -402,13 +410,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let apiOrigin = await ensureApiOrigin();
 
   const method = (init?.method || "GET").toUpperCase();
-  const retries = method === "GET" || method === "HEAD" ? 5 : 4;
+  const named = Boolean(namedApiOrigin());
+  const retries = method === "GET" || method === "HEAD" ? (named ? 6 : 5) : named ? 6 : 4;
   let lastError: unknown;
   let refreshedForAuth = false;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
     const controller = new AbortController();
-    const timer = globalThis.setTimeout(() => controller.abort(), 45_000);
+    const timer = globalThis.setTimeout(() => controller.abort(), named ? 60_000 : 45_000);
     try {
       const isForm =
         typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -440,8 +449,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         await sleep(700 * attempt);
         continue;
       }
-      if (err instanceof TypeError || (err instanceof DOMException && err.name === "AbortError")) {
+      if (err instanceof TypeError) {
         throw new ApiError(apiUnreachableMessage(), 0);
+      }
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(apiTimeoutMessage(), 0);
       }
       throw err;
     } finally {
@@ -462,11 +474,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
-  if (
-    lastError instanceof TypeError ||
-    (lastError instanceof DOMException && lastError.name === "AbortError")
-  ) {
+  if (lastError instanceof TypeError) {
     throw new ApiError(apiUnreachableMessage(), 0);
+  }
+  if (lastError instanceof DOMException && lastError.name === "AbortError") {
+    throw new ApiError(apiTimeoutMessage(), 0);
   }
   throw lastError instanceof Error
     ? lastError

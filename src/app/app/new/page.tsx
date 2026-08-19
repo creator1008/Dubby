@@ -348,6 +348,24 @@ export default function NewDubPage() {
     };
   };
 
+  const runExtractWithRetry = async (trimmedUrl: string) => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await runExtract(trimmedUrl);
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 2 && isTransientNetworkError(err)) {
+          setLocalStage(`${text.checkingApi} · 재시도 ${attempt + 1}/2`);
+          await new Promise((resolve) => window.setTimeout(resolve, 900 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(text.uploadFailed);
+  };
+
   const onExtract = async (e: FormEvent) => {
     e.preventDefault();
     const trimmedUrl = validateExtractInput();
@@ -356,7 +374,7 @@ export default function NewDubPage() {
     setUploadPct(0);
     setError(null);
     try {
-      await runExtract(trimmedUrl);
+      await runExtractWithRetry(trimmedUrl);
     } catch (err) {
       setLocalStage(null);
       setError(err instanceof Error ? err.message : text.uploadFailed);
@@ -523,7 +541,7 @@ export default function NewDubPage() {
     setOutputUrl(null);
     try {
       if (isDemoMode) {
-        const extracted = await runExtract(trimmedUrl);
+        const extracted = await runExtractWithRetry(trimmedUrl);
         if (!extracted.localRunId) {
           throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
         }
@@ -548,7 +566,7 @@ export default function NewDubPage() {
         return;
       }
 
-      const extracted = await runExtract(trimmedUrl);
+      const extracted = await runExtractWithRetry(trimmedUrl);
       const transcribed = await waitForServerJob(
         extracted.project.id,
         "transcribe",

@@ -24,7 +24,9 @@ def test_settings_defaults() -> None:
     settings = Settings(_env_file=None)
     assert settings.app_env == "local"
     assert settings.worker_concurrency == 1
-    assert settings.cors_origin_list == ["http://localhost:3000"]
+    assert "http://localhost:3000" in settings.cors_origin_list
+    assert "https://dubbyai.com" in settings.cors_origin_list
+    assert "https://www.dubbyai.com" in settings.cors_origin_list
     assert settings.r2_endpoint.endswith(".r2.cloudflarestorage.com")
 
 
@@ -80,6 +82,20 @@ def test_healthz_without_external_services(monkeypatch) -> None:
 
             # Authenticated endpoints must reject anonymous requests.
             assert client.get("/v1/projects").status_code in (401, 403)
+
+            preflight = client.options(
+                "/v1/projects",
+                headers={
+                    "Origin": "https://dubbyai.com",
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "authorization,content-type",
+                },
+            )
+            assert preflight.status_code in (200, 204)
+            assert preflight.headers.get("access-control-allow-origin") == "https://dubbyai.com"
+            allow_headers = (preflight.headers.get("access-control-allow-headers") or "").lower()
+            assert "authorization" in allow_headers
+            assert "content-type" in allow_headers
     finally:
         get_settings.cache_clear()
 
