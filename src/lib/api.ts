@@ -484,6 +484,8 @@ const realApi = {
       request<Project>(`/v1/projects/${id}/source-from-url`, {
         method: "POST",
         body: JSON.stringify({ url }),
+        // Ingest is async; this POST should return quickly. Allow tunnel flaps.
+        signal: AbortSignal.timeout(60_000),
       }),
     /** Poll until URL ingest finishes (async ``source-from-url``). */
     waitUntilSourceReady: async (
@@ -497,16 +499,27 @@ const realApi = {
       const timeoutMs = opts?.timeoutMs ?? 15 * 60 * 1000;
       const intervalMs = opts?.intervalMs ?? 2000;
       const started = Date.now();
+      let networkFailStreak = 0;
       for (;;) {
-        const project = await request<Project>(`/v1/projects/${id}`);
-        if (project.source_key || project.status === "uploaded") {
-          return project;
-        }
-        if (project.status === "failed") {
-          throw new ApiError(
-            project.error || "Failed to fetch video from link.",
-            400,
-          );
+        try {
+          const project = await request<Project>(`/v1/projects/${id}`);
+          networkFailStreak = 0;
+          if (project.source_key || project.status === "uploaded") {
+            return project;
+          }
+          if (project.status === "failed") {
+            throw new ApiError(
+              project.error || "Failed to fetch video from link.",
+              400,
+            );
+          }
+        } catch (err) {
+          const isNetwork =
+            (err instanceof ApiError && err.status === 0) ||
+            err instanceof TypeError;
+          if (!isNetwork) throw err;
+          networkFailStreak += 1;
+          if (networkFailStreak >= 20) throw err;
         }
         const elapsed = Date.now() - started;
         if (elapsed >= timeoutMs) {
