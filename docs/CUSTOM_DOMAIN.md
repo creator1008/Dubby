@@ -13,7 +13,7 @@ In [Cloudflare DNS](https://dash.cloudflare.com) → `dubbyai.com` → **Records
 | --- | --- | --- | --- |
 | CNAME | `@` (or `dubbyai.com`) | `creator1008.github.io` | DNS only (grey) |
 | CNAME | `www` | `creator1008.github.io` | DNS only (grey) |
-| CNAME | `api` | *(자동 생성)* `abcd1234-….cfargotunnel.com` | DNS only (grey) |
+| CNAME | `api` | *(자동 생성)* `abcd1234-….cfargotunnel.com` | **Proxied (orange)** |
 
 Notes:
 
@@ -22,7 +22,11 @@ Notes:
 - The real `api` CNAME is created by:
   `bash scripts/setup-named-tunnel.sh`
   (runs `cloudflared tunnel route dns dubby-api api.dubbyai.com`).
-- Keep **DNS only** (grey cloud) for `api` while using a named tunnel / later Caddy.
+- Named tunnels **must stay proxied (orange cloud)** so Cloudflare can route
+  traffic to your connector. Grey cloud breaks public access.
+- Because `api` is proxied, **WAF / Bot Fight / Browser Integrity Check** apply
+  to API traffic. Misconfigured rules cause `403 error code: 1010` in curl and
+  `Failed to fetch` in browsers (see §4.5).
 
 You can delete the old Hostinger parking A records (`75.2…`, `99.83…`) once the GitHub CNAMEs are in place.
 
@@ -85,6 +89,37 @@ And local `api/.env`:
 ```env
 CORS_ORIGINS=https://dubbyai.com,https://www.dubbyai.com,https://creator1008.github.io,http://localhost:3000,https://localhost,capacitor://localhost
 ```
+
+### 4.5 Cloudflare WAF blocks API (`403` / error `1010`)
+
+Symptoms in Dubby UI:
+
+> API 서버(https://api.dubbyai.com)에 연결할 수 없습니다…
+
+Often the API and tunnel are healthy on the PC, but Cloudflare edge returns
+**403 `error code: 1010`** (Browser Integrity Check / Bot Fight). Browsers
+surface this as `Failed to fetch` because the block response has no CORS
+headers.
+
+In [Cloudflare](https://dash.cloudflare.com) → `dubbyai.com`:
+
+1. **Security → Settings** → turn **Browser Integrity Check** **Off** (zone-wide
+   or add a skip rule for hostname `api.dubbyai.com`).
+2. **Security → Bots** → disable **Bot Fight Mode** for `api`, or add a WAF
+   custom rule: `(http.host eq "api.dubbyai.com")` → **Skip** all managed rules.
+3. Optional **Configuration Rule**: lower security level for `api.dubbyai.com`.
+
+Verify from a shell (should be `200`, not `1010`):
+
+```bash
+curl -sS -D - https://api.dubbyai.com/healthz -o /dev/null
+curl -sS -D - -X OPTIONS https://api.dubbyai.com/v1/projects \
+  -H "Origin: https://dubbyai.com" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: authorization,content-type" -o /dev/null
+```
+
+If curl shows `1010` but the PC tunnel is up, fix WAF — not uvicorn.
 
 ## 5. Verify
 
