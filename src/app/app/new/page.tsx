@@ -6,7 +6,7 @@ import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
-import { ApiError, api, isDemoMode, pingApi, uploadSourceFile } from "@/lib/api";
+import { ApiError, api, isDemoMode, isTransientNetworkError, pingApi, uploadSourceFile } from "@/lib/api";
 import { formatPipelineError } from "@/lib/job-labels";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
@@ -178,12 +178,20 @@ export default function NewDubPage() {
       setOutputUrl((prev) => preferStableMediaUrl(prev, url));
       window.dispatchEvent(new Event("credits-changed"));
     }
+    if (nextProject.status === "failed") {
+      setError(nextProject.error ?? "작업이 실패했습니다.");
+    } else {
+      setError((prev) => (isTransientNetworkError(prev) ? null : prev));
+    }
   }, [project, outputUrl]);
 
   useEffect(() => {
     if (!activeJob) return;
     const timer = window.setInterval(() => {
-      void refresh().catch((err: Error) => setError(err.message));
+      void refresh().catch((err: unknown) => {
+        if (isTransientNetworkError(err)) return;
+        setError(err instanceof Error ? err.message : "불러오지 못했습니다.");
+      });
     }, 2000);
     return () => window.clearInterval(timer);
   }, [activeJob, refresh]);

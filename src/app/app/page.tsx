@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, isTransientNetworkError } from "@/lib/api";
 import type { Project } from "@/lib/ui-types";
 import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import type { Locale } from "@/lib/i18n/dictionaries";
@@ -34,10 +34,39 @@ export default function AppHomePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.projects.list()
-      .then(setProjects)
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const boot = async () => {
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          const rows = await api.projects.list();
+          if (cancelled) return;
+          setProjects(rows);
+          setError(null);
+          return;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 3 && isTransientNetworkError(err)) {
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, 700 * (attempt + 1)),
+            );
+            continue;
+          }
+          break;
+        }
+      }
+      if (!cancelled) {
+        setError(
+          lastErr instanceof Error ? lastErr.message : "불러오지 못했습니다.",
+        );
+      }
+    };
+    void boot().finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const onDelete = async (project: Project) => {

@@ -268,6 +268,24 @@ export class ApiError extends Error {
   }
 }
 
+/** Tunnel/CORS/browser blips that should not stick as a permanent UI banner. */
+export function isTransientNetworkError(err: unknown): boolean {
+  if (err instanceof ApiError && err.status === 0) return true;
+  const message =
+    typeof err === "string"
+      ? err
+      : err instanceof Error
+        ? err.message
+        : "";
+  if (!message) return false;
+  return (
+    /연결할 수 없습니다/.test(message) ||
+    /Failed to fetch/i.test(message) ||
+    /NetworkError/i.test(message) ||
+    /Load failed/i.test(message)
+  );
+}
+
 /** Reachability check before long extract/dub flows.
  * Named origin (api.dubbyai.com) is not blocked on a flaky /healthz probe —
  * browsers and mobile networks often fail that GET while real API calls work.

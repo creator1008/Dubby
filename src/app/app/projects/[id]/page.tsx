@@ -7,7 +7,7 @@ import { JobProgress } from "@/components/app/JobProgress";
 import { SubtitleEditor } from "@/components/app/SubtitleEditor";
 import { TranslationPreviewModal } from "@/components/app/TranslationPreviewModal";
 import { BeforeAfterPlayer } from "@/components/landing/BeforeAfterPlayer";
-import { api, isDemoMode } from "@/lib/api";
+import { api, isDemoMode, isTransientNetworkError } from "@/lib/api";
 import { downloadProjectOutput } from "@/lib/mobile";
 import { retranslateLocalSegments } from "@/lib/local-step12";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
@@ -93,20 +93,50 @@ function ProjectEditor() {
     } else {
       setOutputUrl(null);
     }
+    if (nextProject.status === "failed") {
+      setError(nextProject.error ?? "작업이 실패했습니다.");
+    } else {
+      setError(null);
+    }
   }, [projectId]);
 
   useEffect(() => {
+    let cancelled = false;
+    const boot = async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await load();
+          return;
+        } catch (err) {
+          if (cancelled) return;
+          if (attempt < 4 && isTransientNetworkError(err)) {
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, 600 * (attempt + 1)),
+            );
+            continue;
+          }
+          setError(err instanceof Error ? err.message : "불러오지 못했습니다.");
+          return;
+        }
+      }
+    };
     const timer = window.setTimeout(() => {
-      void load().catch((err: Error) => setError(err.message));
+      void boot();
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [load]);
 
   const activeJob = jobs.find((job) => job.status === "queued" || job.status === "running");
   useEffect(() => {
     if (!activeJob) return;
     const timer = window.setInterval(() => {
-      void load().catch((err: Error) => setError(err.message));
+      void load().catch((err: unknown) => {
+        if (isTransientNetworkError(err)) return;
+        setError(err instanceof Error ? err.message : "불러오지 못했습니다.");
+      });
     }, 2000);
     return () => window.clearInterval(timer);
   }, [activeJob, load]);
