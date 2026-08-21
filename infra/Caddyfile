@@ -10,7 +10,7 @@
 		max_size 10MB
 	}
 
-	reverse_proxy api:8000 {
+	reverse_proxy dubby-api:8000 {
 		health_uri /healthz
 		health_interval 30s
 	}

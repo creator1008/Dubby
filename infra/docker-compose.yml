@@ -21,6 +21,12 @@ services:
       APP_ENV: ${APP_ENV:-production}
     expose:
       - "8000"
+    networks:
+      default:
+        aliases:
+          # Unique name so Caddy does not look up the short host "api"
+          # (which Dual-stack Docker DNS often SERVFAILs as AAAA).
+          - dubby-api
     # Uncomment to reach the API directly without Caddy:
     # ports:
     #   - "8000:8000"
@@ -64,6 +70,8 @@ services:
     environment:
       DUBBY_API_DOMAIN: ${DUBBY_API_DOMAIN:?set DUBBY_API_DOMAIN in infra/.env}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in infra/.env}
+      # Prefer A records; Docker 127.0.0.11 SERVFAIL on AAAA breaks Go lookups.
+      GODEBUG: netdns=go
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -71,6 +79,13 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+networks:
+  default:
+    driver: bridge
+    # Lightsail Dual-stack + Docker DNS AAAA SERVFAIL → Caddy
+    # "lookup api on 127.0.0.11:53: server misbehaving"
+    enable_ipv6: false
 
 volumes:
   demucs-models:
