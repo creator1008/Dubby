@@ -130,9 +130,24 @@ async def _with_dub_voices(
 async def list_projects(
     user: CurrentUser, repo: Repo, storage: Storage
 ) -> list[ProjectOut]:
-    rows = await repo.list_projects(user.id)
-    enriched = [await _with_dub_voices(storage, user.id, r) for r in rows]
-    return [ProjectOut.model_validate(r) for r in enriched]
+    try:
+        rows = await repo.list_projects(user.id)
+        enriched = [await _with_dub_voices(storage, user.id, r) for r in rows]
+        out: list[ProjectOut] = []
+        for row in enriched:
+            try:
+                out.append(ProjectOut.model_validate(row))
+            except Exception:
+                logger.exception(
+                    "ProjectOut validation failed id=%s keys=%s",
+                    row.get("id"),
+                    sorted(row.keys()),
+                )
+                raise
+        return out
+    except Exception:
+        logger.exception("list_projects failed user=%s", user.id)
+        raise
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)

@@ -107,9 +107,18 @@ class ProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("voice_mode", mode="before")
+    @classmethod
+    def coerce_voice_mode(cls, value: object) -> object:
+        if value in ("voice_box", "auto_clone"):
+            return value
+        return "voice_box"
+
     @field_validator("quality_warnings", mode="before")
     @classmethod
     def parse_quality_warnings(cls, value: object) -> object:
+        if value is None:
+            return []
         if isinstance(value, str):
             try:
                 return json.loads(value)

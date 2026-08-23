@@ -75,6 +75,7 @@ class PostgresRepository(Repository):
         self._settings = settings
         self._pool: asyncpg.Pool | None = None
         self._project_columns: str = _PROJECT_COLUMNS
+        self._project_column_set: set[str] = set(_PROJECT_COLUMN_CANDIDATES)
 
     async def startup(self) -> None:
         if not self._settings.database_url:
@@ -109,6 +110,7 @@ class PostgresRepository(Repository):
                 ", ".join(missing),
             )
         self._project_columns = ", ".join(selected)
+        self._project_column_set = set(selected)
 
     async def shutdown(self) -> None:
         if self._pool is not None:
@@ -155,12 +157,16 @@ class PostgresRepository(Repository):
             for v in (dub_voice_ids or [])
             if str(v).strip()
         ][:8]
-        row = await self.pool.fetchrow(
-            "INSERT INTO public.projects "
-            "(owner_id, title, source_lang, target_lang, subtitle_mode, "
-            "tone_style, diarization_enabled, dub_voice_ids) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) "
-            f"RETURNING {self._project_columns}",
+        cols = [
+            "owner_id",
+            "title",
+            "source_lang",
+            "target_lang",
+            "subtitle_mode",
+            "tone_style",
+            "diarization_enabled",
+        ]
+        values: list[Any] = [
             owner_id,
             title,
             source_lang,
@@ -168,7 +174,25 @@ class PostgresRepository(Repository):
             subtitle_mode,
             tone_style,
             diarization_enabled,
-            json.dumps(voices),
+        ]
+        if "dub_voice_ids" in self._project_column_set:
+            cols.append("dub_voice_ids")
+            values.append(json.dumps(voices))
+        if "voice_mode" in self._project_column_set:
+            cols.append("voice_mode")
+            values.append("voice_box")
+        if "pipeline_version" in self._project_column_set:
+            cols.append("pipeline_version")
+            values.append("2.0")
+        placeholders = ", ".join(
+            f"${i + 1}::jsonb" if col == "dub_voice_ids" else f"${i + 1}"
+            for i, col in enumerate(cols)
+        )
+        row = await self.pool.fetchrow(
+            f"INSERT INTO public.projects ({', '.join(cols)}) "
+            f"VALUES ({placeholders}) "
+            f"RETURNING {self._project_columns}",
+            *values,
         )
         assert row is not None
         return dict(row)
