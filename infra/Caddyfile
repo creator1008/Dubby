@@ -10,6 +10,24 @@
 		max_size 10MB
 	}
 
+	# Browser history/list calls fail as "Failed to fetch" if FastAPI CORS
+	# rejects the Origin (stale container env). Echo ACAO here as a fallback.
+	@siteOrigin header Origin /^https:\/\/(www\.)?dubbyai\.com$|^https:\/\/creator1008\.github\.io$|^https:\/\/dubby\.pages\.dev$|^http:\/\/localhost:3000$|^https:\/\/localhost$|^capacitor:\/\/localhost$/
+	header @siteOrigin Access-Control-Allow-Origin {http.request.header.Origin}
+	header @siteOrigin Access-Control-Allow-Credentials true
+	header @siteOrigin Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+	header @siteOrigin Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, X-Requested-With, Bypass-Tunnel-Reminder"
+	header @siteOrigin Access-Control-Max-Age 86400
+	header @siteOrigin Vary Origin
+
+	@preflight {
+		method OPTIONS
+		header Origin /^https:\/\/(www\.)?dubbyai\.com$|^https:\/\/creator1008\.github\.io$|^https:\/\/dubby\.pages\.dev$|^http:\/\/localhost:3000$|^https:\/\/localhost$|^capacitor:\/\/localhost$/
+	}
+	handle @preflight {
+		respond 204
+	}
+
 	reverse_proxy dubby-api:8000 {
 		health_uri /healthz
 		health_interval 30s

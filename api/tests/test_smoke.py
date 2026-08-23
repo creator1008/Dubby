@@ -36,6 +36,20 @@ def test_cors_always_includes_public_site() -> None:
     settings = Settings(_env_file=None, cors_origins="http://localhost:3000")
     assert "https://dubbyai.com" in settings.cors_origin_list
     assert "https://www.dubbyai.com" in settings.cors_origin_list
+    assert "https://dubby.pages.dev" in settings.cors_origin_list
+
+
+def test_cors_strips_quotes_and_matches_regex() -> None:
+    import re
+    from app.config import Settings
+
+    settings = Settings(
+        _env_file=None,
+        cors_origins='"https://dubbyai.com","https://www.dubbyai.com"',
+    )
+    assert "https://dubbyai.com" in settings.cors_origin_list
+    assert re.fullmatch(settings.cors_origin_regex, "https://dubbyai.com")
+    assert re.fullmatch(settings.cors_origin_regex, "https://dubby.pages.dev")
 
 
 def test_production_requires_secrets() -> None:

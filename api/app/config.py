@@ -187,13 +187,26 @@ class Settings(BaseSettings):
     revenuecat_entitlement_credit_minutes: str = ""
 
     @property
+    def cors_origin_regex(self) -> str:
+        return (
+            r"https://(www\.)?dubbyai\.com"
+            r"|https://creator1008\.github\.io"
+            r"|https://[a-z0-9-]+\.pages\.dev"
+            r"|http://localhost:\d+"
+            r"|https://localhost"
+            r"|capacitor://localhost"
+        )
+
+    @property
     def cors_origin_list(self) -> list[str]:
         # Always allow the public site even if a stale Lightsail/Caddy .env
         # omitted them — missing ACAO becomes browser "Failed to fetch".
-        configured = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        raw = self.cors_origins.replace('"', "").replace("'", "")
+        configured = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
         required = (
             "https://dubbyai.com",
             "https://www.dubbyai.com",
+            "https://dubby.pages.dev",
             "https://creator1008.github.io",
             "https://creator1008.github.io/Dubby",
             "http://localhost:3000",
