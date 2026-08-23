@@ -255,14 +255,14 @@ function apiUnreachableMessage(): string {
   if (isNamed) {
     return (
       `API 서버(${origin})에 연결할 수 없습니다. ` +
-      "네트워크 상태를 확인한 뒤 화면을 새로고침해 주세요. " +
-      "계속되면 PC에서 API(uvicorn)와 Cloudflare 터널이 실행 중인지 확인해 주세요."
+      "네트워크를 확인한 뒤 화면을 새로고침해 주세요. " +
+      "계속되면 Lightsail API(Caddy)가 정상인지 확인해 주세요."
     );
   }
   return (
     `API 서버(${origin})에 연결할 수 없습니다(Failed to fetch). ` +
-    "PC에서 uvicorn과 `bash scripts/run-named-tunnel.sh` 가 켜져 있는지 확인한 뒤, " +
-    "폰에서 화면을 새로고침하세요. 필요하면 ?api=https://api.dubbyai.com 으로 열어 저장하세요."
+    "네트워크를 확인한 뒤 새로고침해 주세요. " +
+    "필요하면 ?api=https://api.dubbyai.com 으로 열어 보세요."
   );
 }
 
