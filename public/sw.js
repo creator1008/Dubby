@@ -1,5 +1,5 @@
-/* Dubby PWA service worker — network-first; never pin API origin pointer. */
-const CACHE = "dubby-v5";
+/* Dubby PWA service worker — same-origin assets only; never touch API host. */
+const CACHE = "dubby-v6";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -20,7 +20,11 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
-  // Always hit the network for the live API pointer and navigations.
+  // Cross-origin (api.dubbyai.com, R2, etc.) must bypass the SW entirely.
+  // Intercepting them caused net::ERR_FAILED / fake CORS and
+  // "respondWith() was not a Response" when cache miss returned undefined.
+  if (url.origin !== self.location.origin) return;
+
   if (
     url.pathname.endsWith("/api-origin.json") ||
     event.request.mode === "navigate"
@@ -31,6 +35,9 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => response)
-      .catch(() => caches.match(event.request)),
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        return cached || Response.error();
+      }),
   );
 });
