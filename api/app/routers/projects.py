@@ -172,6 +172,11 @@ async def create_project(
                 "선택한 언어가 DB에 아직 허용되지 않습니다. "
                 "Supabase에서 th/my 언어 마이그레이션을 적용해 주세요."
             ) from exc
+        if "projects_tone_style_check" in message:
+            raise BadRequestError(
+                "선택한 감정 톤이 DB에 아직 허용되지 않습니다. "
+                "Supabase에서 tone_style 마이그레이션을 적용해 주세요."
+            ) from exc
         if "check constraint" in message.lower() or "CheckViolation" in type(exc).__name__:
             raise BadRequestError(f"프로젝트 생성 실패: {message}") from exc
         raise
