@@ -19,7 +19,7 @@ import {
   retranslateLocalSegments,
 } from "@/lib/local-step12";
 import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
-import { LANG_CODES, LANG_LABELS, isDubLangCode } from "@/lib/languages";
+import { LANG_CODES, isDubLangCode, localizedLangLabel } from "@/lib/languages";
 import { downloadProjectOutput } from "@/lib/mobile";
 import type {
   Job,
@@ -832,7 +832,7 @@ export default function NewDubPage() {
               >
                 {LANG_CODES.map((code) => (
                   <option key={code} value={code}>
-                    {LANG_LABELS[code]}
+                    {localizedLangLabel(code, text)}
                   </option>
                 ))}
               </select>
@@ -846,7 +846,7 @@ export default function NewDubPage() {
               >
                 {LANG_CODES.map((code) => (
                   <option key={code} value={code}>
-                    {LANG_LABELS[code]}
+                    {localizedLangLabel(code, text)}
                   </option>
                 ))}
               </select>

@@ -43,3 +43,12 @@ export const LANG_LABELS: Record<DubLangCode, string> = {
 export function isDubLangCode(value: string): value is DubLangCode {
   return (LANG_CODES as readonly string[]).includes(value);
 }
+
+/** UI locale label for dubbing language pickers (falls back to native name). */
+export function localizedLangLabel(
+  code: DubLangCode,
+  dict: Record<string, string>,
+): string {
+  const key = `voiceLang_${code}`;
+  return dict[key] || LANG_LABELS[code];
+}
