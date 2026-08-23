@@ -14,6 +14,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 LangCode = Literal[
+    "ko",
+    "vi",
     "en",
     "zh",
     "ja",
@@ -28,8 +30,8 @@ LangCode = Literal[
     "ms",
     "tr",
     "ta",
-    "ko",
-    "vi",
+    "th",
+    "my",
 ]
 SubtitleMode = Literal["none", "source", "target"]
 ToneStyle = Literal[

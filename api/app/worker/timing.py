@@ -38,6 +38,8 @@ _CHARS_PER_SECOND: dict[str, float] = {
     "ja": 7.5,
     "zh": 6.5,
     "ta": 10.0,
+    "th": 11.5,
+    "my": 10.5,
 }
 
 

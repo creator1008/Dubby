@@ -4,6 +4,8 @@ from __future__ import annotations
 
 SUPPORTED_LANGUAGES: frozenset[str] = frozenset(
     {
+        "ko",
+        "vi",
         "en",
         "zh",
         "ja",
@@ -18,12 +20,14 @@ SUPPORTED_LANGUAGES: frozenset[str] = frozenset(
         "ms",
         "tr",
         "ta",
-        "ko",
-        "vi",
+        "th",
+        "my",
     }
 )
 
 LANGUAGE_NAMES: dict[str, str] = {
+    "ko": "Korean",
+    "vi": "Vietnamese",
     "en": "English",
     "zh": "Chinese (Mandarin)",
     "ja": "Japanese",
@@ -38,8 +42,8 @@ LANGUAGE_NAMES: dict[str, str] = {
     "ms": "Malay",
     "tr": "Turkish",
     "ta": "Tamil",
-    "ko": "Korean",
-    "vi": "Vietnamese",
+    "th": "Thai",
+    "my": "Burmese",
 }
 
 # Whisper verbose_json language field → ISO code we use.
@@ -61,8 +65,13 @@ LANGUAGE_ALIASES: dict[str, str] = {
     "tamil": "ta",
     "korean": "ko",
     "vietnamese": "vi",
+    "thai": "th",
+    "burmese": "my",
+    "myanmar": "my",
     **{code: code for code in SUPPORTED_LANGUAGES},
 }
 
 # ISO codes for FastAPI Query regex.
-LANG_QUERY_PATTERN = "^(en|zh|ja|es|fr|pt|de|ru|ar|ur|id|ms|tr|ta|ko|vi)$"
+LANG_QUERY_PATTERN = (
+    "^(ko|vi|en|zh|ja|es|fr|pt|de|ru|ar|ur|id|ms|tr|ta|th|my)$"
+)

@@ -14,6 +14,7 @@ _CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]")
 _CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
 _ARABIC_RE = re.compile(r"[\u0600-\u06ff]")
 _THAI_RE = re.compile(r"[\u0e00-\u0e7f]")
+_MYANMAR_RE = re.compile(r"[\u1000-\u109f]")
 _DEVANAGARI_RE = re.compile(r"[\u0900-\u097f]")
 
 # Minimum letters before we trust a script heuristic.
@@ -28,6 +29,7 @@ def _letter_counts(text: str) -> dict[str, int]:
         "cyrillic": len(_CYRILLIC_RE.findall(text)),
         "arabic": len(_ARABIC_RE.findall(text)),
         "thai": len(_THAI_RE.findall(text)),
+        "myanmar": len(_MYANMAR_RE.findall(text)),
         "devanagari": len(_DEVANAGARI_RE.findall(text)),
     }
 
@@ -67,6 +69,7 @@ def expected_script(source_lang: str) -> str | None:
         "ur": "arabic",
         "fa": "arabic",
         "th": "thai",
+        "my": "myanmar",
         "hi": "devanagari",
         "ta": "latin",  # ASR often romanizes; do not force passthrough
     }.get(lang)

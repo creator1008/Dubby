@@ -1,6 +1,8 @@
 /** Dubbing source/target language codes and display labels. */
 
 export const LANG_CODES = [
+  "ko",
+  "vi",
   "en",
   "zh",
   "ja",
@@ -15,13 +17,15 @@ export const LANG_CODES = [
   "ms",
   "tr",
   "ta",
-  "ko",
-  "vi",
+  "th",
+  "my",
 ] as const;
 
 export type DubLangCode = (typeof LANG_CODES)[number];
 
 export const LANG_LABELS: Record<DubLangCode, string> = {
+  ko: "한국어",
+  vi: "Tiếng Việt",
   en: "English",
   zh: "中文 (普通话)",
   ja: "日本語",
@@ -36,8 +40,8 @@ export const LANG_LABELS: Record<DubLangCode, string> = {
   ms: "Bahasa Melayu",
   tr: "Türkçe",
   ta: "தமிழ்",
-  ko: "한국어",
-  vi: "Tiếng Việt",
+  th: "ไทย",
+  my: "မြန်မာ",
 };
 
 export function isDubLangCode(value: string): value is DubLangCode {
