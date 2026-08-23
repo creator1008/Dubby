@@ -253,25 +253,28 @@ async def delete_project(
     if project is None:
         raise NotFoundError("Project not found")
 
-    # Storage first so a failed DB delete can be retried without leaving orphans.
-    summary = await purge_project_artifacts(
-        storage, user.id, project_id, project_row=project
-    )
-    if summary.get("r2_error"):
-        logger.warning(
-            "project %s R2 purge incomplete: %s", project_id, summary["r2_error"]
-        )
-
+    # DB first so the history UI updates even if R2 is slow/unreachable.
     deleted = await repo.delete_project(user.id, project_id)
     if not deleted:
         raise NotFoundError("Project not found")
 
-    # Soft-delete path may leave children; repository also clears them. Re-purge
-    # R2 in case a concurrent upload wrote after the first pass.
-    try:
-        await storage.delete_prefix(f"users/{user.id}/projects/{project_id}/")
-    except Exception:  # noqa: BLE001 - request already succeeded for the user
-        logger.exception("post-delete R2 re-purge failed for %s", project_id)
+    owner_id = user.id
+
+    async def _purge() -> None:
+        try:
+            summary = await purge_project_artifacts(
+                storage, owner_id, project_id, project_row=project
+            )
+            if summary.get("r2_error"):
+                logger.warning(
+                    "project %s R2 purge incomplete: %s",
+                    project_id,
+                    summary["r2_error"],
+                )
+        except Exception:  # noqa: BLE001 - request already succeeded for the user
+            logger.exception("background purge failed for %s", project_id)
+
+    asyncio.create_task(_purge())
 
 
 @router.post("/{project_id}/source-from-url", response_model=ProjectOut)

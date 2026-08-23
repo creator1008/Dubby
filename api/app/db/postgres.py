@@ -69,6 +69,8 @@ _PROJECT_PATCHABLE = {
     "error",
 }
 
+_PROJECT_DELETED_SENTINEL = "__deleted__"
+
 
 class PostgresRepository(Repository):
     def __init__(self, settings: Settings) -> None:
@@ -135,8 +137,11 @@ class PostgresRepository(Repository):
     async def list_projects(self, owner_id: UUID) -> list[Row]:
         rows = await self.pool.fetch(
             f"SELECT {self._project_columns} FROM public.projects "
-            "WHERE owner_id = $1 ORDER BY created_at DESC",
+            "WHERE owner_id = $1 "
+            "AND coalesce(error, '') <> $2 "
+            "ORDER BY created_at DESC",
             owner_id,
+            _PROJECT_DELETED_SENTINEL,
         )
         return [dict(r) for r in rows]
 
@@ -200,9 +205,11 @@ class PostgresRepository(Repository):
     async def get_project(self, owner_id: UUID, project_id: UUID) -> Row | None:
         row = await self.pool.fetchrow(
             f"SELECT {self._project_columns} FROM public.projects "
-            "WHERE owner_id = $1 AND id = $2",
+            "WHERE owner_id = $1 AND id = $2 "
+            "AND coalesce(error, '') <> $3",
             owner_id,
             project_id,
+            _PROJECT_DELETED_SENTINEL,
         )
         return dict(row) if row else None
 
@@ -230,12 +237,62 @@ class PostgresRepository(Repository):
         return dict(row) if row else None
 
     async def delete_project(self, owner_id: UUID, project_id: UUID) -> bool:
-        result = await self.pool.execute(
-            "DELETE FROM public.projects WHERE owner_id = $1 AND id = $2",
+        """Hard-delete when possible; soft-delete when credit_ledger blocks FK nulling."""
+        try:
+            result = await self.pool.execute(
+                "DELETE FROM public.projects WHERE owner_id = $1 AND id = $2",
+                owner_id,
+                project_id,
+            )
+            if result.endswith("1"):
+                return True
+        except Exception as exc:
+            message = str(exc)
+            if "credit_ledger_is_immutable" not in message:
+                raise
+            # Append-only ledger blocks ON DELETE SET NULL — hide the project
+            # and purge child media rows so it disappears from history.
+            await self._purge_project_children(project_id)
+            sets = [
+                "error = $3",
+                "status = 'failed'",
+                "source_key = NULL",
+                "output_key = NULL",
+                "duration_seconds = NULL",
+            ]
+            if "lipsync_output_key" in self._project_column_set:
+                sets.append("lipsync_output_key = NULL")
+            if "quality_warnings" in self._project_column_set:
+                sets.append("quality_warnings = '[]'::jsonb")
+            soft = await self.pool.fetchrow(
+                f"UPDATE public.projects SET {', '.join(sets)} "
+                "WHERE owner_id = $1 AND id = $2 "
+                f"RETURNING {self._project_columns}",
+                owner_id,
+                project_id,
+                _PROJECT_DELETED_SENTINEL,
+            )
+            return soft is not None
+
+        # Already soft-deleted or missing.
+        existing = await self.pool.fetchrow(
+            "SELECT id, error FROM public.projects "
+            "WHERE owner_id = $1 AND id = $2",
             owner_id,
             project_id,
         )
-        return result.endswith("1")
+        return bool(existing) and existing["error"] == _PROJECT_DELETED_SENTINEL
+
+    async def _purge_project_children(self, project_id: UUID) -> None:
+        """Best-effort delete of segments/jobs when the project row must remain."""
+        for table in ("segments", "jobs"):
+            try:
+                await self.pool.execute(
+                    f"DELETE FROM public.{table} WHERE project_id = $1",
+                    project_id,
+                )
+            except Exception:
+                pass
 
     # --- segments -------------------------------------------------------------
 

@@ -411,13 +411,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const method = (init?.method || "GET").toUpperCase();
   const named = Boolean(namedApiOrigin());
-  const retries = method === "GET" || method === "HEAD" ? (named ? 6 : 5) : named ? 6 : 4;
+  // Avoid retrying mutating calls — DELETE/POST can succeed on the server while
+  // the browser sees a timeout / Failed to fetch (long R2 purge, tunnel blip).
+  const retries =
+    method === "GET" || method === "HEAD"
+      ? named
+        ? 6
+        : 5
+      : method === "DELETE"
+        ? 1
+        : named
+          ? 3
+          : 2;
   let lastError: unknown;
   let refreshedForAuth = false;
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
     const controller = new AbortController();
-    const timer = globalThis.setTimeout(() => controller.abort(), named ? 60_000 : 45_000);
+    const timeoutMs =
+      method === "DELETE" ? (named ? 90_000 : 60_000) : named ? 60_000 : 45_000;
+    const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const isForm =
         typeof FormData !== "undefined" && init?.body instanceof FormData;
