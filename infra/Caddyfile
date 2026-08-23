@@ -16,21 +16,8 @@
 		max_size 10MB
 	}
 
-	@siteOrigin header_regexp Origin ^https://((www\.)?dubbyai\.com|creator1008\.github\.io|dubby\.pages\.dev)$|^https://localhost$|^http://localhost:3000$|^capacitor://localhost$
-	header @siteOrigin Access-Control-Allow-Origin {http.request.header.Origin}
-	header @siteOrigin Access-Control-Allow-Credentials true
-	header @siteOrigin Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-	header @siteOrigin Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, X-Requested-With, Bypass-Tunnel-Reminder"
-	header @siteOrigin Access-Control-Max-Age 86400
-	header @siteOrigin Vary Origin
-
-	@preflight {
-		method OPTIONS
-		header_regexp Origin ^https://((www\.)?dubbyai\.com|creator1008\.github\.io|dubby\.pages\.dev)$|^https://localhost$|^http://localhost:3000$|^capacitor://localhost$
-	}
-	handle @preflight {
-		respond 204
-	}
+	# Do NOT set Access-Control-* here — FastAPI CORSMiddleware already does.
+	# Duplicate ACAO values are rejected by browsers.
 
 	reverse_proxy dubby-api:8000 {
 		health_uri /healthz
