@@ -10,8 +10,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
 from .auth import JwtVerifier
@@ -19,6 +20,80 @@ from .config import get_settings
 from .db import create_repository
 from .routers import admin, billing, credits, health, jobs, projects, segments, uploads, voices
 from .storage import R2Storage
+
+logger = logging.getLogger(__name__)
+
+
+class AccessLogMiddleware:
+    """Record authenticated /v1/* hits without BaseHTTPMiddleware.
+
+    Starlette's BaseHTTPMiddleware can strip CORS headers from 500 responses,
+    which browsers surface as net::ERR_FAILED / missing ACAO.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path") or ""
+        method = scope.get("method") or "GET"
+        status_code = 500
+
+        async def send_wrapper(message: dict) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = int(message.get("status") or 500)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+        if not path.startswith("/v1/") or path == "/v1/health":
+            return
+
+        app = scope.get("app")
+        while app is not None and not hasattr(getattr(app, "state", None), "repository"):
+            app = getattr(app, "app", None)
+        if app is None:
+            return
+
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in (scope.get("headers") or [])
+        }
+        authorization = headers.get("authorization", "")
+        user_id = None
+        if authorization.lower().startswith("bearer "):
+            try:
+                user_id = app.state.jwt_verifier.verify(
+                    authorization.split(" ", 1)[1]
+                ).id
+            except Exception:
+                user_id = None
+        if user_id is None:
+            return
+
+        try:
+            forwarded = headers.get("x-forwarded-for")
+            client = scope.get("client")
+            ip_address = (
+                forwarded.split(",", 1)[0].strip()
+                if forwarded
+                else (client[0] if client else None)
+            )
+            await app.state.repository.record_access_log(
+                user_id,
+                method=method,
+                path=path,
+                status_code=status_code,
+                ip_address=ip_address,
+                user_agent=headers.get("user-agent"),
+            )
+        except Exception:
+            logger.exception("Could not record access log")
 
 
 @asynccontextmanager
@@ -47,6 +122,8 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.app_env != "production" else None,
         redoc_url=None,
     )
+    # Last add_middleware is outermost. CORS must wrap AccessLog so 500s keep ACAO.
+    app.add_middleware(AccessLogMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -64,41 +141,6 @@ def create_app() -> FastAPI:
         ],
         max_age=86400,
     )
-
-    @app.middleware("http")
-    async def record_api_access(request: Request, call_next):
-        response = await call_next(request)
-        if request.url.path.startswith("/v1/") and request.url.path != "/v1/health":
-            user_id = None
-            authorization = request.headers.get("authorization", "")
-            if authorization.lower().startswith("bearer "):
-                try:
-                    user_id = request.app.state.jwt_verifier.verify(
-                        authorization.split(" ", 1)[1]
-                    ).id
-                except Exception:
-                    user_id = None
-            if user_id is not None:
-                try:
-                    forwarded = request.headers.get("x-forwarded-for")
-                    ip_address = (
-                        forwarded.split(",", 1)[0].strip()
-                        if forwarded
-                        else request.client.host if request.client else None
-                    )
-                    await request.app.state.repository.record_access_log(
-                        user_id,
-                        method=request.method,
-                        path=request.url.path,
-                        status_code=response.status_code,
-                        ip_address=ip_address,
-                        user_agent=request.headers.get("user-agent"),
-                    )
-                except Exception:
-                    logging.getLogger(__name__).exception(
-                        "Could not record access log"
-                    )
-        return response
 
     app.include_router(health.router)
     app.include_router(projects.router)

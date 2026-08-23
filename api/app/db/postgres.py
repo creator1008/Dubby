@@ -22,11 +22,29 @@ from .base import (
     Row,
 )
 
-_PROJECT_COLUMNS = (
-    "id, title, status, source_lang, target_lang, subtitle_mode, tone_style, "
-    "diarization_enabled, dub_voice_ids, duration_seconds, source_key, output_key, "
-    "lipsync_output_key, quality_warnings, error, created_at, updated_at"
+_PROJECT_COLUMN_CANDIDATES = (
+    "id",
+    "title",
+    "status",
+    "source_lang",
+    "target_lang",
+    "subtitle_mode",
+    "tone_style",
+    "diarization_enabled",
+    "dub_voice_ids",
+    "voice_mode",
+    "pipeline_version",
+    "duration_seconds",
+    "source_key",
+    "output_key",
+    "lipsync_output_key",
+    "quality_warnings",
+    "error",
+    "created_at",
+    "updated_at",
 )
+# Default SELECT list when information_schema is unavailable.
+_PROJECT_COLUMNS = ", ".join(_PROJECT_COLUMN_CANDIDATES)
 _JOB_COLUMNS = (
     "id, project_id, kind, status, progress, message, error, created_at, updated_at"
 )
@@ -56,6 +74,7 @@ class PostgresRepository(Repository):
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._pool: asyncpg.Pool | None = None
+        self._project_columns: str = _PROJECT_COLUMNS
 
     async def startup(self) -> None:
         if not self._settings.database_url:
@@ -66,6 +85,30 @@ class PostgresRepository(Repository):
             max_size=self._settings.db_pool_max_size,
             command_timeout=30,
         )
+        await self._resolve_project_columns()
+
+    async def _resolve_project_columns(self) -> None:
+        """Omit columns not yet migrated so list_projects does not 500."""
+        try:
+            rows = await self.pool.fetch(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'projects'"
+            )
+        except Exception:
+            return
+        available = {str(r["column_name"]) for r in rows}
+        selected = [c for c in _PROJECT_COLUMN_CANDIDATES if c in available]
+        if "id" not in available:
+            return
+        missing = [c for c in _PROJECT_COLUMN_CANDIDATES if c not in available]
+        if missing:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "projects table missing columns (apply Supabase migrations): %s",
+                ", ".join(missing),
+            )
+        self._project_columns = ", ".join(selected)
 
     async def shutdown(self) -> None:
         if self._pool is not None:
@@ -89,7 +132,7 @@ class PostgresRepository(Repository):
 
     async def list_projects(self, owner_id: UUID) -> list[Row]:
         rows = await self.pool.fetch(
-            f"SELECT {_PROJECT_COLUMNS} FROM public.projects "
+            f"SELECT {self._project_columns} FROM public.projects "
             "WHERE owner_id = $1 ORDER BY created_at DESC",
             owner_id,
         )
@@ -117,7 +160,7 @@ class PostgresRepository(Repository):
             "(owner_id, title, source_lang, target_lang, subtitle_mode, "
             "tone_style, diarization_enabled, dub_voice_ids) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) "
-            f"RETURNING {_PROJECT_COLUMNS}",
+            f"RETURNING {self._project_columns}",
             owner_id,
             title,
             source_lang,
@@ -132,7 +175,7 @@ class PostgresRepository(Repository):
 
     async def get_project(self, owner_id: UUID, project_id: UUID) -> Row | None:
         row = await self.pool.fetchrow(
-            f"SELECT {_PROJECT_COLUMNS} FROM public.projects "
+            f"SELECT {self._project_columns} FROM public.projects "
             "WHERE owner_id = $1 AND id = $2",
             owner_id,
             project_id,
@@ -155,7 +198,7 @@ class PostgresRepository(Repository):
         row = await self.pool.fetchrow(
             f"UPDATE public.projects SET {sets} "
             "WHERE owner_id = $1 AND id = $2 "
-            f"RETURNING {_PROJECT_COLUMNS}",
+            f"RETURNING {self._project_columns}",
             owner_id,
             project_id,
             *cols.values(),
@@ -406,7 +449,7 @@ class PostgresRepository(Repository):
 
     async def get_project_for_worker(self, project_id: UUID) -> Row | None:
         row = await self.pool.fetchrow(
-            f"SELECT owner_id, {_PROJECT_COLUMNS} FROM public.projects WHERE id = $1",
+            f"SELECT owner_id, {self._project_columns} FROM public.projects WHERE id = $1",
             project_id,
         )
         return dict(row) if row else None
