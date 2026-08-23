@@ -30,6 +30,14 @@ def test_settings_defaults() -> None:
     assert settings.r2_endpoint.endswith(".r2.cloudflarestorage.com")
 
 
+def test_cors_always_includes_public_site() -> None:
+    from app.config import Settings
+
+    settings = Settings(_env_file=None, cors_origins="http://localhost:3000")
+    assert "https://dubbyai.com" in settings.cors_origin_list
+    assert "https://www.dubbyai.com" in settings.cors_origin_list
+
+
 def test_production_requires_secrets() -> None:
     import pytest
     from app.config import Settings

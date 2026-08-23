@@ -188,7 +188,19 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        # Always allow the public site even if a stale Lightsail/Caddy .env
+        # omitted them — missing ACAO becomes browser "Failed to fetch".
+        configured = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        required = (
+            "https://dubbyai.com",
+            "https://www.dubbyai.com",
+            "https://creator1008.github.io",
+            "https://creator1008.github.io/Dubby",
+            "http://localhost:3000",
+            "https://localhost",
+            "capacitor://localhost",
+        )
+        return list(dict.fromkeys([*configured, *required]))
 
     @property
     def r2_endpoint(self) -> str:
