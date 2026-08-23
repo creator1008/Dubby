@@ -1,18 +1,22 @@
 {
 	email {$ACME_EMAIL}
+	# Chrome caches Alt-Svc h3 for weeks. QUIC/UDP to Lightsail often
+	# fails as net::ERR_FAILED with no ACAO — looks like a CORS error.
+	servers {
+		protocols h1 h2
+	}
 }
 
 {$DUBBY_API_DOMAIN} {
 	encode gzip
+	header -Alt-Svc
 
 	# Uploads go straight to R2 via presigned URLs, so bodies here stay small.
 	request_body {
 		max_size 10MB
 	}
 
-	# Browser history/list calls fail as "Failed to fetch" if FastAPI CORS
-	# rejects the Origin (stale container env). Echo ACAO here as a fallback.
-	@siteOrigin header Origin /^https:\/\/(www\.)?dubbyai\.com$|^https:\/\/creator1008\.github\.io$|^https:\/\/dubby\.pages\.dev$|^http:\/\/localhost:3000$|^https:\/\/localhost$|^capacitor:\/\/localhost$/
+	@siteOrigin header_regexp Origin ^https://((www\.)?dubbyai\.com|creator1008\.github\.io|dubby\.pages\.dev)$|^https://localhost$|^http://localhost:3000$|^capacitor://localhost$
 	header @siteOrigin Access-Control-Allow-Origin {http.request.header.Origin}
 	header @siteOrigin Access-Control-Allow-Credentials true
 	header @siteOrigin Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -22,7 +26,7 @@
 
 	@preflight {
 		method OPTIONS
-		header Origin /^https:\/\/(www\.)?dubbyai\.com$|^https:\/\/creator1008\.github\.io$|^https:\/\/dubby\.pages\.dev$|^http:\/\/localhost:3000$|^https:\/\/localhost$|^capacitor:\/\/localhost$/
+		header_regexp Origin ^https://((www\.)?dubbyai\.com|creator1008\.github\.io|dubby\.pages\.dev)$|^https://localhost$|^http://localhost:3000$|^capacitor://localhost$
 	}
 	handle @preflight {
 		respond 204
