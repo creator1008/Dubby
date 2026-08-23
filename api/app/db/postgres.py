@@ -193,12 +193,23 @@ class PostgresRepository(Repository):
             f"${i + 1}::jsonb" if col == "dub_voice_ids" else f"${i + 1}"
             for i, col in enumerate(cols)
         )
-        row = await self.pool.fetchrow(
-            f"INSERT INTO public.projects ({', '.join(cols)}) "
-            f"VALUES ({placeholders}) "
-            f"RETURNING {self._project_columns}",
-            *values,
-        )
+        try:
+            row = await self.pool.fetchrow(
+                f"INSERT INTO public.projects ({', '.join(cols)}) "
+                f"VALUES ({placeholders}) "
+                f"RETURNING {self._project_columns}",
+                *values,
+            )
+        except Exception as exc:
+            message = str(exc)
+            # Surface language CHECK failures clearly (th/my before migration).
+            if (
+                "projects_source_lang_check" in message
+                or "projects_target_lang_check" in message
+                or "check constraint" in message.lower()
+            ):
+                raise ValueError(message) from exc
+            raise
         assert row is not None
         return dict(row)
 

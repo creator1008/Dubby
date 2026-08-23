@@ -154,36 +154,55 @@ async def list_projects(
 async def create_project(
     body: ProjectCreate, user: CurrentUser, repo: Repo, storage: Storage
 ) -> ProjectOut:
-    row = await repo.create_project(
-        user.id,
-        title=body.title,
-        source_lang=body.source_lang,
-        target_lang=body.target_lang,
-        subtitle_mode=body.subtitle_mode,
-        tone_style=body.tone_style,
-        diarization_enabled=body.diarization_enabled,
-        dub_voice_ids=body.dub_voice_ids,
-    )
+    try:
+        row = await repo.create_project(
+            user.id,
+            title=body.title,
+            source_lang=body.source_lang,
+            target_lang=body.target_lang,
+            subtitle_mode=body.subtitle_mode,
+            tone_style=body.tone_style,
+            diarization_enabled=body.diarization_enabled,
+            dub_voice_ids=body.dub_voice_ids,
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "projects_source_lang_check" in message or "projects_target_lang_check" in message:
+            raise BadRequestError(
+                "선택한 언어가 DB에 아직 허용되지 않습니다. "
+                "Supabase에서 th/my 언어 마이그레이션을 적용해 주세요."
+            ) from exc
+        if "check constraint" in message.lower() or "CheckViolation" in type(exc).__name__:
+            raise BadRequestError(f"프로젝트 생성 실패: {message}") from exc
+        raise
     voices = [
         str(v).strip() for v in (body.dub_voice_ids or []) if str(v).strip()
     ][:8]
     voice_mode = body.voice_mode if body.voice_mode in {"voice_box", "auto_clone"} else "voice_box"
-    try:
-        await _save_dub_meta(
-            storage,
-            user.id,
-            UUID(str(row["id"])),
-            voice_ids=voices,
-            voice_mode=voice_mode,
-            pipeline_version=body.pipeline_version or "2.0",
-        )
-    except Exception:  # noqa: BLE001 - project create should still succeed
-        logger.exception("failed to persist dub meta sidecar")
+    owner_id = user.id
+    project_id = UUID(str(row["id"]))
+    pipeline_version = body.pipeline_version or "2.0"
+
+    async def _persist_meta() -> None:
+        try:
+            await _save_dub_meta(
+                storage,
+                owner_id,
+                project_id,
+                voice_ids=voices,
+                voice_mode=voice_mode,
+                pipeline_version=pipeline_version,
+            )
+        except Exception:  # noqa: BLE001 - project create should still succeed
+            logger.exception("failed to persist dub meta sidecar")
+
+    # Do not block create on R2 — hangs look like "API unreachable" in the browser.
+    asyncio.create_task(_persist_meta())
     row = {
         **row,
         "dub_voice_ids": voices,
         "voice_mode": voice_mode,
-        "pipeline_version": body.pipeline_version or "2.0",
+        "pipeline_version": pipeline_version,
     }
     return ProjectOut.model_validate(row)
 
