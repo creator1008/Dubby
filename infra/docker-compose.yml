@@ -19,6 +19,9 @@ services:
     env_file: .env
     environment:
       APP_ENV: ${APP_ENV:-production}
+      # Always use container binaries — never inherit a Windows host path from .env.
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
     expose:
       - "8000"
     networks:
@@ -44,6 +47,9 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-production}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      # Always use container binaries — never inherit a Windows host path from .env.
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
     volumes:
       # Demucs/torch model weights survive container recreation.
       - demucs-models:/srv/dubby/models

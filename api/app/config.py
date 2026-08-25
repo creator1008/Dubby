@@ -234,6 +234,30 @@ class Settings(BaseSettings):
         )
 
     @model_validator(mode="after")
+    def _normalize_ffmpeg_paths(self) -> "Settings":
+        """Drop Windows host paths when running in Linux containers."""
+        import os
+        import sys
+
+        if sys.platform.startswith("win"):
+            return self
+        for field in ("ffmpeg_path", "ffprobe_path"):
+            value = getattr(self, field) or ""
+            # Drive letter (D:\...) or backslash Windows path leaked from .env.
+            if "\\" in value or (len(value) >= 2 and value[1] == ":"):
+                object.__setattr__(
+                    self,
+                    field,
+                    "ffmpeg" if field == "ffmpeg_path" else "ffprobe",
+                )
+        # Prefer PATH lookup when the configured binary is not executable.
+        for field, fallback in (("ffmpeg_path", "ffmpeg"), ("ffprobe_path", "ffprobe")):
+            value = getattr(self, field) or fallback
+            if os.path.isabs(value) and not os.path.isfile(value):
+                object.__setattr__(self, field, fallback)
+        return self
+
+    @model_validator(mode="after")
     def _check_production_requirements(self) -> "Settings":
         """Fail fast on misconfigured production deployments.
 
