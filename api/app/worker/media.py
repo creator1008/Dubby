@@ -11,8 +11,11 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
+import shutil
 import subprocess
+import sys
 import wave
 from array import array
 from dataclasses import dataclass
@@ -29,6 +32,32 @@ logger = logging.getLogger("dubby.worker.media")
 # Callback invoked periodically while a subprocess runs; raising
 # JobCancelled from it kills the process.
 HeartbeatFn = Callable[[], Awaitable[None]]
+
+
+def resolve_media_binary(configured: str, fallback: str) -> str:
+    """Pick a runnable ffmpeg/ffprobe, ignoring Windows paths leaked into Linux .env."""
+    value = (configured or "").strip() or fallback
+    if not sys.platform.startswith("win"):
+        # PosixPath treats backslashes as part of the name — reject host paths.
+        if "\\" in value or value.lower().endswith(".exe") or (
+            len(value) >= 2 and value[1] == ":"
+        ):
+            logger.warning(
+                "ignoring non-Linux media binary %r; using %s", value, fallback
+            )
+            value = fallback
+        if os.path.isabs(value) and not os.path.isfile(value):
+            value = fallback
+    return value
+
+
+def _ffmpeg(settings: Settings) -> str:
+    return resolve_media_binary(settings.ffmpeg_path, "ffmpeg")
+
+
+def _ffprobe(settings: Settings) -> str:
+    return resolve_media_binary(settings.ffprobe_path, "ffprobe")
+
 
 _STDERR_TAIL_CHARS = 2000
 _ffmpeg_rubberband_cache: dict[str, bool] = {}
@@ -68,7 +97,7 @@ class MediaInfo:
 
 def build_probe_cmd(settings: Settings, source: str) -> list[str]:
     return [
-        settings.ffprobe_path,
+        _ffprobe(settings),
         "-v", "error",
         "-print_format", "json",
         "-show_format",
@@ -82,7 +111,7 @@ def build_audio_extract_cmd(
 ) -> list[str]:
     """Full-quality stereo WAV for Demucs / mixing."""
     return [
-        settings.ffmpeg_path, "-y", "-nostdin",
+        _ffmpeg(settings), "-y", "-nostdin",
         "-i", source,
         "-vn",
         "-acodec", "pcm_s16le",
@@ -99,7 +128,7 @@ def build_asr_audio_cmd(settings: Settings, source: str, mp3_out: str) -> list[s
     downsample so Whisper sees cleaner dialogue and fewer music hallucinations.
     """
     return [
-        settings.ffmpeg_path, "-y", "-nostdin",
+        _ffmpeg(settings), "-y", "-nostdin",
         "-i", source,
         "-vn",
         "-af", "highpass=f=60,lowpass=f=7800",
@@ -122,7 +151,7 @@ def build_clip_fit_cmd(
     gain_db: float = 0.0,
 ) -> list[str]:
     """Decode/fix tempo and hard-cap duration to prevent adjacent overlap."""
-    cmd = [settings.ffmpeg_path, "-y", "-nostdin", "-i", clip_in]
+    cmd = [_ffmpeg(settings), "-y", "-nostdin", "-i", clip_in]
     filters: list[str] = []
     if tempo_factor != 1.0:
         filters.extend(
@@ -209,7 +238,7 @@ def build_voice_sample_cmd(
     # Instant Voice Clone rejects samples shorter than 1 second.
     min_seconds = 1.2
     cmd = [
-        settings.ffmpeg_path, "-y", "-nostdin",
+        _ffmpeg(settings), "-y", "-nostdin",
         "-i", vocals_in,
     ]
     if ranges_ms:
@@ -329,7 +358,7 @@ def build_selective_voice_removal_cmd(
         "[original][removed]amix=inputs=2:duration=first:normalize=0[bed]"
     )
     return [
-        settings.ffmpeg_path, "-y", "-nostdin",
+        _ffmpeg(settings), "-y", "-nostdin",
         "-i", original_wav,
         "-i", no_vocals_wav,
         "-filter_complex", filters,
@@ -354,7 +383,7 @@ def build_mix_cmd(
     the sum from clipping. duration=first pins the mix to the background
     (i.e. video) length.
     """
-    cmd = [settings.ffmpeg_path, "-y", "-nostdin", "-i", background_wav]
+    cmd = [_ffmpeg(settings), "-y", "-nostdin", "-i", background_wav]
     for clip, _ in placed_clips:
         cmd += ["-i", clip]
 
@@ -403,7 +432,7 @@ def build_mux_cmd(
     re-encode.
     """
     cmd = [
-        settings.ffmpeg_path, "-y", "-nostdin",
+        _ffmpeg(settings), "-y", "-nostdin",
         "-i", source_video,
         "-i", mixed_wav,
         "-map", "0:v:0",
@@ -500,6 +529,9 @@ async def run_command(
     killed and the cancellation propagates.
     """
     program = PurePath(cmd[0]).name
+    # On Linux, Windows paths keep backslashes as part of the name.
+    if "\\" in program or program.lower().endswith(".exe"):
+        program = program.rsplit("\\", 1)[-1]
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -507,9 +539,26 @@ async def run_command(
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as exc:
-        raise PipelineError(
-            error_code, f"{program} is not installed or not on PATH"
-        ) from exc
+        # Last-chance retry when a host Windows path leaked into the command.
+        fallback = "ffprobe" if "ffprobe" in program.lower() else "ffmpeg"
+        if cmd[0] != fallback and shutil.which(fallback):
+            logger.warning("retrying %s via PATH binary %s", cmd[0], fallback)
+            cmd = [fallback, *cmd[1:]]
+            program = fallback
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except FileNotFoundError as retry_exc:
+                raise PipelineError(
+                    error_code, f"{program} is not installed or not on PATH"
+                ) from retry_exc
+        else:
+            raise PipelineError(
+                error_code, f"{program} is not installed or not on PATH"
+            ) from exc
 
     async def _communicate() -> tuple[bytes, bytes]:
         return await proc.communicate()
