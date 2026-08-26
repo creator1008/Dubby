@@ -748,52 +748,55 @@ export default function NewDubPage() {
     setSegments(merged);
     baselineTargetRef.current = snapshotTargetTexts(merged);
     baselineEmotionRef.current = snapshotEmotionTones(merged);
-    setMessage("자막을 저장했습니다.");
-
-    // Preview TTS can take minutes — never block the save button on it.
     if (changedForPreview.length && projectHasDubPreview) {
-      const refreshIds = changedForPreview.map((segment) => segment.id);
-      const refreshIdxs = changedForPreview.map((segment) => segment.idx);
-      void (async () => {
-        setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
-        try {
-          let refreshedRows: Segment[];
-          if (isDemoMode) {
-            if (!localRunId) {
-              throw new Error(
-                "로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.",
-              );
-            }
-            refreshedRows = await runLocalDubVoice(project, merged, localRunId, {
-              onlyIdxs: refreshIdxs,
-              charge: false,
-            });
-            setLocalStage(null);
-          } else {
-            const refreshed = await api.segments.refreshPreview(
-              project.id,
-              refreshIds,
-            );
-            refreshedRows = ensureSourceEndMs(
-              mergeSegmentVoiceFields(merged, refreshed),
-            );
-            setSegments(refreshedRows);
-          }
-          baselineTargetRef.current = snapshotTargetTexts(refreshedRows);
-          baselineEmotionRef.current = snapshotEmotionTones(refreshedRows);
-          setMessage("자막을 저장했고 미리듣기를 갱신했습니다.");
-        } catch (err) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "미리듣기 음성 갱신에 실패했습니다.",
-          );
-          setMessage("자막은 저장되었습니다. 미리듣기는 나중에 다시 시도해 주세요.");
-          setLocalStage(null);
-        }
-      })();
+      setMessage(
+        "자막을 저장했습니다. 더빙어 ▶ 미리듣기를 누르면 새 감정톤·번역으로 음성이 생성됩니다.",
+      );
+    } else {
+      setMessage("자막을 저장했습니다.");
     }
     return merged;
+  };
+
+  const ensureDubPreview = async (segmentId: string) => {
+    if (!project) return undefined;
+    const row = segments.find((segment) => segment.id === segmentId);
+    if (!row) return undefined;
+    if (row.dubbed_audio_url) return row.dubbed_audio_url;
+    setMessage("미리듣기 음성을 생성하는 중…");
+    setError(null);
+    try {
+      if (isDemoMode) {
+        if (!localRunId) {
+          throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
+        }
+        const nextRows = await runLocalDubVoice(project, segments, localRunId, {
+          onlyIdxs: [row.idx],
+          charge: false,
+        });
+        setLocalStage(null);
+        setMessage("미리듣기 음성을 생성했습니다.");
+        return nextRows.find((segment) => segment.id === segmentId)?.dubbed_audio_url;
+      }
+      const refreshed = await api.segments.refreshPreview(project.id, [segmentId]);
+      const nextRows = ensureSourceEndMs(
+        mergeSegmentVoiceFields(segments, refreshed),
+      );
+      setSegments(nextRows);
+      baselineEmotionRef.current = snapshotEmotionTones(nextRows);
+      setMessage("미리듣기 음성을 생성했습니다.");
+      return nextRows.find((segment) => segment.id === segmentId)?.dubbed_audio_url;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "미리듣기 음성 생성에 실패했습니다.";
+      setError(
+        isTransientNetworkError(message)
+          ? "미리듣기 음성 생성에 실패했습니다. 잠시 후 ▶ 로 다시 시도해 주세요."
+          : message,
+      );
+      setMessage(null);
+      throw err;
+    }
   };
 
   const onRetranslate = async () => {
@@ -925,14 +928,18 @@ export default function NewDubPage() {
   const editorLocked =
     uploading || Boolean(activeJob) || Boolean(localStage);
   const canEdit = segments.length > 0;
-  const hasDubVoice = segments.some((segment) =>
-    Boolean(segment.dubbed_audio_url),
+  const hasDubVoice = segments.some(
+    (segment) =>
+      Boolean(segment.dubbed_audio_url) ||
+      typeof segment.clip_speak_speed === "number" ||
+      hadDubPreviewRef.current,
   );
   const showSpeakRate =
     hasDubVoice ||
     project?.status === "completed" ||
     project?.status === "dubbed_ready";
-  const canRegenerateDub = hasDubVoice || Boolean(outputUrl);
+  const canRegenerateDub =
+    hasDubVoice || Boolean(outputUrl) || hadDubPreviewRef.current;
 
   return (
     <>
@@ -1269,6 +1276,7 @@ export default function NewDubPage() {
                 defaultEmotionTone={project.tone_style || toneStyle}
                 onChange={onSegmentChange}
                 onEmotionToneChange={onEmotionToneChange}
+                onEnsureDubPreview={ensureDubPreview}
                 onSpeakSpeedChange={(id, speed) => {
                   setSegments((prev) =>
                     applySpeakRateChange(

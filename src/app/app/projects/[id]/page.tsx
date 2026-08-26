@@ -266,40 +266,46 @@ function ProjectEditor() {
       setSegments(merged);
       baselineTargetRef.current = snapshotTargetTexts(merged);
       baselineEmotionRef.current = snapshotEmotionTones(merged);
-      setMessage("자막을 저장했습니다.");
-
-      if (changedForPreview.length && !isDemoMode && projectHasDubPreview) {
-        const refreshIds = changedForPreview.map((segment) => segment.id);
-        void (async () => {
-          setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
-          try {
-            const refreshed = await api.segments.refreshPreview(
-              projectId,
-              refreshIds,
-            );
-            const nextRows = ensureSourceEndMs(
-              mergeSegmentVoiceFields(merged, refreshed),
-            );
-            setSegments(nextRows);
-            baselineTargetRef.current = snapshotTargetTexts(nextRows);
-            baselineEmotionRef.current = snapshotEmotionTones(nextRows);
-            setMessage("자막을 저장했고 미리듣기를 갱신했습니다.");
-          } catch (err) {
-            setError(
-              err instanceof Error
-                ? err.message
-                : "미리듣기 음성 갱신에 실패했습니다.",
-            );
-            setMessage(
-              "자막은 저장되었습니다. 미리듣기는 나중에 다시 시도해 주세요.",
-            );
-          }
-        })();
+      if (changedForPreview.length && projectHasDubPreview) {
+        setMessage(
+          "자막을 저장했습니다. 더빙어 ▶ 미리듣기를 누르면 새 감정톤·번역으로 음성이 생성됩니다.",
+        );
+      } else {
+        setMessage("자막을 저장했습니다.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "자막을 저장하지 못했습니다.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const ensureDubPreview = async (segmentId: string) => {
+    if (!projectId) return undefined;
+    const row = segments.find((segment) => segment.id === segmentId);
+    if (!row) return undefined;
+    if (row.dubbed_audio_url) return row.dubbed_audio_url;
+    setMessage("미리듣기 음성을 생성하는 중…");
+    setError(null);
+    try {
+      const refreshed = await api.segments.refreshPreview(projectId, [segmentId]);
+      const nextRows = ensureSourceEndMs(
+        mergeSegmentVoiceFields(segments, refreshed),
+      );
+      setSegments(nextRows);
+      baselineEmotionRef.current = snapshotEmotionTones(nextRows);
+      setMessage("미리듣기 음성을 생성했습니다.");
+      return nextRows.find((segment) => segment.id === segmentId)?.dubbed_audio_url;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "미리듣기 음성 생성에 실패했습니다.";
+      setError(
+        isTransientNetworkError(message)
+          ? "미리듣기 음성 생성에 실패했습니다. 잠시 후 ▶ 로 다시 시도해 주세요."
+          : message,
+      );
+      setMessage(null);
+      throw err;
     }
   };
 
@@ -582,12 +588,18 @@ function ProjectEditor() {
               disabled={busy || Boolean(activeJob)}
               showSpeakRate={
                 project.status === "completed" ||
-                segments.some((segment) => Boolean(segment.dubbed_audio_url))
+                hadDubPreviewRef.current ||
+                segments.some(
+                  (segment) =>
+                    Boolean(segment.dubbed_audio_url) ||
+                    typeof segment.clip_speak_speed === "number",
+                )
               }
               sourceMediaUrl={sourceUrl}
               defaultEmotionTone={project.tone_style}
               onChange={onSegmentChange}
               onEmotionToneChange={onEmotionToneChange}
+              onEnsureDubPreview={(id) => ensureDubPreview(id)}
               onSpeakSpeedChange={(id, speed) => {
                 setSegments((prev) =>
                   applySpeakRateChange(

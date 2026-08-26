@@ -1,4 +1,8 @@
-"""Regenerate per-segment dubbed preview clips after subtitle edits."""
+"""Regenerate per-segment dubbed preview clips after subtitle edits.
+
+Runs inside the API container (no ffmpeg/Demucs). Uploads raw ElevenLabs MP3
+clips so editor preview works without the worker image.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,6 @@ from uuid import UUID
 
 from ..config import Settings
 from ..storage.r2 import R2Storage
-from .dub_quality import matched_loudness_gain
 from .dub_voice_assets import (
     dub_clip_key,
     load_dub_voice_manifest,
@@ -18,7 +21,6 @@ from .dub_voice_assets import (
 )
 from .elevenlabs_client import ElevenLabsClient
 from .emotion import normalize_emotion_tone
-from .media import measure_audio_loudness_db
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ async def refresh_preview_clips(
     segment_ids: set[str] | None = None,
     voice_ids: list[str] | None = None,
 ) -> list[int]:
-    """TTS + loudness-match preview clips for the given (or all stale) segments.
+    """TTS preview clips for the given (or all stale) segments.
 
     Returns idxs that were refreshed.
     """
@@ -81,9 +83,16 @@ async def refresh_preview_clips(
             continue
         meta = by_idx_meta.get(idx) or {}
         meta_text = str(meta.get("target_text") or "").strip()
+        meta_tone = str(meta.get("emotion_tone") or "").strip()
+        row_tone = str(row.get("emotion_tone") or "").strip()
         audio_key = str(meta.get("audio_key") or "").strip()
-        # Refresh when missing, invalidated, or text drifted.
-        if audio_key and meta_text == text and segment_ids is None:
+        # Refresh when missing, invalidated, text/tone drifted, or explicitly asked.
+        if (
+            segment_ids is None
+            and audio_key
+            and meta_text == text
+            and (not row_tone or not meta_tone or meta_tone == row_tone)
+        ):
             continue
         targets.append(row)
 
@@ -113,7 +122,6 @@ async def refresh_preview_clips(
             speaker = str(row.get("speaker_id") or "").strip() or "speaker_1"
             voice_id = voices.get(speaker) or next(iter(voices.values()))
             meta = by_idx_meta.get(idx) or {}
-            # Prefer editor-saved tone from the just-updated manifest.
             emotion = normalize_emotion_tone(
                 str(
                     meta.get("emotion_tone")
@@ -139,43 +147,21 @@ async def refresh_preview_clips(
                 target_lang,
                 speed=speak_speed,
             )
-            duration_ms = max(
-                1,
-                int(
-                    (
-                        await _probe_duration_ms(settings, str(raw_path))
-                    )
-                ),
-            )
-            tts_level = measure_audio_loudness_db(
-                str(raw_path),
-                0,
-                duration_ms,
-                ffmpeg_path=settings.ffmpeg_path,
-            )
-            try:
-                source_level = float(meta["source_level_db"])
-            except (KeyError, TypeError, ValueError):
-                source_level = tts_level
-            gain_db = matched_loudness_gain(source_level, tts_level)
-            preview_path = scratch / f"seg_{idx}_preview.wav"
-            await _apply_gain_wav(settings, str(raw_path), str(preview_path), gain_db)
 
-            clip_key = dub_clip_key(storage, source_key, idx, "wav")
-            await storage.upload_file(str(preview_path), clip_key, "audio/wav")
+            # API image has no ffmpeg — upload raw MP3 for editor preview.
+            clip_key = dub_clip_key(storage, source_key, idx, "mp3")
+            await storage.upload_file(str(raw_path), clip_key, "audio/mpeg")
             meta_row: dict[str, Any] = {
                 "idx": idx,
                 "speak_speed": speak_speed,
                 "clip_speak_speed": speak_speed,
                 "audio_key": clip_key,
                 "target_text": text,
-                "gain_db": gain_db,
-                "source_level_db": source_level,
-                "tts_level_db": tts_level,
                 "emotion_tone": emotion,
             }
-            if meta.get("source_end_ms"):
-                meta_row["source_end_ms"] = meta["source_end_ms"]
+            for key in ("source_end_ms", "gain_db", "source_level_db", "tts_level_db"):
+                if meta.get(key) is not None:
+                    meta_row[key] = meta[key]
             await upsert_manifest_segment(
                 storage, source_key=source_key, meta_row=meta_row
             )
@@ -183,63 +169,6 @@ async def refresh_preview_clips(
             refreshed.append(idx)
 
     return refreshed
-
-
-async def _probe_duration_ms(settings: Settings, path: str) -> float:
-    import asyncio
-    import json
-    import subprocess
-
-    def _run() -> float:
-        result = subprocess.run(
-            [
-                settings.ffprobe_path,
-                "-v",
-                "quiet",
-                "-print_format",
-                "json",
-                "-show_format",
-                path,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        try:
-            data = json.loads(result.stdout or "{}")
-            return float(data.get("format", {}).get("duration") or 0) * 1000
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return 1000.0
-
-    return await asyncio.to_thread(_run)
-
-
-async def _apply_gain_wav(
-    settings: Settings, src: str, dst: str, gain_db: float
-) -> None:
-    import asyncio
-    import subprocess
-
-    def _run() -> None:
-        cmd = [
-            settings.ffmpeg_path,
-            "-nostdin",
-            "-y",
-            "-i",
-            src,
-            "-af",
-            f"volume={gain_db:.2f}dB",
-            "-c:a",
-            "pcm_s16le",
-            "-ar",
-            "44100",
-            "-ac",
-            "1",
-            dst,
-        ]
-        subprocess.run(cmd, check=True, capture_output=True)
-
-    await asyncio.to_thread(_run)
 
 
 def parse_segment_id_set(raw_ids: list[UUID] | None) -> set[str] | None:

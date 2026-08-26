@@ -74,6 +74,8 @@ type Props = {
   onChange: (id: string, field: "source_text" | "target_text", value: string) => void;
   onSpeakSpeedChange?: (id: string, speed: number) => void;
   onEmotionToneChange?: (id: string, tone: ToneStyle) => void;
+  /** Regenerate dubbed preview for one segment; returns a playable URL. */
+  onEnsureDubPreview?: (segmentId: string) => Promise<string | undefined>;
 };
 
 function SourcePreviewControl({
@@ -242,10 +244,12 @@ function SpeakRateControl({
   segment,
   disabled,
   onChange,
+  onEnsureDubPreview,
 }: {
   segment: Segment;
   disabled?: boolean;
   onChange?: (speed: number) => void;
+  onEnsureDubPreview?: (segmentId: string) => Promise<string | undefined>;
 }) {
   const text = useAppDictionary();
   // Natural translation delivery is always 1.0×.
@@ -256,7 +260,10 @@ function SpeakRateControl({
     segment.clip_speak_speed ?? segment.speak_speed ?? baseline,
   );
   const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const canPreview =
+    Boolean(segment.dubbed_audio_url) || Boolean(onEnsureDubPreview);
 
   useEffect(() => {
     return () => {
@@ -275,7 +282,7 @@ function SpeakRateControl({
   };
 
   const togglePreview = async () => {
-    if (!segment.dubbed_audio_url || disabled) return;
+    if (disabled || loading) return;
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.onended = () => setPlaying(false);
@@ -287,7 +294,19 @@ function SpeakRateControl({
       setPlaying(false);
       return;
     }
-    audio.src = segment.dubbed_audio_url;
+    let url = segment.dubbed_audio_url;
+    if (!url && onEnsureDubPreview) {
+      setLoading(true);
+      try {
+        url = await onEnsureDubPreview(segment.id);
+      } catch {
+        setLoading(false);
+        return;
+      }
+      setLoading(false);
+    }
+    if (!url) return;
+    audio.src = url;
     audio.playbackRate = speed / clipSpeed;
     try {
       await audio.play();
@@ -343,13 +362,25 @@ function SpeakRateControl({
       </button>
       <button
         type="button"
-        className={`speak-rate-icon${playing ? " is-active" : ""}`}
-        disabled={disabled || !segment.dubbed_audio_url}
-        aria-label={playing ? text.voicePreviewStop : text.voicePreview}
-        title={playing ? text.voicePreviewStop : text.voicePreview}
+        className={`speak-rate-icon${playing || loading ? " is-active" : ""}`}
+        disabled={disabled || !canPreview || loading}
+        aria-label={
+          loading
+            ? text.voicePreview
+            : playing
+              ? text.voicePreviewStop
+              : text.voicePreview
+        }
+        title={
+          loading
+            ? text.voicePreview
+            : playing
+              ? text.voicePreviewStop
+              : text.voicePreview
+        }
         onClick={() => void togglePreview()}
       >
-        {playing ? "■" : "▶"}
+        {loading ? "…" : playing ? "■" : "▶"}
       </button>
     </div>
   );
@@ -406,6 +437,7 @@ export function SubtitleEditor({
   onChange,
   onSpeakSpeedChange,
   onEmotionToneChange,
+  onEnsureDubPreview,
 }: Props) {
   const text = useAppDictionary();
   const sourceLabel = LANG_NAMES[sourceLang] ?? sourceLang.toUpperCase();
@@ -491,6 +523,7 @@ export function SubtitleEditor({
                       segment={seg}
                       disabled={disabled}
                       onChange={(speed) => onSpeakSpeedChange?.(seg.id, speed)}
+                      onEnsureDubPreview={onEnsureDubPreview}
                     />
                   ) : null}
                 </div>
