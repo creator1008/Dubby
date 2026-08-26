@@ -190,6 +190,7 @@ function ProjectEditor() {
   const save = async () => {
     if (!projectId || !project) return;
     setBusy(true);
+    setError(null);
     try {
       const videoEndMs = videoEndMsFromSegments(
         segments,
@@ -214,11 +215,23 @@ function ProjectEditor() {
             typeof segment.clip_speak_speed === "number",
         );
       const changedForPreview = prepared.filter((segment) => {
+        const hasTextBaseline = Object.prototype.hasOwnProperty.call(
+          baselineTargetRef.current,
+          segment.id,
+        );
+        const hasToneBaseline = Object.prototype.hasOwnProperty.call(
+          baselineEmotionRef.current,
+          segment.id,
+        );
         const priorText =
           baselineTargetRef.current[segment.id] ?? segment.target_text;
         const priorTone = baselineEmotionRef.current[segment.id] ?? "";
-        const textChanged = priorText !== segment.target_text;
-        const toneChanged = priorTone !== String(segment.emotion_tone || "");
+        const currentTone = String(segment.emotion_tone || "");
+        const textChanged = hasTextBaseline && priorText !== segment.target_text;
+        const toneChanged =
+          hasToneBaseline &&
+          priorTone !== currentTone &&
+          !(priorTone === "" && currentTone !== "");
         return projectHasDubPreview && (textChanged || toneChanged);
       });
       const next = await api.segments.update(
@@ -249,19 +262,42 @@ function ProjectEditor() {
           }),
         ),
       );
-      let merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
-      if (changedForPreview.length && !isDemoMode) {
-        setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
-        const refreshed = await api.segments.refreshPreview(
-          projectId,
-          changedForPreview.map((segment) => segment.id),
-        );
-        merged = ensureSourceEndMs(mergeSegmentVoiceFields(merged, refreshed));
-      }
+      const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
       setSegments(merged);
       baselineTargetRef.current = snapshotTargetTexts(merged);
       baselineEmotionRef.current = snapshotEmotionTones(merged);
       setMessage("자막을 저장했습니다.");
+
+      if (changedForPreview.length && !isDemoMode && projectHasDubPreview) {
+        const refreshIds = changedForPreview.map((segment) => segment.id);
+        void (async () => {
+          setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
+          try {
+            const refreshed = await api.segments.refreshPreview(
+              projectId,
+              refreshIds,
+            );
+            const nextRows = ensureSourceEndMs(
+              mergeSegmentVoiceFields(merged, refreshed),
+            );
+            setSegments(nextRows);
+            baselineTargetRef.current = snapshotTargetTexts(nextRows);
+            baselineEmotionRef.current = snapshotEmotionTones(nextRows);
+            setMessage("자막을 저장했고 미리듣기를 갱신했습니다.");
+          } catch (err) {
+            setError(
+              err instanceof Error
+                ? err.message
+                : "미리듣기 음성 갱신에 실패했습니다.",
+            );
+            setMessage(
+              "자막은 저장되었습니다. 미리듣기는 나중에 다시 시도해 주세요.",
+            );
+          }
+        })();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "자막을 저장하지 못했습니다.");
     } finally {
       setBusy(false);
     }

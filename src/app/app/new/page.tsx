@@ -441,6 +441,9 @@ export default function NewDubPage() {
       charge: opts?.charge !== false,
     });
     setSegments(nextSegments);
+    baselineTargetRef.current = snapshotTargetTexts(nextSegments);
+    baselineEmotionRef.current = snapshotEmotionTones(nextSegments);
+    hadDubPreviewRef.current = true;
     if (opts?.charge !== false) {
       window.dispatchEvent(new Event("credits-changed"));
     }
@@ -684,7 +687,6 @@ export default function NewDubPage() {
     if (prepared !== segments) {
       setSegments(prepared);
     }
-    // Emotion edits clear dubbed_audio_url before save; use durable signals.
     const projectHasDubPreview =
       project.status === "completed" ||
       Boolean(outputUrl) ||
@@ -695,11 +697,23 @@ export default function NewDubPage() {
           typeof segment.clip_speak_speed === "number",
       );
     const changedForPreview = prepared.filter((segment) => {
-      const priorText =
-        baselineTargetRef.current[segment.id] ?? segment.target_text;
+      const hasTextBaseline = Object.prototype.hasOwnProperty.call(
+        baselineTargetRef.current,
+        segment.id,
+      );
+      const hasToneBaseline = Object.prototype.hasOwnProperty.call(
+        baselineEmotionRef.current,
+        segment.id,
+      );
+      const priorText = baselineTargetRef.current[segment.id] ?? segment.target_text;
       const priorTone = baselineEmotionRef.current[segment.id] ?? "";
-      const textChanged = priorText !== segment.target_text;
-      const toneChanged = priorTone !== String(segment.emotion_tone || "");
+      const currentTone = String(segment.emotion_tone || "");
+      const textChanged = hasTextBaseline && priorText !== segment.target_text;
+      // Ignore empty→detected sync (baseline "" after extract, tone filled by dub).
+      const toneChanged =
+        hasToneBaseline &&
+        priorTone !== currentTone &&
+        !(priorTone === "" && currentTone !== "");
       return projectHasDubPreview && (textChanged || toneChanged);
     });
     const next = await api.segments.update(
@@ -730,30 +744,55 @@ export default function NewDubPage() {
         }),
       ),
     );
-    let merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
-    if (changedForPreview.length) {
-      setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
-      if (isDemoMode) {
-        if (!localRunId) {
-          throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
-        }
-        merged = await runLocalDubVoice(project, merged, localRunId, {
-          onlyIdxs: changedForPreview.map((segment) => segment.idx),
-          charge: false,
-        });
-        setLocalStage(null);
-      } else {
-        const refreshed = await api.segments.refreshPreview(
-          project.id,
-          changedForPreview.map((segment) => segment.id),
-        );
-        merged = ensureSourceEndMs(mergeSegmentVoiceFields(merged, refreshed));
-      }
-    }
+    const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
     setSegments(merged);
     baselineTargetRef.current = snapshotTargetTexts(merged);
     baselineEmotionRef.current = snapshotEmotionTones(merged);
     setMessage("자막을 저장했습니다.");
+
+    // Preview TTS can take minutes — never block the save button on it.
+    if (changedForPreview.length && projectHasDubPreview) {
+      const refreshIds = changedForPreview.map((segment) => segment.id);
+      const refreshIdxs = changedForPreview.map((segment) => segment.idx);
+      void (async () => {
+        setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
+        try {
+          let refreshedRows: Segment[];
+          if (isDemoMode) {
+            if (!localRunId) {
+              throw new Error(
+                "로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.",
+              );
+            }
+            refreshedRows = await runLocalDubVoice(project, merged, localRunId, {
+              onlyIdxs: refreshIdxs,
+              charge: false,
+            });
+            setLocalStage(null);
+          } else {
+            const refreshed = await api.segments.refreshPreview(
+              project.id,
+              refreshIds,
+            );
+            refreshedRows = ensureSourceEndMs(
+              mergeSegmentVoiceFields(merged, refreshed),
+            );
+            setSegments(refreshedRows);
+          }
+          baselineTargetRef.current = snapshotTargetTexts(refreshedRows);
+          baselineEmotionRef.current = snapshotEmotionTones(refreshedRows);
+          setMessage("자막을 저장했고 미리듣기를 갱신했습니다.");
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "미리듣기 음성 갱신에 실패했습니다.",
+          );
+          setMessage("자막은 저장되었습니다. 미리듣기는 나중에 다시 시도해 주세요.");
+          setLocalStage(null);
+        }
+      })();
+    }
     return merged;
   };
 
