@@ -1,4 +1,4 @@
-"""OpenAI integrations: Whisper ASR and GPT structured translation.
+"""ASR (OpenAI Whisper) and structured translation (xAI Grok / OpenAI chat).
 
 Thin httpx wrappers plus pure parsing helpers (the parsers are unit-tested
 without network access). Transient failures raise retryable
@@ -11,6 +11,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeVar
 
 import httpx
 
@@ -24,6 +25,8 @@ from .utterance_pipeline import TimedToken
 logger = logging.getLogger("dubby.worker.openai")
 
 _TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=300.0, pool=10.0)
+_CHAT_TIMEOUT = httpx.Timeout(connect=10.0, read=600.0, write=60.0, pool=10.0)
+T = TypeVar("T")
 
 
 def _raise_for_status(resp: httpx.Response, code: str) -> None:
@@ -32,7 +35,7 @@ def _raise_for_status(resp: httpx.Response, code: str) -> None:
     retryable = resp.status_code == 429 or resp.status_code >= 500
     raise PipelineError(
         code,
-        f"OpenAI API returned {resp.status_code}: {resp.text[:300]}",
+        f"LLM API returned {resp.status_code}: {resp.text[:300]}",
         retryable=retryable,
     )
 
@@ -81,10 +84,107 @@ def parse_whisper_word_ranges(payload: dict) -> list[tuple[int, int]]:
     ]
 
 
+def is_grok_model(model: str) -> bool:
+    """True for xAI Grok chat models (``grok-4.6``, ``grok-4.5``, …)."""
+    normalized = (model or "").strip().lower().replace("_", "-")
+    return normalized.startswith("grok-")
+
+
+def chunked(items: list[T], size: int) -> list[list[T]]:
+    """Split ``items`` into consecutive batches of at most ``size``."""
+    n = max(1, int(size))
+    return [items[i : i + n] for i in range(0, len(items), n)]
+
+
+def chat_endpoint_for_model(
+    model: str,
+    *,
+    openai_api_key: str,
+    openai_base_url: str,
+    xai_api_key: str,
+    xai_base_url: str,
+    reasoning_effort: str = "low",
+) -> tuple[str, dict[str, str], dict[str, object]]:
+    """Return ``(base_url, headers, extra_body)`` for chat completions."""
+    if is_grok_model(model):
+        key = (xai_api_key or "").strip()
+        if not key:
+            raise PipelineError(
+                errors.CONFIG_MISSING, "XAI_API_KEY is not configured"
+            )
+        extras: dict[str, object] = {}
+        effort = (reasoning_effort or "").strip().lower()
+        if effort:
+            extras["reasoning_effort"] = effort
+        return (
+            (xai_base_url or "https://api.x.ai/v1").rstrip("/"),
+            {"Authorization": f"Bearer {key}"},
+            extras,
+        )
+    key = (openai_api_key or "").strip()
+    if not key:
+        raise PipelineError(
+            errors.CONFIG_MISSING, "OPENAI_API_KEY is not configured"
+        )
+    return (
+        (openai_base_url or "https://api.openai.com/v1").rstrip("/"),
+        {"Authorization": f"Bearer {key}"},
+        {},
+    )
+
+
+def coerce_model_json(content: str) -> str:
+    """Strip markdown fences so Grok/GPT JSON payloads still parse."""
+    text = (content or "").strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
+
+
+def assistant_message_text(payload: dict) -> str:
+    """Read the assistant text from a chat-completions JSON body."""
+    try:
+        message = payload["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise PipelineError(
+            errors.TRANSLATION_FAILED,
+            "unexpected chat completion shape",
+            retryable=True,
+        ) from exc
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                text = part.get("text") or part.get("content")
+                if text:
+                    parts.append(str(text))
+        text = "".join(parts).strip()
+    else:
+        text = str(content or "").strip()
+    if not text:
+        refusal = (
+            message.get("refusal") if isinstance(message, dict) else None
+        )
+        raise PipelineError(
+            errors.TRANSLATION_FAILED,
+            f"empty chat completion{f': {refusal}' if refusal else ''}",
+            retryable=True,
+        )
+    return text
+
+
 def parse_translation_content(content: str, expected_idxs: list[int]) -> dict[int, str]:
     """Model JSON -> {idx: translated text}; every expected idx must appear."""
     try:
-        data = json.loads(content)
+        data = json.loads(coerce_model_json(content))
         items = data["translations"]
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise PipelineError(
@@ -191,9 +291,46 @@ class OpenAIClient:
             raise PipelineError(
                 errors.CONFIG_MISSING, "OPENAI_API_KEY is not configured"
             )
+        if is_grok_model(settings.translation_model) and not settings.xai_api_key:
+            raise PipelineError(
+                errors.CONFIG_MISSING, "XAI_API_KEY is not configured"
+            )
         self._settings = settings
         self._base = settings.openai_base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+
+    def _chat_endpoint(self) -> tuple[str, dict[str, str], dict[str, object]]:
+        return chat_endpoint_for_model(
+            self._settings.translation_model,
+            openai_api_key=self._settings.openai_api_key,
+            openai_base_url=self._settings.openai_base_url,
+            xai_api_key=self._settings.xai_api_key,
+            xai_base_url=self._settings.xai_base_url,
+            reasoning_effort=self._settings.translation_reasoning_effort,
+        )
+
+    async def _chat_completion(self, body: dict, fail_prefix: str) -> str:
+        base, headers, extras = self._chat_endpoint()
+        payload = {
+            **body,
+            "model": self._settings.translation_model,
+            **extras,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_CHAT_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{base}/chat/completions",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            raise PipelineError(
+                errors.TRANSLATION_FAILED,
+                f"{fail_prefix}: {exc}",
+                retryable=True,
+            ) from exc
+        _raise_for_status(resp, errors.TRANSLATION_FAILED)
+        return assistant_message_text(resp.json())
 
     async def transcribe(self, audio_path: str, language: str) -> TranscribeResult:
         from .locale_rules import whisper_vocab_prompt
@@ -240,39 +377,41 @@ class OpenAIClient:
         *,
         document_context: str | None = None,
     ) -> dict[int, str]:
-        body = {
-            "model": self._settings.translation_model,
-            "messages": build_translation_messages(
-                items,
-                source_lang,
-                target_lang,
-                document_context=document_context,
-            ),
-            "response_format": _TRANSLATION_SCHEMA,
-            "temperature": 0.1,
-        }
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._base}/chat/completions",
-                    headers={**self._headers, "Content-Type": "application/json"},
-                    json=body,
+        if not items:
+            return {}
+        merged: dict[int, str] = {}
+        for chunk in chunked(items, self._settings.translation_batch_size):
+            merged.update(
+                await self._translate_chunk(
+                    chunk,
+                    source_lang,
+                    target_lang,
+                    document_context=document_context,
                 )
-        except httpx.HTTPError as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                f"translation request failed: {exc}",
-                retryable=True,
-            ) from exc
-        _raise_for_status(resp, errors.TRANSLATION_FAILED)
-        try:
-            content = resp.json()["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                "unexpected chat completion shape",
-                retryable=True,
-            ) from exc
+            )
+        return merged
+
+    async def _translate_chunk(
+        self,
+        items: list[tuple[int, str, float]],
+        source_lang: str,
+        target_lang: str,
+        *,
+        document_context: str | None = None,
+    ) -> dict[int, str]:
+        content = await self._chat_completion(
+            {
+                "messages": build_translation_messages(
+                    items,
+                    source_lang,
+                    target_lang,
+                    document_context=document_context,
+                ),
+                "response_format": _TRANSLATION_SCHEMA,
+                "temperature": 0.1,
+            },
+            "translation request failed",
+        )
         parsed = parse_translation_content(content, [idx for idx, _, _ in items])
         from .locale_rules import apply_translation_postprocess
 
@@ -313,54 +452,36 @@ class OpenAIClient:
         extra = asr_proofread_rules(language)
         if extra:
             proofread = f"{proofread}\n\n{extra}"
-        body = {
-            "model": self._settings.translation_model,
-            "temperature": 0,
-            "response_format": _TRANSLATION_SCHEMA,
-            "messages": [
+        full_transcript = "\n".join(f"[{idx}] {text}" for idx, text in items)
+        merged: dict[int, str] = {}
+        for chunk in chunked(items, self._settings.translation_batch_size):
+            content = await self._chat_completion(
                 {
-                    "role": "system",
-                    "content": proofread,
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
+                    "temperature": 0,
+                    "response_format": _TRANSLATION_SCHEMA,
+                    "messages": [
+                        {"role": "system", "content": proofread},
                         {
-                            "full_transcript": "\n".join(
-                                f"[{idx}] {text}" for idx, text in items
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "full_transcript": full_transcript,
+                                    "segments": [
+                                        {"idx": idx, "text": text}
+                                        for idx, text in chunk
+                                    ],
+                                },
+                                ensure_ascii=False,
                             ),
-                            "segments": [
-                                {"idx": idx, "text": text} for idx, text in items
-                            ],
                         },
-                        ensure_ascii=False,
-                    ),
+                    ],
                 },
-            ],
-        }
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._base}/chat/completions",
-                    headers={**self._headers, "Content-Type": "application/json"},
-                    json=body,
-                )
-        except httpx.HTTPError as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                f"ASR correction failed: {exc}",
-                retryable=True,
-            ) from exc
-        _raise_for_status(resp, errors.TRANSLATION_FAILED)
-        try:
-            content = resp.json()["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                "unexpected ASR-correction response shape",
-                retryable=True,
-            ) from exc
-        return parse_translation_content(content, [idx for idx, _ in items])
+                "ASR correction failed",
+            )
+            merged.update(
+                parse_translation_content(content, [idx for idx, _ in chunk])
+            )
+        return merged
 
     async def translate_document(
         self,
@@ -389,45 +510,31 @@ class OpenAIClient:
                 },
             },
         }
-        body = {
-            "model": self._settings.translation_model,
-            "temperature": 0.1,
-            "response_format": schema,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        f"Translate this complete {src} transcript into natural "
-                        f"spoken {tgt} for voice-over dubbing. Preserve narrative "
-                        "flow, character names, tone, and pronouns consistently. "
-                        "Do not add narrator notes or timestamps. Return JSON "
-                        '{"translation":"..."}.'
-                    ),
-                },
-                {"role": "user", "content": cleaned},
-            ],
-        }
+        content = await self._chat_completion(
+            {
+                "temperature": 0.1,
+                "response_format": schema,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Translate this complete {src} transcript into natural "
+                            f"spoken {tgt} for voice-over dubbing. Preserve narrative "
+                            "flow, character names, tone, and pronouns consistently. "
+                            "Do not add narrator notes or timestamps. Return JSON "
+                            '{"translation":"..."}.'
+                        ),
+                    },
+                    {"role": "user", "content": cleaned},
+                ],
+            },
+            "document translation failed",
+        )
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._base}/chat/completions",
-                    headers={**self._headers, "Content-Type": "application/json"},
-                    json=body,
-                )
-        except httpx.HTTPError as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                f"document translation failed: {exc}",
-                retryable=True,
-            ) from exc
-        _raise_for_status(resp, errors.TRANSLATION_FAILED)
-        try:
-            content = resp.json()["choices"][0]["message"]["content"]
-            data = json.loads(content)
+            data = json.loads(coerce_model_json(content))
             text = str(data["translation"]).strip()
         except (
             KeyError,
-            IndexError,
             TypeError,
             ValueError,
             json.JSONDecodeError,
@@ -459,70 +566,55 @@ class OpenAIClient:
         tgt = LANGUAGE_NAMES.get(target_lang, target_lang)
         if source_lang == target_lang:
             return {idx: text for idx, text in items}
-        body = {
-            "model": self._settings.translation_model,
-            "temperature": 0,
-            "response_format": _TRANSLATION_SCHEMA,
-            "messages": [
+        merged: dict[int, str] = {}
+        for chunk in chunked(items, self._settings.translation_batch_size):
+            content = await self._chat_completion(
                 {
-                    "role": "system",
-                    "content": (
-                        f"You align a complete {tgt} dubbing translation onto "
-                        f"numbered {src} source segments. CRITICAL RULES: "
-                        "(1) idx N may express ONLY the meaning of source N — "
-                        "never attach leftover clauses from a previous source "
-                        "onto a short following line; "
-                        "(2) if source N contains two clauses, both of their "
-                        "meanings stay on idx N; "
-                        "(3) never continue a previous sentence into the next "
-                        "idx; never borrow words from neighbors; "
-                        "(4) a short source (e.g. one clause) must get a short "
-                        "matching translation — do not pad it with previous "
-                        "leftover dialogue; "
-                        "(5) cover the whole document without dropping content "
-                        "by placing each clause on the idx that owns that "
-                        "meaning. Return JSON "
-                        '{"translations":[{"idx":0,"text":"..."}]}.'
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
+                    "temperature": 0,
+                    "response_format": _TRANSLATION_SCHEMA,
+                    "messages": [
                         {
-                            "full_translation": document_translation,
-                            "segments": [
-                                {"idx": idx, "source_text": text}
-                                for idx, text in items
-                            ],
+                            "role": "system",
+                            "content": (
+                                f"You align a complete {tgt} dubbing translation onto "
+                                f"numbered {src} source segments. CRITICAL RULES: "
+                                "(1) idx N may express ONLY the meaning of source N — "
+                                "never attach leftover clauses from a previous source "
+                                "onto a short following line; "
+                                "(2) if source N contains two clauses, both of their "
+                                "meanings stay on idx N; "
+                                "(3) never continue a previous sentence into the next "
+                                "idx; never borrow words from neighbors; "
+                                "(4) a short source (e.g. one clause) must get a short "
+                                "matching translation — do not pad it with previous "
+                                "leftover dialogue; "
+                                "(5) cover the whole document without dropping content "
+                                "by placing each clause on the idx that owns that "
+                                "meaning. Return JSON "
+                                '{"translations":[{"idx":0,"text":"..."}]}.'
+                            ),
                         },
-                        ensure_ascii=False,
-                    ),
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                {
+                                    "full_translation": document_translation,
+                                    "segments": [
+                                        {"idx": idx, "source_text": text}
+                                        for idx, text in chunk
+                                    ],
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    ],
                 },
-            ],
-        }
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._base}/chat/completions",
-                    headers={**self._headers, "Content-Type": "application/json"},
-                    json=body,
-                )
-        except httpx.HTTPError as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                f"translation alignment failed: {exc}",
-                retryable=True,
-            ) from exc
-        _raise_for_status(resp, errors.TRANSLATION_FAILED)
-        try:
-            content = resp.json()["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                "unexpected alignment response shape",
-                retryable=True,
-            ) from exc
-        return parse_translation_content(content, [idx for idx, _ in items])
+                "translation alignment failed",
+            )
+            merged.update(
+                parse_translation_content(content, [idx for idx, _ in chunk])
+            )
+        return merged
 
     async def adjust_translation(
         self, text: str, target_lang: str, target_seconds: float, direction: str
@@ -535,33 +627,16 @@ class OpenAIClient:
             "Do not add new clauses, names, or ideas that are not already in the line. "
             "Do not finish a neighboring sentence. Return only the rewritten line."
         )
-        body = {
-            "model": self._settings.translation_model,
-            "messages": [
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": text},
-            ],
-            "temperature": 0.1,
-        }
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{self._base}/chat/completions",
-                    headers={**self._headers, "Content-Type": "application/json"},
-                    json=body,
-                )
-        except httpx.HTTPError as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                f"timing rewrite failed: {exc}",
-                retryable=True,
-            ) from exc
-        _raise_for_status(resp, errors.TRANSLATION_FAILED)
-        try:
-            return str(resp.json()["choices"][0]["message"]["content"]).strip()
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                "unexpected timing-rewrite response shape",
-                retryable=True,
-            ) from exc
+        return (
+            await self._chat_completion(
+                {
+                    "messages": [
+                        {"role": "system", "content": instruction},
+                        {"role": "user", "content": text},
+                    ],
+                    "temperature": 0.1,
+                },
+                "timing rewrite failed",
+            )
+        ).strip()
+

@@ -88,9 +88,9 @@ Notes:
   Demucs run can use several GB of RAM. Raise it only on bigger hardware.
 - Demucs model weights download on first dub job and persist in the
   `demucs-models` volume.
-- The pipeline needs `OPENAI_API_KEY` (Whisper ASR + GPT translation) and
-  `ELEVENLABS_API_KEY` (voice clone + TTS) in `infra/.env`. Set
-  `ELEVENLABS_VOICE_ID` to skip per-project Instant Voice Clone and dub with
+- The pipeline needs `OPENAI_API_KEY` (Whisper ASR), `XAI_API_KEY` (Grok 4.6
+  translation), and `ELEVENLABS_API_KEY` (voice clone + TTS) in `infra/.env`.
+  Set `ELEVENLABS_VOICE_ID` to skip per-project Instant Voice Clone and dub with
   one fixed voice. All pipeline knobs (limits, models, Demucs device, retry
   counts) are listed in `api/.env.example`.
 - Multi-speaker mode is opt-in. Set `DIARIZATION_PROVIDER=pyannote` and

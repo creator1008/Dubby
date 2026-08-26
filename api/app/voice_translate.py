@@ -52,7 +52,14 @@ async def translate_descriptions(
     locale = (ui_locale or "en").strip().lower().split("-", 1)[0]
     if locale == "en" or not texts:
         return list(texts)
-    if not settings.openai_api_key:
+    from .worker.openai_client import is_grok_model
+
+    needs_key = (
+        settings.xai_api_key
+        if is_grok_model(settings.translation_model or "grok-4.6")
+        else settings.openai_api_key
+    )
+    if not needs_key:
         return list(texts)
 
     target_name = _LOCALE_NAMES.get(locale) or LANGUAGE_NAMES.get(locale) or locale
@@ -95,6 +102,8 @@ async def _translate_chunk(
     chunk: list[tuple[int, str]],
     target_name: str,
 ) -> list[str]:
+    from .worker.openai_client import chat_endpoint_for_model
+
     payload_items = [{"id": i, "text": text} for i, (_, text) in enumerate(chunk)]
     system = (
         "You translate short voice-profile descriptions for a dubbing app UI. "
@@ -105,24 +114,33 @@ async def _translate_chunk(
         "Return ONLY a JSON object: {\"items\":[{\"id\":0,\"text\":\"...\"}, ...]} "
         "with the same ids and count as the input."
     )
+    model = settings.translation_model or "grok-4.6"
+    base, headers, extras = chat_endpoint_for_model(
+        model,
+        openai_api_key=settings.openai_api_key,
+        openai_base_url=settings.openai_base_url,
+        xai_api_key=settings.xai_api_key,
+        xai_base_url=settings.xai_base_url,
+        reasoning_effort=settings.translation_reasoning_effort,
+    )
     body: dict[str, Any] = {
-        "model": settings.translation_model or "gpt-4o-mini",
+        "model": model,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": json.dumps({"items": payload_items})},
         ],
+        **extras,
     }
-    headers = {
-        "Authorization": f"Bearer {settings.openai_api_key}",
-        "Content-Type": "application/json",
-    }
-    base = settings.openai_base_url.rstrip("/")
     async with httpx.AsyncClient(timeout=httpx.Timeout(45.0)) as client:
-        resp = await client.post(f"{base}/chat/completions", headers=headers, json=body)
+        resp = await client.post(
+            f"{base.rstrip('/')}/chat/completions",
+            headers={**headers, "Content-Type": "application/json"},
+            json=body,
+        )
     if resp.status_code >= 400:
-        raise RuntimeError(f"OpenAI translate failed ({resp.status_code})")
+        raise RuntimeError(f"voice description translate failed ({resp.status_code})")
     data = resp.json()
     content = (
         (((data.get("choices") or [{}])[0]).get("message") or {}).get("content")

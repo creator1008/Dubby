@@ -11,6 +11,10 @@ from app.worker import errors
 from app.worker.errors import PipelineError
 from app.worker.media import MediaInfo, parse_probe_output, validate_source
 from app.worker.openai_client import (
+    chat_endpoint_for_model,
+    chunked,
+    coerce_model_json,
+    is_grok_model,
     parse_translation_content,
     parse_whisper_segments,
 )
@@ -368,6 +372,52 @@ def test_parse_translation_content_roundtrip() -> None:
         {"translations": [{"idx": 0, "text": "A"}, {"idx": 1, "text": "B"}]}
     )
     assert parse_translation_content(content, [0, 1]) == {0: "A", 1: "B"}
+
+
+def test_parse_translation_content_strips_markdown_fences() -> None:
+    content = "```json\n" + json.dumps(
+        {"translations": [{"idx": 0, "text": "A"}]}
+    ) + "\n```"
+    assert parse_translation_content(content, [0]) == {0: "A"}
+    assert coerce_model_json("```\n{\"a\":1}\n```") == '{"a":1}'
+
+
+def test_chunked_translation_batches() -> None:
+    assert chunked([0, 1, 2, 3, 4], 2) == [[0, 1], [2, 3], [4]]
+    assert chunked([], 12) == []
+
+
+def test_grok_chat_endpoint_uses_xai_and_low_reasoning() -> None:
+    base, headers, extras = chat_endpoint_for_model(
+        "grok-4.6",
+        openai_api_key="sk-openai",
+        openai_base_url="https://api.openai.com/v1",
+        xai_api_key="xai-key",
+        xai_base_url="https://api.x.ai/v1",
+        reasoning_effort="low",
+    )
+    assert is_grok_model("grok-4.6")
+    assert base == "https://api.x.ai/v1"
+    assert headers["Authorization"] == "Bearer xai-key"
+    assert extras["reasoning_effort"] == "low"
+
+
+def test_gpt_chat_endpoint_stays_on_openai() -> None:
+    base, headers, extras = chat_endpoint_for_model(
+        "gpt-4o-mini",
+        openai_api_key="sk-openai",
+        openai_base_url="https://api.openai.com/v1",
+        xai_api_key="xai-key",
+        xai_base_url="https://api.x.ai/v1",
+    )
+    assert base == "https://api.openai.com/v1"
+    assert headers["Authorization"] == "Bearer sk-openai"
+    assert extras == {}
+
+
+def test_default_translation_model_is_grok() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.translation_model == "grok-4.6"
 
 
 def test_parse_translation_content_missing_idx_is_retryable() -> None:

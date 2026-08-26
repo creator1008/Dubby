@@ -114,11 +114,16 @@ class Settings(BaseSettings):
     demucs_device: str = "cpu"  # cpu | cuda
     demucs_jobs: int = Field(default=2, ge=1, le=16)
 
-    # --- OpenAI (Whisper ASR + GPT translation) --------------------------------
+    # --- OpenAI (Whisper ASR) --------------------------------------------------
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     whisper_model: str = "whisper-1"
-    translation_model: str = "gpt-4o-mini"
+    # --- xAI Grok (translation / ASR proofread / timing rewrite) ---------------
+    xai_api_key: str = ""
+    xai_base_url: str = "https://api.x.ai/v1"
+    translation_model: str = "grok-4.6"
+    # grok-4.6 defaults to high reasoning; low keeps dub latency/cost in check.
+    translation_reasoning_effort: Literal["low", "medium", "high", "xhigh"] = "low"
     # Segments per translation request; smaller batches keep local-quality cohesion.
     translation_batch_size: int = Field(default=12, ge=1, le=200)
     translation_timing_tolerance: float = Field(default=0.22, ge=0.0, le=1.0)

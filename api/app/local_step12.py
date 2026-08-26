@@ -624,6 +624,26 @@ def _openai_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
 
 
+def _translation_chat_config() -> tuple[str, str, dict[str, str], dict[str, object]]:
+    """base_url, model, headers, extra body fields (e.g. Grok reasoning_effort)."""
+    from .worker.errors import PipelineError
+    from .worker.openai_client import chat_endpoint_for_model
+
+    model = os.getenv("TRANSLATION_MODEL", "grok-4.6")
+    try:
+        base, headers, extras = chat_endpoint_for_model(
+            model,
+            openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+            openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            xai_api_key=os.getenv("XAI_API_KEY", ""),
+            xai_base_url=os.getenv("XAI_BASE_URL", "https://api.x.ai/v1"),
+            reasoning_effort=os.getenv("TRANSLATION_REASONING_EFFORT", "low"),
+        )
+    except PipelineError as exc:
+        raise RuntimeError(str(exc)) from exc
+    return base, model, headers, extras
+
+
 def _whisper_segment_is_hallucination(segment: dict) -> bool:
     """Drop Whisper segments that look like music/noise hallucinations."""
     text = str(segment.get("text", "")).strip()
@@ -1228,9 +1248,8 @@ def _translate(
         return []
     if source_language == target_language:
         return [text for _, _, text in drafts]
-    base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    model = os.getenv("TRANSLATION_MODEL", "gpt-4o-mini")
-    batch_size = max(1, int(os.getenv("TRANSLATION_BATCH_SIZE", "8")))
+    base, model, headers, extras = _translation_chat_config()
+    batch_size = max(1, int(os.getenv("TRANSLATION_BATCH_SIZE", "12")))
     src_name = LANGUAGE_NAMES.get(source_language, source_language)
     tgt_name = LANGUAGE_NAMES.get(target_language, target_language)
     results: list[str] = [""] * len(drafts)
@@ -1328,11 +1347,12 @@ def _translate(
             # Prefer json_schema; after HTTP/schema rejection or parse failure,
             # fall back to plain json_object.
             body = schema_payload if attempt == 1 else json_object_payload
+            request_body = {**body, **extras}
             try:
                 response = httpx.post(
                     f"{base}/chat/completions",
-                    headers={**_openai_headers(), "Content-Type": "application/json"},
-                    json=body,
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=request_body,
                     timeout=300,
                 )
             except httpx.HTTPError as exc:
@@ -1344,12 +1364,12 @@ def _translate(
             if response.status_code >= 400:
                 if attempt < 3 and response.status_code in {400, 404, 429}:
                     last_error = RuntimeError(
-                        f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
+                        f"번역 실패 ({response.status_code}): {response.text[:300]}"
                     )
                     time.sleep(attempt)
                     continue
                 raise RuntimeError(
-                    f"OpenAI 번역 실패 ({response.status_code}): {response.text[:300]}"
+                    f"번역 실패 ({response.status_code}): {response.text[:300]}"
                 )
             try:
                 message = response.json()["choices"][0]["message"]
