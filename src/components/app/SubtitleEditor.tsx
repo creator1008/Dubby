@@ -89,67 +89,129 @@ function SourcePreviewControl({
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stopAtRef = useRef<number | null>(null);
+  const pollRef = useRef<number | null>(null);
   const clipUrl = (segment.audio_url || "").trim();
-  const mediaUrl = clipUrl || (sourceMediaUrl || "").trim();
-  const canPlay = Boolean(mediaUrl);
+  const mediaUrl = (sourceMediaUrl || "").trim();
+  const canPlay = Boolean(clipUrl || mediaUrl);
+
+  const stopPlayback = () => {
+    if (pollRef.current != null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    stopAtRef.current = null;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      try {
+        audio.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    setPlaying(false);
+  };
 
   useEffect(() => {
     return () => {
+      if (pollRef.current != null) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       audioRef.current?.pause();
     };
   }, []);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onTimeUpdate = () => {
-      const stopAt = stopAtRef.current;
-      if (stopAt != null && audio.currentTime >= stopAt) {
-        audio.pause();
-        stopAtRef.current = null;
-        setPlaying(false);
-      }
-    };
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    return () => audio.removeEventListener("timeupdate", onTimeUpdate);
-  }, []);
-
   const togglePreview = async () => {
-    if (!mediaUrl || disabled) return;
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.onended = () => {
-        stopAtRef.current = null;
-        setPlaying(false);
-      };
-    }
-    const audio = audioRef.current;
+    if (!canPlay || disabled) return;
     if (playing) {
-      audio.pause();
-      audio.currentTime = 0;
-      stopAtRef.current = null;
-      setPlaying(false);
+      stopPlayback();
       return;
     }
-    audio.src = mediaUrl;
-    if (clipUrl) {
-      stopAtRef.current = null;
-      audio.currentTime = 0;
-    } else {
-      const startSec = Math.max(0, segment.start_ms / 1000);
-      const endSec = Math.max(startSec + 0.05, sourceEndMsOf(segment) / 1000);
-      stopAtRef.current = endSec;
-      try {
-        audio.currentTime = startSec;
-      } catch {
-        /* some browsers require metadata first */
-      }
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.preload = "auto";
+      audioRef.current.onended = () => stopPlayback();
     }
+    const audio = audioRef.current;
+    const startSec = Math.max(0, segment.start_ms / 1000);
+    const endSec = Math.max(startSec + 0.05, sourceEndMsOf(segment) / 1000);
+
     try {
+      if (clipUrl) {
+        // Dedicated per-segment clip from extract.
+        stopAtRef.current = null;
+        audio.src = clipUrl;
+        await new Promise<void>((resolve, reject) => {
+          const onReady = () => {
+            cleanup();
+            resolve();
+          };
+          const onError = () => {
+            cleanup();
+            reject(new Error("source clip failed"));
+          };
+          const cleanup = () => {
+            audio.removeEventListener("loadedmetadata", onReady);
+            audio.removeEventListener("error", onError);
+          };
+          audio.addEventListener("loadedmetadata", onReady, { once: true });
+          audio.addEventListener("error", onError, { once: true });
+          audio.load();
+        });
+        audio.currentTime = 0;
+      } else {
+        // Full source media: range-play only this subtitle span.
+        const base = mediaUrl.split("#")[0];
+        // Media Fragments (#t=start,end) clip playback in supporting browsers.
+        audio.src = `${base}#t=${startSec.toFixed(3)},${endSec.toFixed(3)}`;
+        stopAtRef.current = endSec;
+        await new Promise<void>((resolve, reject) => {
+          const onReady = () => {
+            cleanup();
+            resolve();
+          };
+          const onError = () => {
+            cleanup();
+            reject(new Error("source media failed"));
+          };
+          const cleanup = () => {
+            audio.removeEventListener("loadedmetadata", onReady);
+            audio.removeEventListener("error", onError);
+          };
+          audio.addEventListener("loadedmetadata", onReady, { once: true });
+          audio.addEventListener("error", onError, { once: true });
+          audio.load();
+        });
+        // Seek explicitly — fragments are not honored by every browser/CDN.
+        if (Math.abs(audio.currentTime - startSec) > 0.15) {
+          await new Promise<void>((resolve) => {
+            const onSeeked = () => {
+              audio.removeEventListener("seeked", onSeeked);
+              resolve();
+            };
+            audio.addEventListener("seeked", onSeeked, { once: true });
+            try {
+              audio.currentTime = startSec;
+            } catch {
+              resolve();
+            }
+            window.setTimeout(resolve, 400);
+          });
+        }
+        // Hard stop if the fragment/seek path keeps playing past the slot.
+        if (pollRef.current != null) window.clearInterval(pollRef.current);
+        pollRef.current = window.setInterval(() => {
+          const stopAt = stopAtRef.current;
+          if (stopAt != null && audio.currentTime >= stopAt - 0.02) {
+            stopPlayback();
+          }
+        }, 50);
+      }
       await audio.play();
       setPlaying(true);
     } catch {
-      setPlaying(false);
+      stopPlayback();
     }
   };
 

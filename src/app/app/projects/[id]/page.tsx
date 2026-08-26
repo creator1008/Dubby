@@ -53,6 +53,13 @@ function ProjectEditor() {
   const baselineSourceRef = useRef<Record<string, string>>({});
   const baselineTargetRef = useRef<Record<string, string>>({});
   const baselineEmotionRef = useRef<Record<string, string>>({});
+  const hadDubPreviewRef = useRef(false);
+
+  useEffect(() => {
+    if (segments.some((segment) => Boolean(segment.dubbed_audio_url))) {
+      hadDubPreviewRef.current = true;
+    }
+  }, [segments]);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -171,8 +178,8 @@ function ProjectEditor() {
           ? {
               ...segment,
               emotion_tone: tone,
+              // Keep clip_speak_speed so save still detects prior dub preview.
               dubbed_audio_url: undefined,
-              clip_speak_speed: undefined,
             }
           : segment,
       ),
@@ -200,6 +207,7 @@ function ProjectEditor() {
       }
       const projectHasDubPreview =
         project.status === "completed" ||
+        hadDubPreviewRef.current ||
         segments.some(
           (segment) =>
             Boolean(segment.dubbed_audio_url) ||

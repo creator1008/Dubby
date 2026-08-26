@@ -113,8 +113,14 @@ async def refresh_preview_clips(
             speaker = str(row.get("speaker_id") or "").strip() or "speaker_1"
             voice_id = voices.get(speaker) or next(iter(voices.values()))
             meta = by_idx_meta.get(idx) or {}
-            emotion = str(
-                row.get("emotion_tone") or meta.get("emotion_tone") or project_tone
+            # Prefer editor-saved tone from the just-updated manifest.
+            emotion = normalize_emotion_tone(
+                str(
+                    meta.get("emotion_tone")
+                    or row.get("emotion_tone")
+                    or project_tone
+                ),
+                fallback=project_tone,
             )
             try:
                 speak_speed = float(

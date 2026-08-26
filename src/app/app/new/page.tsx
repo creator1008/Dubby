@@ -123,7 +123,14 @@ export default function NewDubPage() {
   const baselineSourceRef = useRef<Record<string, string>>({});
   const baselineTargetRef = useRef<Record<string, string>>({});
   const baselineEmotionRef = useRef<Record<string, string>>({});
+  const hadDubPreviewRef = useRef(false);
   const voiceConsent = useVoiceConsent();
+
+  useEffect(() => {
+    if (segments.some((segment) => Boolean(segment.dubbed_audio_url))) {
+      hadDubPreviewRef.current = true;
+    }
+  }, [segments]);
 
   useEffect(() => {
     void api.voices.box
@@ -650,9 +657,9 @@ export default function NewDubPage() {
           ? {
               ...segment,
               emotion_tone: tone,
-              // Tone change requires a fresh dubbed preview clip.
+              // Clear clip URL only — keep clip_speak_speed so save still
+              // knows a dubbed preview existed and must be regenerated.
               dubbed_audio_url: undefined,
-              clip_speak_speed: undefined,
             }
           : segment,
       ),
@@ -677,8 +684,11 @@ export default function NewDubPage() {
     if (prepared !== segments) {
       setSegments(prepared);
     }
+    // Emotion edits clear dubbed_audio_url before save; use durable signals.
     const projectHasDubPreview =
-      showSpeakRate ||
+      project.status === "completed" ||
+      Boolean(outputUrl) ||
+      hadDubPreviewRef.current ||
       segments.some(
         (segment) =>
           Boolean(segment.dubbed_audio_url) ||

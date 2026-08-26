@@ -164,6 +164,24 @@ async def refresh_preview(
     if not rows:
         raise NotFoundError("No segments to refresh")
     settings = get_settings()
+    # Emotion tones live in the R2 manifest, not the DB — attach before TTS.
+    source_key = str(project.get("source_key") or "") or None
+    from ..worker.dub_voice_assets import load_dub_voice_manifest
+
+    manifest = await load_dub_voice_manifest(storage, source_key)
+    for row in rows:
+        try:
+            idx = int(row["idx"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        meta = manifest.get(idx) or {}
+        if meta.get("emotion_tone") and not row.get("emotion_tone"):
+            row["emotion_tone"] = str(meta["emotion_tone"])
+        if meta.get("speak_speed") is not None and row.get("speak_speed") is None:
+            try:
+                row["speak_speed"] = float(meta["speak_speed"])
+            except (TypeError, ValueError):
+                pass
     voice_ids: list[str] = []
     raw_voices = project.get("dub_voice_ids")
     if isinstance(raw_voices, list):
