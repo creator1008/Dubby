@@ -26,6 +26,11 @@ COPY app ./app
 # --- API server ----------------------------------------------------------------
 FROM base AS api
 
+# yt-dlp URL ingest merges separate video/audio streams; needs ffmpeg on PATH.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 USER dubby
 EXPOSE 8000
 

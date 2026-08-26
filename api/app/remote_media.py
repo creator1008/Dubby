@@ -612,6 +612,14 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
             "TikTok 로그인 상태로 해당 영상을 브라우저에서 연 다음 "
             "cookies.txt를 YTDLP_COOKIES_FILE로 지정해 보세요."
         ) from exc
+    if "ffmpeg is not installed" in lower or (
+        "merging of multiple formats" in lower and "ffmpeg" in lower
+    ):
+        raise RemoteMediaError(
+            "영상·음성 병합에 ffmpeg가 필요합니다. "
+            "API 서버 이미지에 ffmpeg를 설치한 뒤 재배포해 주세요 "
+            "(docker compose up -d --build --force-recreate api)."
+        ) from exc
     if "unsupported url" in lower and (
         _is_facebook_share_url(url) or "facebook.com/share/" in lower
     ):
@@ -640,9 +648,29 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
     raise RemoteMediaError(f"yt-dlp 다운로드 실패: {message[:400]}") from exc
 
 
+def _ffmpeg_location() -> str | None:
+    """Directory or binary path for yt-dlp's ``ffmpeg_location`` option."""
+    try:
+        from .config import get_settings
+
+        configured = (get_settings().ffmpeg_path or "").strip()
+    except Exception:  # noqa: BLE001
+        configured = ""
+    candidate = configured or "ffmpeg"
+    path = Path(candidate)
+    if path.is_file():
+        return str(path.parent if path.parent != Path("") else path)
+    # Bare command name — let yt-dlp resolve via PATH when possible.
+    which = shutil.which(candidate)
+    if which:
+        return str(Path(which).parent)
+    return None
+
+
 def _base_ytdlp_opts(outtmpl: str, max_bytes: int, *, impersonate: str | None = None) -> dict:
     opts: dict = {
         "outtmpl": outtmpl,
+        # Prefer progressive single-file MP4; fall back to mergeable streams.
         "format": (
             "b[ext=mp4][vcodec^=avc1]/b[ext=mp4][vcodec^=h264]/"
             "bv*[vcodec^=avc1]+ba/bv*[vcodec^=h264]+ba/"
@@ -657,6 +685,9 @@ def _base_ytdlp_opts(outtmpl: str, max_bytes: int, *, impersonate: str | None = 
         "socket_timeout": 30,
         "max_filesize": max_bytes,
     }
+    ffmpeg_loc = _ffmpeg_location()
+    if ffmpeg_loc:
+        opts["ffmpeg_location"] = ffmpeg_loc
     if impersonate:
         opts["impersonate"] = impersonate
     else:
