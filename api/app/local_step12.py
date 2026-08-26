@@ -117,6 +117,10 @@ class DubSegment(BaseModel):
     idx: int
     target_text: str = Field(min_length=1, max_length=2000)
     speak_speed: float | None = Field(default=None, ge=0.5, le=1.5)
+    emotion_tone: str | None = Field(
+        default=None,
+        pattern="^(sad|angry|whisper|excited|energetic|calm|cheerful)$",
+    )
 
 
 class DubVoiceRequest(BaseModel):
@@ -2187,7 +2191,11 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         start_ms = int(source_meta.get("start_ms", 0))
         end_ms = int(source_meta.get("end_ms", 0))
         source_text = str(source_meta.get("text") or source_meta.get("source_text") or "")
-        if vocals_path.is_file() and end_ms > start_ms:
+        if segment.emotion_tone:
+            emotion_tone = normalize_emotion_tone(
+                segment.emotion_tone, fallback=project_tone
+            )
+        elif vocals_path.is_file() and end_ms > start_ms:
             emotion_tone = detect_segment_emotion(
                 str(vocals_path),
                 start_ms=start_ms,

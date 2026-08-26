@@ -587,6 +587,7 @@ const realApi = {
           end_ms?: number;
           source_end_ms?: number;
           speak_speed?: number;
+          emotion_tone?: string;
         }
       >,
     ) =>

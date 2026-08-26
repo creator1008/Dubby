@@ -283,10 +283,22 @@ export async function retranslateLocalSegments(
 
 export async function generateLocalDubVoice(
   runId: string,
-  segments: Array<{ idx: number; target_text: string; speak_speed?: number }>,
+  segments: Array<{
+    idx: number;
+    target_text: string;
+    speak_speed?: number;
+    emotion_tone?: string;
+  }>,
   toneStyle: string,
   voiceIds: string[] = [],
-): Promise<Array<{ idx: number; audio_url: string; speak_speed?: number }>> {
+): Promise<
+  Array<{
+    idx: number;
+    audio_url: string;
+    speak_speed?: number;
+    emotion_tone?: string;
+  }>
+> {
   let response: Response;
   try {
     response = await fetch(`${getLocalPipelineOrigin()}/v1/local/dub-voice`, {
@@ -309,14 +321,29 @@ export async function generateLocalDubVoice(
     throw new Error(body?.detail ?? `더빙 음성 생성 실패 (${response.status})`);
   }
   const started = (await response.json()) as LocalJobResponse<{
-    segments: Array<{ idx: number; audio_url: string; speak_speed?: number }>;
+    segments: Array<{
+      idx: number;
+      audio_url: string;
+      speak_speed?: number;
+      emotion_tone?: string;
+    }>;
   }> & {
-    segments?: Array<{ idx: number; audio_url: string; speak_speed?: number }>;
+    segments?: Array<{
+      idx: number;
+      audio_url: string;
+      speak_speed?: number;
+      emotion_tone?: string;
+    }>;
   };
   const body =
     started.job_id && started.status === "running"
       ? await waitForLocalJob<{
-          segments: Array<{ idx: number; audio_url: string; speak_speed?: number }>;
+          segments: Array<{
+            idx: number;
+            audio_url: string;
+            speak_speed?: number;
+            emotion_tone?: string;
+          }>;
         }>(started.job_id, "더빙 음성 생성")
       : started;
   if (!body.segments) {

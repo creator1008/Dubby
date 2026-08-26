@@ -738,6 +738,7 @@ export const demoApi = {
           source_text?: string;
           end_ms?: number;
           speak_speed?: number;
+          emotion_tone?: string;
         }
       >,
     ) => {
@@ -747,13 +748,17 @@ export const demoApi = {
       for (const update of updates) {
         const row = rows.find((r) => r.id === update.id);
         if (!row) continue;
-        if (row.target_text !== update.target_text) {
-          // Stale TTS must not play after translation edits.
+        const toneChanged =
+          update.emotion_tone != null &&
+          (row.emotion_tone || "") !== update.emotion_tone;
+        if (row.target_text !== update.target_text || toneChanged) {
+          // Stale TTS must not play after translation / tone edits.
           delete row.dubbed_audio_url;
           delete row.clip_speak_speed;
         }
         row.target_text = update.target_text;
         if (update.source_text !== undefined) row.source_text = update.source_text;
+        if (update.emotion_tone) row.emotion_tone = update.emotion_tone;
         if (
           typeof update.end_ms === "number" &&
           Number.isFinite(update.end_ms) &&
@@ -1004,7 +1009,12 @@ export const demoApi = {
 
   applyDubVoice: async (
     projectId: string,
-    outputs: Array<{ idx: number; audio_url: string; speak_speed?: number }>,
+    outputs: Array<{
+      idx: number;
+      audio_url: string;
+      speak_speed?: number;
+      emotion_tone?: string;
+    }>,
     opts?: { charge?: boolean },
   ) => {
     if (opts?.charge !== false) {
@@ -1025,6 +1035,9 @@ export const demoApi = {
       row.speak_speed = speed;
       row.baseline_speak_speed = 1;
       row.clip_speak_speed = speed;
+      if (output.emotion_tone) {
+        row.emotion_tone = output.emotion_tone;
+      }
     }
     persist();
     return clone(rows);

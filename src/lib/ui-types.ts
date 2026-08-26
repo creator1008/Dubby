@@ -96,18 +96,22 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
       sourceEnd = prior.source_end_ms ?? row.end_ms;
     }
     const textChanged = prior.target_text !== row.target_text;
+    const toneChanged =
+      (prior.emotion_tone || "") !== (row.emotion_tone || "");
+    const staleVoice = textChanged || toneChanged;
     return {
       ...row,
-      dubbed_audio_url: textChanged
+      dubbed_audio_url: staleVoice
         ? row.dubbed_audio_url
         : (row.dubbed_audio_url ?? prior.dubbed_audio_url),
+      audio_url: row.audio_url ?? prior.audio_url,
       source_end_ms: sourceEnd,
       speak_speed: speed,
       baseline_speak_speed: 1,
       clip_speak_speed:
         typeof row.clip_speak_speed === "number"
           ? row.clip_speak_speed
-          : textChanged
+          : staleVoice
             ? undefined
             : prior.clip_speak_speed,
       emotion_tone: row.emotion_tone ?? prior.emotion_tone,

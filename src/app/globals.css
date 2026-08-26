@@ -325,6 +325,38 @@ body {
   margin-top: 0.45rem;
 }
 
+.source-preview-row,
+.emotion-tone-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+}
+
+.source-preview-label,
+.emotion-tone-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.emotion-tone-row select {
+  flex: 1;
+  min-width: 0;
+  height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink);
+  padding: 0 0.55rem;
+  font-size: 0.85rem;
+}
+
+.emotion-tone-row select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .speak-rate-btn,
 .speak-rate-icon {
   width: 2rem;

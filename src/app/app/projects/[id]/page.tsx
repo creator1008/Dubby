@@ -30,6 +30,12 @@ function snapshotTargetTexts(rows: Segment[]) {
   return Object.fromEntries(rows.map((row) => [row.id, row.target_text]));
 }
 
+function snapshotEmotionTones(rows: Segment[]) {
+  return Object.fromEntries(
+    rows.map((row) => [row.id, String(row.emotion_tone || "")]),
+  );
+}
+
 function ProjectEditor() {
   const text = useAppDictionary();
   const projectId = useSearchParams().get("id");
@@ -46,6 +52,7 @@ function ProjectEditor() {
   const [retranslating, setRetranslating] = useState(false);
   const baselineSourceRef = useRef<Record<string, string>>({});
   const baselineTargetRef = useRef<Record<string, string>>({});
+  const baselineEmotionRef = useRef<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -61,6 +68,9 @@ function ProjectEditor() {
     }
     if (Object.keys(baselineTargetRef.current).length === 0) {
       baselineTargetRef.current = snapshotTargetTexts(nextSegments);
+    }
+    if (Object.keys(baselineEmotionRef.current).length === 0) {
+      baselineEmotionRef.current = snapshotEmotionTones(nextSegments);
     }
     setJobs(nextJobs);
     if (nextProject.source_key) {
@@ -154,6 +164,22 @@ function ProjectEditor() {
     setMessage(null);
   };
 
+  const onEmotionToneChange = (segmentId: string, tone: ToneStyle) => {
+    setSegments((current) =>
+      current.map((segment) =>
+        segment.id === segmentId
+          ? {
+              ...segment,
+              emotion_tone: tone,
+              dubbed_audio_url: undefined,
+              clip_speak_speed: undefined,
+            }
+          : segment,
+      ),
+    );
+    setMessage(null);
+  };
+
   const save = async () => {
     if (!projectId || !project) return;
     setBusy(true);
@@ -172,30 +198,52 @@ function ProjectEditor() {
       if (prepared !== segments) {
         setSegments(prepared);
       }
+      const projectHasDubPreview =
+        project.status === "completed" ||
+        segments.some(
+          (segment) =>
+            Boolean(segment.dubbed_audio_url) ||
+            typeof segment.clip_speak_speed === "number",
+        );
       const changedForPreview = prepared.filter((segment) => {
         const priorText =
           baselineTargetRef.current[segment.id] ?? segment.target_text;
-        if (priorText === segment.target_text) return false;
-        const prior = segments.find((row) => row.id === segment.id);
-        return Boolean(prior?.dubbed_audio_url);
+        const priorTone = baselineEmotionRef.current[segment.id] ?? "";
+        const textChanged = priorText !== segment.target_text;
+        const toneChanged = priorTone !== String(segment.emotion_tone || "");
+        return projectHasDubPreview && (textChanged || toneChanged);
       });
       const next = await api.segments.update(
         projectId,
-        prepared.map(({ id, source_text, target_text, end_ms, source_end_ms, speak_speed }) => ({
-          id,
-          source_text,
-          target_text,
-          end_ms,
-          source_end_ms: source_end_ms ?? end_ms,
-          speak_speed:
-            typeof speak_speed === "number" && Number.isFinite(speak_speed)
-              ? speak_speed
-              : 1,
-        })),
+        prepared.map(
+          ({
+            id,
+            source_text,
+            target_text,
+            end_ms,
+            source_end_ms,
+            speak_speed,
+            emotion_tone,
+          }) => ({
+            id,
+            source_text,
+            target_text,
+            end_ms,
+            source_end_ms: source_end_ms ?? end_ms,
+            speak_speed:
+              typeof speak_speed === "number" && Number.isFinite(speak_speed)
+                ? speak_speed
+                : 1,
+            emotion_tone:
+              typeof emotion_tone === "string" && emotion_tone.trim()
+                ? emotion_tone.trim()
+                : undefined,
+          }),
+        ),
       );
       let merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
       if (changedForPreview.length && !isDemoMode) {
-        setMessage("변경된 번역으로 미리듣기 음성을 갱신 중…");
+        setMessage("변경된 번역·감정톤으로 미리듣기 음성을 갱신 중…");
         const refreshed = await api.segments.refreshPreview(
           projectId,
           changedForPreview.map((segment) => segment.id),
@@ -204,6 +252,7 @@ function ProjectEditor() {
       }
       setSegments(merged);
       baselineTargetRef.current = snapshotTargetTexts(merged);
+      baselineEmotionRef.current = snapshotEmotionTones(merged);
       setMessage("자막을 저장했습니다.");
     } finally {
       setBusy(false);
@@ -266,6 +315,7 @@ function ProjectEditor() {
       setSegments(mergeSegmentVoiceFields(segments, saved));
       baselineSourceRef.current = snapshotSourceTexts(saved);
       baselineTargetRef.current = snapshotTargetTexts(saved);
+      baselineEmotionRef.current = snapshotEmotionTones(saved);
       setMessage(text.retranslateDone);
     } catch (err) {
       setError(err instanceof Error ? err.message : text.retranslate);
@@ -490,7 +540,10 @@ function ProjectEditor() {
                 project.status === "completed" ||
                 segments.some((segment) => Boolean(segment.dubbed_audio_url))
               }
+              sourceMediaUrl={sourceUrl}
+              defaultEmotionTone={project.tone_style}
               onChange={onSegmentChange}
+              onEmotionToneChange={onEmotionToneChange}
               onSpeakSpeedChange={(id, speed) => {
                 setSegments((prev) =>
                   applySpeakRateChange(

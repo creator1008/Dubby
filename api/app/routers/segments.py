@@ -97,6 +97,7 @@ async def update_segments(
     id_to_idx = {str(row["id"]): int(row["idx"]) for row in rows}
     speeds: dict[int, float] = {}
     source_ends: dict[int, int] = {}
+    emotions: dict[int, str] = {}
     changed_texts: dict[int, str] = {}
     for row in rows:
         if row.get("speak_speed") is not None:
@@ -113,6 +114,8 @@ async def update_segments(
             speeds[idx] = float(seg.speak_speed)
         if seg.source_end_ms is not None and seg.source_end_ms > 0:
             source_ends[idx] = int(seg.source_end_ms)
+        if seg.emotion_tone:
+            emotions[idx] = seg.emotion_tone
         prior = prior_by_id.get(str(seg.id))
         if prior is not None and str(prior.get("target_text") or "") != seg.target_text:
             changed_texts[idx] = seg.target_text
@@ -121,6 +124,7 @@ async def update_segments(
         source_key=str(project.get("source_key") or "") or None,
         speeds_by_idx=speeds,
         source_end_by_idx=source_ends or None,
+        emotion_by_idx=emotions or None,
     )
     if changed_texts:
         await invalidate_stale_dub_previews(
@@ -135,6 +139,8 @@ async def update_segments(
             row["speak_speed"] = speeds[idx]
         if idx in source_ends:
             row["source_end_ms"] = source_ends[idx]
+        if idx in emotions:
+            row["emotion_tone"] = emotions[idx]
     return await _segment_outs(
         rows,
         storage=storage,

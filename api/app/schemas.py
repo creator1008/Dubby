@@ -151,6 +151,10 @@ class SegmentUpdate(BaseModel):
     end_ms: int | None = Field(default=None, ge=0)
     speak_speed: float | None = Field(default=None, ge=0.5, le=1.5)
     source_end_ms: int | None = Field(default=None, ge=0)
+    emotion_tone: str | None = Field(
+        default=None,
+        pattern="^(sad|angry|whisper|excited|energetic|calm|cheerful)$",
+    )
 
 
 class SegmentsBulkUpdate(BaseModel):

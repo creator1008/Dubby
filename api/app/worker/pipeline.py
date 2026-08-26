@@ -807,6 +807,11 @@ async def run_dub(ctx: JobContext) -> None:
                     if speed_f is not None and speed_f > 0:
                         row["speak_speed"] = speed_f
 
+                # Editor-saved emotion tone wins over acoustic re-detection.
+                saved_tone = row.get("emotion_tone") or meta.get("emotion_tone")
+                if saved_tone:
+                    row["emotion_tone"] = str(saved_tone).strip()
+
                 # Freeze original ASR end; never overwrite with a rate-adjusted end_ms.
                 source_end = row.get("source_end_ms")
                 if source_end is None:
@@ -968,8 +973,13 @@ async def run_dub(ctx: JobContext) -> None:
                 idx = int(segment["idx"])
             except (KeyError, TypeError, ValueError):
                 continue
-            tone = emotion_by_idx.get(idx, project_tone)
-            segment["emotion_tone"] = tone
+            saved = str(segment.get("emotion_tone") or "").strip()
+            if saved:
+                segment["emotion_tone"] = normalize_emotion_tone(
+                    saved, fallback=project_tone
+                )
+            else:
+                segment["emotion_tone"] = emotion_by_idx.get(idx, project_tone)
 
         await ctx.report(0.40, "dub_voice_tts")
         speakers: list[str] = []

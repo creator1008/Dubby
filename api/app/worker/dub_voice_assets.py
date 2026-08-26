@@ -252,9 +252,12 @@ async def update_manifest_speak_speeds(
     source_key: str | None,
     speeds_by_idx: dict[int, float],
     source_end_by_idx: dict[int, int] | None = None,
+    emotion_by_idx: dict[int, str] | None = None,
 ) -> None:
-    """Upsert speak_speed / source_end_ms into the dub-voice manifest."""
-    if not source_key or (not speeds_by_idx and not source_end_by_idx):
+    """Upsert speak_speed / source_end_ms / emotion_tone into the dub-voice manifest."""
+    if not source_key or (
+        not speeds_by_idx and not source_end_by_idx and not emotion_by_idx
+    ):
         return
     by_idx = await load_dub_voice_manifest(storage, source_key)
     changed = False
@@ -298,6 +301,28 @@ async def update_manifest_speak_speeds(
                 continue
             if int(row.get("source_end_ms") or 0) != end_i:
                 row["source_end_ms"] = end_i
+                changed = True
+    if emotion_by_idx:
+        from .emotion import normalize_emotion_tone
+
+        for idx, tone in emotion_by_idx.items():
+            cleaned = normalize_emotion_tone(str(tone or "").strip() or None)
+            row = by_idx.get(idx)
+            if not row:
+                by_idx[idx] = {
+                    "idx": idx,
+                    "speak_speed": 1.0,
+                    "emotion_tone": cleaned,
+                    "audio_key": "",
+                }
+                changed = True
+                continue
+            prior = str(row.get("emotion_tone") or "").strip()
+            if prior != cleaned:
+                row["emotion_tone"] = cleaned
+                # Tone drives TTS delivery — stale clips must not linger.
+                if str(row.get("audio_key") or "").strip():
+                    row["audio_key"] = ""
                 changed = True
     if not changed:
         return

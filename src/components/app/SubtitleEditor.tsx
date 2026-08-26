@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Segment } from "@/lib/ui-types";
+import type { Segment, ToneStyle } from "@/lib/ui-types";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import {
   SPEAK_MAX,
@@ -16,6 +16,16 @@ const LANG_NAMES: Record<string, string> = {
   en: "English",
   vi: "Tiếng Việt",
 };
+
+const TONE_OPTIONS: ToneStyle[] = [
+  "sad",
+  "angry",
+  "whisper",
+  "excited",
+  "energetic",
+  "calm",
+  "cheerful",
+];
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -58,9 +68,113 @@ type Props = {
   targetLang: string;
   disabled?: boolean;
   showSpeakRate?: boolean;
+  /** Full source media URL used when a per-segment clip is unavailable. */
+  sourceMediaUrl?: string | null;
+  defaultEmotionTone?: ToneStyle | string;
   onChange: (id: string, field: "source_text" | "target_text", value: string) => void;
   onSpeakSpeedChange?: (id: string, speed: number) => void;
+  onEmotionToneChange?: (id: string, tone: ToneStyle) => void;
 };
+
+function SourcePreviewControl({
+  segment,
+  sourceMediaUrl,
+  disabled,
+}: {
+  segment: Segment;
+  sourceMediaUrl?: string | null;
+  disabled?: boolean;
+}) {
+  const text = useAppDictionary();
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const stopAtRef = useRef<number | null>(null);
+  const clipUrl = (segment.audio_url || "").trim();
+  const mediaUrl = clipUrl || (sourceMediaUrl || "").trim();
+  const canPlay = Boolean(mediaUrl);
+
+  useEffect(() => {
+    return () => {
+      audioRef.current?.pause();
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onTimeUpdate = () => {
+      const stopAt = stopAtRef.current;
+      if (stopAt != null && audio.currentTime >= stopAt) {
+        audio.pause();
+        stopAtRef.current = null;
+        setPlaying(false);
+      }
+    };
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    return () => audio.removeEventListener("timeupdate", onTimeUpdate);
+  }, []);
+
+  const togglePreview = async () => {
+    if (!mediaUrl || disabled) return;
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.onended = () => {
+        stopAtRef.current = null;
+        setPlaying(false);
+      };
+    }
+    const audio = audioRef.current;
+    if (playing) {
+      audio.pause();
+      audio.currentTime = 0;
+      stopAtRef.current = null;
+      setPlaying(false);
+      return;
+    }
+    audio.src = mediaUrl;
+    if (clipUrl) {
+      stopAtRef.current = null;
+      audio.currentTime = 0;
+    } else {
+      const startSec = Math.max(0, segment.start_ms / 1000);
+      const endSec = Math.max(startSec + 0.05, sourceEndMsOf(segment) / 1000);
+      stopAtRef.current = endSec;
+      try {
+        audio.currentTime = startSec;
+      } catch {
+        /* some browsers require metadata first */
+      }
+    }
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch {
+      setPlaying(false);
+    }
+  };
+
+  return (
+    <div className="source-preview-row">
+      <button
+        type="button"
+        className={`speak-rate-icon${playing ? " is-active" : ""}`}
+        disabled={disabled || !canPlay}
+        aria-label={playing ? text.voicePreviewStop : text.voicePreview}
+        title={
+          canPlay
+            ? playing
+              ? text.voicePreviewStop
+              : text.voicePreview
+            : text.voicePreviewMissing
+        }
+        onClick={() => void togglePreview()}
+      >
+        {playing ? "■" : "▶"}
+      </button>
+      <span className="source-preview-label">{text.voicePreview}</span>
+    </div>
+  );
+}
 
 function SpeakRateControl({
   segment,
@@ -179,14 +293,57 @@ function SpeakRateControl({
   );
 }
 
+function EmotionToneControl({
+  segment,
+  disabled,
+  defaultTone,
+  onChange,
+}: {
+  segment: Segment;
+  disabled?: boolean;
+  defaultTone?: ToneStyle | string;
+  onChange?: (tone: ToneStyle) => void;
+}) {
+  const text = useAppDictionary();
+  const fallback =
+    defaultTone && TONE_OPTIONS.includes(defaultTone as ToneStyle)
+      ? (defaultTone as ToneStyle)
+      : "calm";
+  const value =
+    segment.emotion_tone && TONE_OPTIONS.includes(segment.emotion_tone as ToneStyle)
+      ? (segment.emotion_tone as ToneStyle)
+      : fallback;
+
+  return (
+    <label className="emotion-tone-row">
+      <span className="emotion-tone-label">{text.tone}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        aria-label={text.tone}
+        onChange={(e) => onChange?.(e.target.value as ToneStyle)}
+      >
+        {TONE_OPTIONS.map((tone) => (
+          <option key={tone} value={tone}>
+            {emotionToneLabel(text, tone) ?? tone}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function SubtitleEditor({
   segments,
   sourceLang,
   targetLang,
   disabled,
   showSpeakRate = false,
+  sourceMediaUrl,
+  defaultEmotionTone,
   onChange,
   onSpeakSpeedChange,
+  onEmotionToneChange,
 }: Props) {
   const text = useAppDictionary();
   const sourceLabel = LANG_NAMES[sourceLang] ?? sourceLang.toUpperCase();
@@ -217,11 +374,6 @@ export function SubtitleEditor({
                     {text.speaker} {speakerNo}
                   </span>
                 )}
-                {emotionToneLabel(text, seg.emotion_tone) ? (
-                  <span>
-                    {text.tone}: {emotionToneLabel(text, seg.emotion_tone)}
-                  </span>
-                ) : null}
               </div>
               <div className="seg-pair-grid">
                 <div className="seg-field">
@@ -242,6 +394,11 @@ export function SubtitleEditor({
                       }
                     />
                   </label>
+                  <SourcePreviewControl
+                    segment={seg}
+                    sourceMediaUrl={sourceMediaUrl}
+                    disabled={disabled}
+                  />
                 </div>
                 <div className="seg-field">
                   <div className="seg-timing" aria-label={`${text.translation} timing`}>
@@ -261,6 +418,12 @@ export function SubtitleEditor({
                       }
                     />
                   </label>
+                  <EmotionToneControl
+                    segment={seg}
+                    disabled={disabled}
+                    defaultTone={defaultEmotionTone}
+                    onChange={(tone) => onEmotionToneChange?.(seg.id, tone)}
+                  />
                   {showSpeakRate ? (
                     <SpeakRateControl
                       segment={seg}
