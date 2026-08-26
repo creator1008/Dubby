@@ -445,6 +445,8 @@ class RealEngine(Engine):
         no_vocals_wav: str,
         ranges_ms: list[tuple[int, int]],
         wav_out: str,
+        *,
+        no_vocals_in_mask: float = 0.4,
     ) -> None:
         await self._run(
             media.build_selective_voice_removal_cmd(
@@ -453,6 +455,7 @@ class RealEngine(Engine):
                 no_vocals_wav,
                 ranges_ms,
                 wav_out,
+                no_vocals_in_mask=no_vocals_in_mask,
             ),
             errors.FFMPEG_FAILED,
         )

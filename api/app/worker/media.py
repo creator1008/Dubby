@@ -349,12 +349,19 @@ def build_selective_voice_removal_cmd(
     no_vocals_wav: str,
     ranges_ms: list[tuple[int, int]],
     wav_out: str,
+    *,
+    no_vocals_in_mask: float = 0.4,
 ) -> list[str]:
-    """Blend to no_vocals only inside ASR-recognized speech ranges."""
+    """Blend to no_vocals only inside ASR-recognized speech ranges.
+
+    ``no_vocals_in_mask`` attenuates Demucs bleed under dialogue windows while
+    keeping some non-speech atmosphere (1.0 = full no_vocals stem).
+    """
     mask = speech_mask_expression(ranges_ms)
+    bleed = max(0.0, min(1.0, float(no_vocals_in_mask)))
     filters = (
         f"[0:a]aresample=44100,volume=eval=frame:volume='1-({mask})'[original];"
-        f"[1:a]aresample=44100,volume=eval=frame:volume='{mask}'[removed];"
+        f"[1:a]aresample=44100,volume=eval=frame:volume='({mask})*{bleed:.4f}'[removed];"
         "[original][removed]amix=inputs=2:duration=first:normalize=0[bed]"
     )
     return [

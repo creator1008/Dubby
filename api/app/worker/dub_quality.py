@@ -126,13 +126,27 @@ async def source_loudness_levels_async(
 def voice_removal_ranges(
     saved_ranges: list[tuple[int, int]],
     segment_bounds: list[tuple[int, int]],
+    *,
+    fill_interiors: bool = False,
 ) -> list[tuple[int, int]]:
-    """Resolve selective voice-removal ranges from word and segment timestamps."""
-    if not saved_ranges:
+    """Resolve selective voice-removal ranges from word and segment timestamps.
+
+    ``fill_interiors=True`` (final dub mix) uses solid segment spans so TTS is
+    never stacked on leftover original speech inside mid-phrase pauses.
+    ``fill_interiors=False`` (editor preview) preserves larger interior gaps so
+    sobbing / non-lexical sounds can remain audible outside word hits.
+    """
+    if fill_interiors or not saved_ranges:
         covered = merge_speech_ranges(segment_bounds)
     else:
         covered = cover_recognized_phrase_boundaries(saved_ranges, segment_bounds)
-    return harden_voice_removal_ranges(covered)
+    return harden_voice_removal_ranges(
+        covered,
+        # Wider coalesce for dub so short residual syllables disappear.
+        merge_gap_ms=900 if fill_interiors else 420,
+        lead_ms=320 if fill_interiors else 280,
+        trail_ms=320 if fill_interiors else 240,
+    )
 
 
 def harden_voice_removal_ranges(
@@ -149,3 +163,82 @@ def harden_voice_removal_ranges(
         if end > start
     ]
     return merge_speech_ranges(expanded, max_gap_ms=merge_gap_ms)
+
+
+def next_start_by_segment_idx(
+    segments: list[dict[str, Any]],
+) -> dict[int, int | None]:
+    """Map each segment idx to the following segment's start on the full timeline.
+
+    Speakable-only neighbors incorrectly extend slots across passthrough rows
+    and leave original speech under the dub.
+    """
+    ordered: list[tuple[int, int]] = []
+    for row in segments:
+        try:
+            idx = int(row["idx"])
+            start_ms = int(row["start_ms"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ordered.append((idx, start_ms))
+    ordered.sort(key=lambda pair: (pair[1], pair[0]))
+    out: dict[int, int | None] = {}
+    for i, (idx, _) in enumerate(ordered):
+        out[idx] = ordered[i + 1][1] if i + 1 < len(ordered) else None
+    return out
+
+
+def cap_segment_ends_to_neighbors(
+    rows: list[dict[str, Any]],
+    *,
+    pad_ms: int = 40,
+    min_duration_ms: int = 80,
+) -> list[dict[str, Any]]:
+    """Prevent subtitle/TTS ends from overlapping the next segment start."""
+    ordered = sorted(
+        rows,
+        key=lambda row: (
+            int(row.get("start_ms", 0)),
+            int(row.get("idx", 0)),
+        ),
+    )
+    for i, row in enumerate(ordered):
+        if i + 1 >= len(ordered):
+            continue
+        try:
+            start = int(row["start_ms"])
+            end = int(row["end_ms"])
+            next_start = int(ordered[i + 1]["start_ms"]) - pad_ms
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end > next_start:
+            row["end_ms"] = max(start + min_duration_ms, next_start)
+    return rows
+
+
+def final_voice_removal_bounds(
+    items: list[dict[str, Any]],
+    next_start_by_idx: dict[int, int | None],
+) -> list[tuple[int, int]]:
+    """Solid scrub windows covering source speech and any extended TTS slot."""
+    bounds: list[tuple[int, int]] = []
+    for item in items:
+        seg = item.get("seg") or item
+        try:
+            idx = int(seg["idx"])
+            start = int(seg["start_ms"])
+            source_end = int(
+                item.get("source_end_ms")
+                or seg.get("source_end_ms")
+                or item.get("end_ms")
+                or seg.get("end_ms")
+            )
+            end = max(source_end, int(item.get("end_ms") or source_end))
+        except (KeyError, TypeError, ValueError):
+            continue
+        nxt = next_start_by_idx.get(idx)
+        if nxt is not None:
+            end = min(end, max(start + 120, nxt))
+        if end > start:
+            bounds.append((start, end))
+    return bounds

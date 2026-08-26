@@ -44,7 +44,10 @@ from .diarization import (
     normalize_speaker_ids,
 )
 from .dub_quality import (
+    cap_segment_ends_to_neighbors,
+    final_voice_removal_bounds,
     matched_loudness_gain,
+    next_start_by_segment_idx,
     source_loudness_levels_async,
     voice_removal_ranges,
 )
@@ -902,8 +905,10 @@ async def run_dub(ctx: JobContext) -> None:
                 errors.NO_SEGMENTS,
                 "no source-language segments to dub (others kept as original audio)",
             )
+        # Full timeline (incl. passthrough) so slots never steal a neighbor's audio.
+        next_start_by_idx = next_start_by_segment_idx(segments)
 
-        # Demucs stems: IVC samples / loudness + selective voice removal for mix bed.
+        # Demucs stems: IVC samples / loudness; mix bed rebuilt after TTS timing.
         # Soft volume ducking left original speech audible under the dub (phuc).
         await ctx.report(0.15, "stem_split")
         stems_dir = scratch / "stems"
@@ -926,14 +931,6 @@ async def run_dub(ctx: JobContext) -> None:
             )
         saved_ranges = await _load_speech_ranges(
             ctx, str(project["source_key"]), scratch
-        )
-        removal_ranges = voice_removal_ranges(saved_ranges, segment_bounds)
-        selective_bed = scratch / "speech_removed_bed.wav"
-        await engine.remove_recognized_speech(
-            str(full_wav),
-            no_vocals,
-            removal_ranges,
-            str(selective_bed),
         )
         speakable_indices = {int(segment["idx"]) for segment in speakable}
         # Word-level speech ranges only — full segment bounds dilute soft speech
@@ -1031,9 +1028,7 @@ async def run_dub(ctx: JobContext) -> None:
                 speaker_id = str(seg.get("speaker_id") or "")
                 # Always map by speaker slot; soft overlaps still keep majority voice.
                 voice_id = speaker_voices.get(speaker_id, default_voice)
-                next_start = (
-                    int(speakable[n + 1]["start_ms"]) if n + 1 < total else None
-                )
+                next_start = next_start_by_idx.get(int(seg["idx"]))
                 end_ms = int(seg["end_ms"])
                 slot_s = safe_slot_seconds(
                     int(seg["start_ms"]), end_ms, next_start
@@ -1271,10 +1266,11 @@ async def run_dub(ctx: JobContext) -> None:
             end_by_idx[idx] = int(item["end_ms"])
             if seg.get("id") is None:
                 continue
+            # Keep editor translations; timing rewrite is burn/speak-only.
             persist_updates.append(
                 (
                     seg["id"],
-                    str(item.get("text") or seg.get("target_text") or ""),
+                    str(seg.get("target_text") or item.get("text") or ""),
                     None,
                     int(item["end_ms"]),
                     float(item.get("speak_speed") or 1.0),
@@ -1363,13 +1359,32 @@ async def run_dub(ctx: JobContext) -> None:
             logger.warning("persist dub voice assets failed: %s", exc)
             quality_warnings.append("dub_voice_preview_not_persisted")
 
+        # Rebuild mix bed after TTS slot extensions so scrub covers spoken audio.
+        await ctx.report(0.76, "voice_removal")
+        final_bounds = final_voice_removal_bounds(list(refined), next_start_by_idx)
+        if not final_bounds:
+            final_bounds = segment_bounds
+        removal_ranges = voice_removal_ranges(
+            saved_ranges,
+            final_bounds,
+            fill_interiors=True,
+        )
+        selective_bed = scratch / "speech_removed_bed.wav"
+        await engine.remove_recognized_speech(
+            str(full_wav),
+            no_vocals,
+            removal_ranges,
+            str(selective_bed),
+            no_vocals_in_mask=0.35,
+        )
+
         await ctx.report(0.78, "mix_bgm")
         mixed_wav = scratch / "mixed.wav"
         await engine.mix(str(selective_bed), placed_clips, str(mixed_wav))
 
         ass_path: str | None = None
         subtitle_mode = str(project.get("subtitle_mode") or "none")
-        # Burn only lines that were actually synthesized — never orphan text.
+        # Spoken lines may use timing-rewritten text; passthrough keeps editor copy.
         spoken_by_idx = {
             int(item["seg"]["idx"]): str(item["text"]).strip()
             for item in refined
@@ -1381,9 +1396,10 @@ async def run_dub(ctx: JobContext) -> None:
             idx = int(row["idx"])
             if idx in end_by_idx:
                 copied["end_ms"] = end_by_idx[idx]
-            if subtitle_mode == "target":
-                copied["target_text"] = spoken_by_idx.get(idx, "")
+            if subtitle_mode == "target" and idx in spoken_by_idx:
+                copied["target_text"] = spoken_by_idx[idx]
             ass_rows.append(copied)
+        cap_segment_ends_to_neighbors(ass_rows)
         ass_text = build_ass(ass_rows, subtitle_mode)  # type: ignore[arg-type]
         if ass_text is not None:
             await ctx.report(0.85, "burn_subtitles")

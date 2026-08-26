@@ -100,10 +100,12 @@ def test_selective_voice_removal_uses_only_asr_ranges() -> None:
 
     assert cmd.count("-i") == 2
     graph = cmd[cmd.index("-filter_complex") + 1]
-    assert "lt(t,0.780000)" in graph
-    assert "(t-0.780000)/0.060000" in graph
-    assert "lt(t,3.080000),1" in graph
-    assert "lt(t,4.780000)" in graph
+    # 1000ms − 0.28s lead − 0.08s fade → 0.64s; end 3000ms + 0.24s trail.
+    assert "lt(t,0.640000)" in graph
+    assert "(t-0.640000)/0.080000" in graph
+    assert "lt(t,0.720000)" in graph
+    assert "lt(t,4.640000)" in graph or "lt(t,5.240000)" in graph
+    assert "*0.4000" in graph  # Demucs bleed attenuation under dialogue
     assert "[original][removed]amix=inputs=2" in graph
     assert cmd[-1] == "speech_removed.wav"
 
@@ -163,7 +165,7 @@ def test_demucs_cmd_two_stems_model_device() -> None:
 
 def test_demucs_stem_location(tmp_path) -> None:
     settings = _settings()
-    stem_dir = tmp_path / "htdemucs_ft" / "audio"
+    stem_dir = tmp_path / settings.demucs_model / "audio"
     stem_dir.mkdir(parents=True)
     (stem_dir / "vocals.wav").write_bytes(b"x")
     (stem_dir / "no_vocals.wav").write_bytes(b"x")

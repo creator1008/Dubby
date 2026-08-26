@@ -102,6 +102,73 @@ def test_phrase_boundary_coverage_masks_transcript_without_word_ranges() -> None
     ]
 
 
+def test_dub_voice_removal_fills_mid_phrase_gaps() -> None:
+    from app.worker.dub_quality import voice_removal_ranges
+
+    filled = voice_removal_ranges(
+        [(3970, 6150), (8390, 9730), (11590, 13070)],
+        [(3060, 8480), (8480, 13940)],
+        fill_interiors=True,
+    )
+    # Solid segment spans + harden lead/trail → one continuous scrub window.
+    assert len(filled) == 1
+    assert filled[0][0] <= 3060
+    assert filled[0][1] >= 13940
+
+
+def test_preview_voice_removal_keeps_interior_sobbing_gaps() -> None:
+    from app.worker.dub_quality import voice_removal_ranges
+
+    preview = voice_removal_ranges(
+        [(3970, 6150), (8390, 9730), (11590, 13070), (21400, 22360)],
+        [(3060, 8480), (8480, 13940), (18780, 23940)],
+        fill_interiors=False,
+    )
+    # Interior gap between ~6150 and ~8390 must remain (sobbing / non-lexical).
+    assert any(end < 8390 and start <= 6150 for start, end in preview)
+    assert any(start >= 8390 for start, end in preview)
+
+
+def test_next_start_uses_full_timeline_including_passthrough() -> None:
+    from app.worker.dub_quality import next_start_by_segment_idx
+
+    assert next_start_by_segment_idx(
+        [
+            {"idx": 0, "start_ms": 0},
+            {"idx": 1, "start_ms": 2000},  # passthrough neighbor
+            {"idx": 2, "start_ms": 5000},
+        ]
+    ) == {0: 2000, 1: 5000, 2: None}
+
+
+def test_cap_segment_ends_prevents_subtitle_overlap() -> None:
+    from app.worker.dub_quality import cap_segment_ends_to_neighbors
+
+    rows = [
+        {"idx": 0, "start_ms": 0, "end_ms": 2500, "target_text": "a"},
+        {"idx": 1, "start_ms": 2000, "end_ms": 3000, "target_text": "b"},
+    ]
+    cap_segment_ends_to_neighbors(rows)
+    assert rows[0]["end_ms"] == 1960
+    assert rows[1]["end_ms"] == 3000
+
+
+def test_final_voice_removal_bounds_cover_extended_tts_slot() -> None:
+    from app.worker.dub_quality import final_voice_removal_bounds
+
+    bounds = final_voice_removal_bounds(
+        [
+            {
+                "seg": {"idx": 0, "start_ms": 1000, "source_end_ms": 2000},
+                "end_ms": 2800,
+                "source_end_ms": 2000,
+            }
+        ],
+        {0: 3500},
+    )
+    assert bounds == [(1000, 2800)]
+
+
 def test_speech_mask_uses_crossfades_only_inside_recognized_ranges() -> None:
     expression = _speech_mask_expression([(1000, 3000)])
 

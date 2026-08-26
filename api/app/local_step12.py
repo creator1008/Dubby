@@ -43,6 +43,7 @@ from .worker.dub_quality import (
     cover_recognized_phrase_boundaries as _cover_recognized_phrase_boundaries,
     matched_loudness_gain as _matched_loudness_gain,
     source_loudness_levels as _shared_source_loudness_levels,
+    voice_removal_ranges as _voice_removal_ranges,
 )
 from .languages import LANGUAGE_ALIASES, LANG_QUERY_PATTERN, LANGUAGE_NAMES, SUPPORTED_LANGUAGES
 from .worker.elevenlabs_client import tts_model_for_language
@@ -2447,6 +2448,8 @@ def _build_selective_speech_removed_bed(
     no_vocals: Path,
     ranges_ms: list[tuple[int, int]],
     output: Path,
+    *,
+    no_vocals_in_mask: float = 0.35,
 ) -> None:
     """Remove vocals only while ASR-recognized language is present.
 
@@ -2454,9 +2457,10 @@ def _build_selective_speech_removed_bed(
     unchanged, preserving cheers, crying, singing, music, and ambience.
     """
     mask = _speech_mask_expression(ranges_ms)
+    bleed = max(0.0, min(1.0, float(no_vocals_in_mask)))
     filters = (
         f"[0:a]aresample=44100,volume=eval=frame:volume='1-({mask})'[original];"
-        f"[1:a]aresample=44100,volume=eval=frame:volume='{mask}'[removed];"
+        f"[1:a]aresample=44100,volume=eval=frame:volume='({mask})*{bleed:.4f}'[removed];"
         "[original][removed]amix=inputs=2:duration=first:normalize=0[bed]"
     )
     _run_ffmpeg(
@@ -2655,27 +2659,22 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
         else {}
     )
     saved_ranges = manifest.get("speech_ranges") or []
-    speech_ranges = [
+    word_ranges = [
         (int(item["start_ms"]), int(item["end_ms"]))
         for item in saved_ranges
         if int(item.get("end_ms", 0)) > int(item.get("start_ms", 0))
     ]
-    if not speech_ranges:
-        # Compatibility fallback for runs extracted before word-level masks.
-        speech_ranges = [
-            (segment.start_ms, segment.end_ms)
-            for segment in ordered
-            if segment.source_text.strip() and segment.end_ms > segment.start_ms
-        ]
-    else:
-        speech_ranges = _cover_recognized_phrase_boundaries(
-            speech_ranges,
-            [
-                (segment.start_ms, segment.end_ms)
-                for segment in ordered
-                if segment.source_text.strip() and segment.end_ms > segment.start_ms
-            ],
-        )
+    segment_bounds = [
+        (segment.start_ms, segment.end_ms)
+        for segment in ordered
+        if segment.source_text.strip() and segment.end_ms > segment.start_ms
+    ]
+    # Final dub must scrub solid dialogue windows (no mid-phrase original bleed).
+    speech_ranges = _voice_removal_ranges(
+        word_ranges,
+        segment_bounds,
+        fill_interiors=True,
+    )
     if not speech_ranges:
         raise RuntimeError("언어로 인식된 음성 타임스탬프가 없습니다.")
 
