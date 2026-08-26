@@ -33,9 +33,19 @@ def _raise_for_status(resp: httpx.Response, code: str) -> None:
     if resp.status_code < 400:
         return
     retryable = resp.status_code == 429 or resp.status_code >= 500
+    snippet = resp.text[:300]
+    lowered = snippet.lower()
+    if "incorrect api key" in lowered or "invalid api key" in lowered:
+        raise PipelineError(
+            code,
+            "XAI_API_KEY was rejected by xAI. Put a real Grok key from "
+            "https://console.x.ai into infra/.env (starts with xai-, not an "
+            "OpenAI sk- key), then recreate api and worker.",
+            retryable=False,
+        )
     raise PipelineError(
         code,
-        f"LLM API returned {resp.status_code}: {resp.text[:300]}",
+        f"LLM API returned {resp.status_code}: {snippet}",
         retryable=retryable,
     )
 
@@ -84,6 +94,16 @@ def parse_whisper_word_ranges(payload: dict) -> list[tuple[int, int]]:
     ]
 
 
+def sanitize_secret(value: str) -> str:
+    """Strip whitespace, wrapping quotes, and an accidental ``Bearer `` prefix."""
+    text = (value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1].strip()
+    if text.lower().startswith("bearer "):
+        text = text[7:].strip()
+    return text
+
+
 def is_grok_model(model: str) -> bool:
     """True for xAI Grok chat models (``grok-4.6``, ``grok-4.5``, …)."""
     normalized = (model or "").strip().lower().replace("_", "-")
@@ -107,10 +127,17 @@ def chat_endpoint_for_model(
 ) -> tuple[str, dict[str, str], dict[str, object]]:
     """Return ``(base_url, headers, extra_body)`` for chat completions."""
     if is_grok_model(model):
-        key = (xai_api_key or "").strip()
+        key = sanitize_secret(xai_api_key)
         if not key:
             raise PipelineError(
                 errors.CONFIG_MISSING, "XAI_API_KEY is not configured"
+            )
+        if key.startswith("sk-"):
+            raise PipelineError(
+                errors.CONFIG_MISSING,
+                "XAI_API_KEY looks like an OpenAI key (sk-…). "
+                "Create a Grok key at https://console.x.ai and set XAI_API_KEY "
+                "to the value that starts with xai-",
             )
         extras: dict[str, object] = {}
         effort = (reasoning_effort or "").strip().lower()
@@ -121,7 +148,7 @@ def chat_endpoint_for_model(
             {"Authorization": f"Bearer {key}"},
             extras,
         )
-    key = (openai_api_key or "").strip()
+    key = sanitize_secret(openai_api_key)
     if not key:
         raise PipelineError(
             errors.CONFIG_MISSING, "OPENAI_API_KEY is not configured"
@@ -291,13 +318,11 @@ class OpenAIClient:
             raise PipelineError(
                 errors.CONFIG_MISSING, "OPENAI_API_KEY is not configured"
             )
-        if is_grok_model(settings.translation_model) and not settings.xai_api_key:
-            raise PipelineError(
-                errors.CONFIG_MISSING, "XAI_API_KEY is not configured"
-            )
         self._settings = settings
         self._base = settings.openai_base_url.rstrip("/")
         self._headers = {"Authorization": f"Bearer {settings.openai_api_key}"}
+        if is_grok_model(settings.translation_model):
+            self._chat_endpoint()
 
     def _chat_endpoint(self) -> tuple[str, dict[str, str], dict[str, object]]:
         return chat_endpoint_for_model(

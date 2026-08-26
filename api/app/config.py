@@ -292,6 +292,10 @@ class Settings(BaseSettings):
                 missing.append("PYANNOTE_AUTH_TOKEN")
             if self.lipsync_provider == "sync" and not self.sync_api_key:
                 missing.append("SYNC_API_KEY")
+            grok = (self.translation_model or "").strip().lower().replace("_", "-").startswith("grok-")
+            xai_key = (self.xai_api_key or "").strip().strip("\"'")
+            if grok and (not xai_key or xai_key.startswith("sk-")):
+                missing.append("XAI_API_KEY (Grok key from console.x.ai, starts with xai-)")
             if self.pipeline_mode != "real":
                 raise ValueError("APP_ENV=production requires PIPELINE_MODE=real")
             if missing:

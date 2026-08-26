@@ -402,6 +402,26 @@ def test_grok_chat_endpoint_uses_xai_and_low_reasoning() -> None:
     assert extras["reasoning_effort"] == "low"
 
 
+def test_grok_rejects_openai_key_used_as_xai_key() -> None:
+    with pytest.raises(PipelineError) as exc:
+        chat_endpoint_for_model(
+            "grok-4.6",
+            openai_api_key="sk-openai",
+            openai_base_url="https://api.openai.com/v1",
+            xai_api_key="sk-proj-not-an-xai-key",
+            xai_base_url="https://api.x.ai/v1",
+        )
+    assert exc.value.code == errors.CONFIG_MISSING
+    assert "OpenAI" in str(exc.value)
+
+
+def test_grok_strips_quoted_xai_key() -> None:
+    from app.worker.openai_client import sanitize_secret
+
+    assert sanitize_secret('  "xai-abc"  ') == "xai-abc"
+    assert sanitize_secret("Bearer xai-abc") == "xai-abc"
+
+
 def test_gpt_chat_endpoint_stays_on_openai() -> None:
     base, headers, extras = chat_endpoint_for_model(
         "gpt-4o-mini",
