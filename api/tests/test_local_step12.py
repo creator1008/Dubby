@@ -139,16 +139,16 @@ def test_diarized_turns_split_on_speaker_and_max_interval() -> None:
 
 def test_relative_loudness_gains_follow_source_levels_with_bounds() -> None:
     assert _relative_loudness_gains({0: -40.0, 1: -20.0, 2: -10.0}) == {
-        0: -8.0,
+        0: -14.0,
         1: 0.0,
-        2: 6.0,
+        2: 10.0,
     }
 
 
 def test_matched_loudness_gain_compensates_tts_level_with_bounds() -> None:
     assert _matched_loudness_gain(-24.0, -18.0) == -6.0
-    assert _matched_loudness_gain(-12.0, -24.0) == 6.0
-    assert _matched_loudness_gain(-40.0, -18.0) == -8.0
+    assert _matched_loudness_gain(-12.0, -24.0) == 12.0
+    assert _matched_loudness_gain(-40.0, -18.0) == -14.0
 
 
 def test_parse_translation_payload_accepts_common_shapes() -> None:

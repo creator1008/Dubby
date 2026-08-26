@@ -387,9 +387,13 @@ export default function NewDubPage() {
     currentProject: Project,
     rows: Segment[],
     runId: string,
+    opts?: { onlyIdxs?: number[]; charge?: boolean },
   ) => {
     const speakable = rows
       .filter((segment) => segment.target_text.trim())
+      .filter((segment) =>
+        opts?.onlyIdxs ? opts.onlyIdxs.includes(segment.idx) : true,
+      )
       .map((segment) => ({
         idx: segment.idx,
         target_text: segment.target_text.trim(),
@@ -401,7 +405,9 @@ export default function NewDubPage() {
     if (!speakable.length) {
       throw new Error("더빙할 번역 텍스트가 없습니다.");
     }
-    await demoApi.assertDubCredits(currentProject.id);
+    if (opts?.charge !== false) {
+      await demoApi.assertDubCredits(currentProject.id);
+    }
     setLocalStage("선택 목소리로 ElevenLabs 더빙 음성 생성 중");
     const outputs = await generateLocalDubVoice(
       runId,
@@ -409,9 +415,13 @@ export default function NewDubPage() {
       toneStyle,
       currentProject.dub_voice_ids ?? selectedDubVoiceIds,
     );
-    const nextSegments = await demoApi.applyDubVoice(currentProject.id, outputs);
+    const nextSegments = await demoApi.applyDubVoice(currentProject.id, outputs, {
+      charge: opts?.charge !== false,
+    });
     setSegments(nextSegments);
-    window.dispatchEvent(new Event("credits-changed"));
+    if (opts?.charge !== false) {
+      window.dispatchEvent(new Event("credits-changed"));
+    }
     return nextSegments;
   };
 
@@ -633,6 +643,12 @@ export default function NewDubPage() {
     if (prepared !== segments) {
       setSegments(prepared);
     }
+    const changedForPreview = prepared.filter((segment) => {
+      const priorText = baselineTargetRef.current[segment.id] ?? segment.target_text;
+      if (priorText === segment.target_text) return false;
+      const prior = segments.find((row) => row.id === segment.id);
+      return Boolean(prior?.dubbed_audio_url);
+    });
     const next = await api.segments.update(
       project.id,
       prepared.map(({ id, source_text, target_text, end_ms, source_end_ms, speak_speed }) => ({
@@ -648,7 +664,26 @@ export default function NewDubPage() {
             : 1,
       })),
     );
-    const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
+    let merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
+    if (changedForPreview.length) {
+      setMessage("변경된 번역으로 미리듣기 음성을 갱신 중…");
+      if (isDemoMode) {
+        if (!localRunId) {
+          throw new Error("로컬 추출 작업 ID가 없습니다. 파일을 다시 추출해 주세요.");
+        }
+        merged = await runLocalDubVoice(project, merged, localRunId, {
+          onlyIdxs: changedForPreview.map((segment) => segment.idx),
+          charge: false,
+        });
+        setLocalStage(null);
+      } else {
+        const refreshed = await api.segments.refreshPreview(
+          project.id,
+          changedForPreview.map((segment) => segment.id),
+        );
+        merged = ensureSourceEndMs(mergeSegmentVoiceFields(merged, refreshed));
+      }
+    }
     setSegments(merged);
     baselineTargetRef.current = snapshotTargetTexts(merged);
     setMessage("자막을 저장했습니다.");

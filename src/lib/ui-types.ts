@@ -72,6 +72,8 @@ export type Segment = {
 
 /** Keep preview clips when the API omits optional voice fields.
  * Prefer server speak_speed after save; reset target is always natural 1.0×.
+ * Drop stale dubbed_audio_url when target_text changes (unless the server
+ * already returned a fresh clip URL).
  */
 export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segment[] {
   const byId = new Map(prev.map((row) => [row.id, row]));
@@ -93,16 +95,21 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
     if (typeof sourceEnd !== "number" || sourceEnd <= row.start_ms) {
       sourceEnd = prior.source_end_ms ?? row.end_ms;
     }
+    const textChanged = prior.target_text !== row.target_text;
     return {
       ...row,
-      dubbed_audio_url: row.dubbed_audio_url ?? prior.dubbed_audio_url,
+      dubbed_audio_url: textChanged
+        ? row.dubbed_audio_url
+        : (row.dubbed_audio_url ?? prior.dubbed_audio_url),
       source_end_ms: sourceEnd,
       speak_speed: speed,
       baseline_speak_speed: 1,
       clip_speak_speed:
         typeof row.clip_speak_speed === "number"
           ? row.clip_speak_speed
-          : prior.clip_speak_speed,
+          : textChanged
+            ? undefined
+            : prior.clip_speak_speed,
       emotion_tone: row.emotion_tone ?? prior.emotion_tone,
     };
   });

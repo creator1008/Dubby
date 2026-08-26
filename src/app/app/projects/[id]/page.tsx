@@ -172,6 +172,13 @@ function ProjectEditor() {
       if (prepared !== segments) {
         setSegments(prepared);
       }
+      const changedForPreview = prepared.filter((segment) => {
+        const priorText =
+          baselineTargetRef.current[segment.id] ?? segment.target_text;
+        if (priorText === segment.target_text) return false;
+        const prior = segments.find((row) => row.id === segment.id);
+        return Boolean(prior?.dubbed_audio_url);
+      });
       const next = await api.segments.update(
         projectId,
         prepared.map(({ id, source_text, target_text, end_ms, source_end_ms, speak_speed }) => ({
@@ -186,7 +193,15 @@ function ProjectEditor() {
               : 1,
         })),
       );
-      const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
+      let merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
+      if (changedForPreview.length && !isDemoMode) {
+        setMessage("변경된 번역으로 미리듣기 음성을 갱신 중…");
+        const refreshed = await api.segments.refreshPreview(
+          projectId,
+          changedForPreview.map((segment) => segment.id),
+        );
+        merged = ensureSourceEndMs(mergeSegmentVoiceFields(merged, refreshed));
+      }
       setSegments(merged);
       baselineTargetRef.current = snapshotTargetTexts(merged);
       setMessage("자막을 저장했습니다.");

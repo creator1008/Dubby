@@ -14,13 +14,16 @@ from ..errors import BadRequestError, NotFoundError
 from ..schemas import (
     SegmentOut,
     SegmentsBulkUpdate,
+    SegmentsRefreshPreviewRequest,
     SegmentsRetranslateRequest,
 )
 from ..worker.dub_voice_assets import (
     enrich_segments_with_dub_voice,
+    invalidate_stale_dub_previews,
     update_manifest_speak_speeds,
 )
 from ..worker.openai_client import OpenAIClient
+from ..worker.preview_refresh import parse_segment_id_set, refresh_preview_clips
 from ..worker.utterance_pipeline import UtteranceChunk
 
 router = APIRouter(prefix="/v1/projects/{project_id}/segments", tags=["segments"])
@@ -74,6 +77,8 @@ async def update_segments(
     project = await repo.get_project(user.id, project_id)
     if project is None:
         raise NotFoundError("Project not found")
+    prior_rows = await repo.list_segments(user.id, project_id)
+    prior_by_id = {str(row["id"]): row for row in prior_rows}
     await repo.update_segment_texts(
         user.id,
         project_id,
@@ -92,6 +97,7 @@ async def update_segments(
     id_to_idx = {str(row["id"]): int(row["idx"]) for row in rows}
     speeds: dict[int, float] = {}
     source_ends: dict[int, int] = {}
+    changed_texts: dict[int, str] = {}
     for row in rows:
         if row.get("speak_speed") is not None:
             try:
@@ -107,12 +113,21 @@ async def update_segments(
             speeds[idx] = float(seg.speak_speed)
         if seg.source_end_ms is not None and seg.source_end_ms > 0:
             source_ends[idx] = int(seg.source_end_ms)
+        prior = prior_by_id.get(str(seg.id))
+        if prior is not None and str(prior.get("target_text") or "") != seg.target_text:
+            changed_texts[idx] = seg.target_text
     await update_manifest_speak_speeds(
         storage,
         source_key=str(project.get("source_key") or "") or None,
         speeds_by_idx=speeds,
         source_end_by_idx=source_ends or None,
     )
+    if changed_texts:
+        await invalidate_stale_dub_previews(
+            storage,
+            source_key=str(project.get("source_key") or "") or None,
+            texts_by_idx=changed_texts,
+        )
     # Reflect saved rates in the response even when DB lacks the column.
     for row in rows:
         idx = int(row["idx"])
@@ -122,6 +137,52 @@ async def update_segments(
             row["source_end_ms"] = source_ends[idx]
     return await _segment_outs(
         rows,
+        storage=storage,
+        source_key=str(project.get("source_key") or "") or None,
+    )
+
+
+@router.post("/refresh-preview", response_model=list[SegmentOut])
+async def refresh_preview(
+    project_id: UUID,
+    body: SegmentsRefreshPreviewRequest,
+    user: CurrentUser,
+    repo: Repo,
+    storage: Storage,
+) -> list[SegmentOut]:
+    """Re-synthesize dubbed preview audio for edited target texts."""
+    project = await repo.get_project(user.id, project_id)
+    if project is None:
+        raise NotFoundError("Project not found")
+    rows = await repo.list_segments(user.id, project_id)
+    if not rows:
+        raise NotFoundError("No segments to refresh")
+    settings = get_settings()
+    voice_ids: list[str] = []
+    raw_voices = project.get("dub_voice_ids")
+    if isinstance(raw_voices, list):
+        voice_ids = [str(v).strip() for v in raw_voices if str(v).strip()]
+    if not voice_ids:
+        try:
+            from ..routers.projects import _load_dub_voice_ids
+
+            voice_ids = await _load_dub_voice_ids(storage, user.id, project_id)
+        except Exception:  # noqa: BLE001
+            voice_ids = []
+    try:
+        await refresh_preview_clips(
+            storage=storage,
+            settings=settings,
+            project=project,
+            rows=rows,
+            segment_ids=parse_segment_id_set(body.segment_ids),
+            voice_ids=voice_ids,
+        )
+    except RuntimeError as exc:
+        raise BadRequestError(str(exc)) from exc
+    out_rows = await repo.list_segments(user.id, project_id)
+    return await _segment_outs(
+        out_rows,
         storage=storage,
         source_key=str(project.get("source_key") or "") or None,
     )
@@ -217,6 +278,13 @@ async def retranslate_segments(
 
     await repo.update_segment_texts(user.id, project_id, updates)
     out_rows = await repo.list_segments(user.id, project_id)
+    await invalidate_stale_dub_previews(
+        storage,
+        source_key=str(project.get("source_key") or "") or None,
+        texts_by_idx={
+            int(row["idx"]): str(row.get("target_text") or "") for row in out_rows
+        },
+    )
     return await _segment_outs(
         out_rows,
         storage=storage,

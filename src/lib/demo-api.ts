@@ -747,6 +747,11 @@ export const demoApi = {
       for (const update of updates) {
         const row = rows.find((r) => r.id === update.id);
         if (!row) continue;
+        if (row.target_text !== update.target_text) {
+          // Stale TTS must not play after translation edits.
+          delete row.dubbed_audio_url;
+          delete row.clip_speak_speed;
+        }
         row.target_text = update.target_text;
         if (update.source_text !== undefined) row.source_text = update.source_text;
         if (
@@ -768,6 +773,19 @@ export const demoApi = {
       }
       persist();
       return clone(rows);
+    },
+    refreshPreview: async (
+      projectId: string,
+      segmentIds?: string[],
+    ) => {
+      // Demo mode refreshes via generateLocalDubVoice in the page layer.
+      await requireOwnedProject(projectId);
+      const st = loadState();
+      const rows = st.segments[projectId] ?? [];
+      if (!segmentIds?.length) return clone(rows);
+      return clone(
+        rows.filter((row) => segmentIds.includes(row.id)),
+      );
     },
     retranslate: async (
       projectId: string,
@@ -987,8 +1005,11 @@ export const demoApi = {
   applyDubVoice: async (
     projectId: string,
     outputs: Array<{ idx: number; audio_url: string; speak_speed?: number }>,
+    opts?: { charge?: boolean },
   ) => {
-    await chargeDubCredits(projectId);
+    if (opts?.charge !== false) {
+      await chargeDubCredits(projectId);
+    }
     const st = loadState();
     const rows = st.segments[projectId] ?? [];
     const bust = `t=${Date.now()}`;

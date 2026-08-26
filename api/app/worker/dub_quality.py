@@ -45,8 +45,12 @@ def cover_recognized_phrase_boundaries(
 
 
 def matched_loudness_gain(source_level_db: float, tts_level_db: float) -> float:
-    """Match generated speech to its source slot while avoiding clipping/noise."""
-    return round(max(-8.0, min(6.0, source_level_db - tts_level_db)), 2)
+    """Match generated speech to its source slot while avoiding clipping/noise.
+
+    Bounds are wide enough for quiet vs loud speakers in the same clip; tighter
+    clamps left soft lines far below shouts after matching.
+    """
+    return round(max(-14.0, min(14.0, source_level_db - tts_level_db)), 2)
 
 
 def source_loudness_levels(

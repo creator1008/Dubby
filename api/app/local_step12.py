@@ -2065,7 +2065,7 @@ def _relative_loudness_gains(levels: dict[int, float]) -> dict[int, float]:
         return {}
     reference = median(levels.values())
     return {
-        idx: round(max(-8.0, min(6.0, level - reference)), 2)
+        idx: round(max(-14.0, min(14.0, level - reference)), 2)
         for idx, level in levels.items()
     }
 
@@ -2285,12 +2285,16 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         )
         source_level = source_levels.get(segment.idx, tts_level)
         gain_db = _matched_loudness_gain(source_level, tts_level)
+        # Bake gain into the preview file so editor playback matches the mix.
+        _apply_preview_gain(output_path, gain_db)
         return {
             "idx": segment.idx,
             "speaker_id": speaker_id,
+            "target_text": segment.target_text,
             "source_level_db": source_level,
             "tts_level_db": tts_level,
             "gain_db": gain_db,
+            "preview_gain_applied": True,
             "emotion_tone": emotion_tone,
             "speak_speed": (
                 float(segment.speak_speed)
@@ -2312,23 +2316,38 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
             outputs.append(future.result())
     outputs.sort(key=lambda item: int(item["idx"]))
 
-    (work_dir / "dub_voice_manifest.json").write_text(
+    manifest_path = work_dir / "dub_voice_manifest.json"
+    prior_segments: dict[int, dict] = {}
+    prior_voices: dict = {}
+    if manifest_path.is_file():
+        try:
+            prior = json.loads(manifest_path.read_text(encoding="utf-8"))
+            prior_voices = prior.get("voices") or {}
+            for row in prior.get("segments") or []:
+                if isinstance(row, dict) and "idx" in row:
+                    prior_segments[int(row["idx"])] = row
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    for output in outputs:
+        prior_segments[int(output["idx"])] = {
+            key: value for key, value in output.items() if key != "audio_url"
+        }
+    merged_voices = {
+        **prior_voices,
+        **{
+            speaker_id: {
+                "voice_id": voice_id,
+                "temporary": temporary,
+            }
+            for speaker_id, (voice_id, temporary) in voices.items()
+        },
+    }
+    manifest_path.write_text(
         json.dumps(
             {
-                "voices": {
-                    speaker_id: {
-                        "voice_id": voice_id,
-                        "temporary": temporary,
-                    }
-                    for speaker_id, (voice_id, temporary) in voices.items()
-                },
+                "voices": merged_voices,
                 "segments": [
-                    {
-                        key: value
-                        for key, value in output.items()
-                        if key != "audio_url"
-                    }
-                    for output in outputs
+                    prior_segments[idx] for idx in sorted(prior_segments.keys())
                 ],
             },
             ensure_ascii=False,
@@ -2451,6 +2470,31 @@ def _build_selective_speech_removed_bed(
             str(output),
         ]
     )
+
+
+def _apply_preview_gain(path: Path, gain_db: float) -> None:
+    """Bake loudness match into the on-disk preview clip (idempotent-ish)."""
+    if abs(float(gain_db)) < 0.05:
+        return
+    tmp = path.with_suffix(path.suffix + ".gain.tmp")
+    try:
+        _run_ffmpeg(
+            [
+                "-i",
+                str(path),
+                "-af",
+                f"volume={float(gain_db):.2f}dB",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "128k",
+                str(tmp),
+            ]
+        )
+        tmp.replace(path)
+    finally:
+        if tmp.is_file():
+            tmp.unlink(missing_ok=True)
 
 
 def _fit_dub_clip(
@@ -2651,7 +2695,11 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
         else {}
     )
     gain_by_idx = {
-        int(item["idx"]): float(item.get("gain_db", 0.0))
+        int(item["idx"]): (
+            0.0
+            if item.get("preview_gain_applied")
+            else float(item.get("gain_db", 0.0))
+        )
         for item in dub_manifest.get("segments") or []
     }
     for position, segment in enumerate(ordered):

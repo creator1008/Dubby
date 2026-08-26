@@ -166,6 +166,12 @@ class SegmentsRetranslateRequest(BaseModel):
     segments: list[SegmentRetranslateItem] = Field(min_length=1, max_length=500)
 
 
+class SegmentsRefreshPreviewRequest(BaseModel):
+    """Regenerate dubbed preview clips for edited translations."""
+
+    segment_ids: list[UUID] | None = Field(default=None, max_length=500)
+
+
 class SegmentOut(BaseModel):
     id: UUID
     project_id: UUID

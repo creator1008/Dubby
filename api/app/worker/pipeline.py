@@ -931,6 +931,9 @@ async def run_dub(ctx: JobContext) -> None:
             str(selective_bed),
         )
         speakable_indices = {int(segment["idx"]) for segment in speakable}
+        # Word-level speech ranges only — full segment bounds dilute soft speech
+        # with silence and exaggerate loudness gaps across speakers.
+        speech_for_levels = saved_ranges if saved_ranges else segment_bounds
         source_levels = await source_loudness_levels_async(
             [
                 {
@@ -942,9 +945,10 @@ async def run_dub(ctx: JobContext) -> None:
                 }
                 for segment in speakable
             ],
-            segment_bounds,
+            speech_for_levels,
             speakable_indices,
-            lambda start_ms, end_ms: engine.measure_segment_loudness(
+            # Same meter as TTS clips (volumedetect) so gain is apples-to-apples.
+            lambda start_ms, end_ms: engine.measure_clip_loudness(
                 vocals, start_ms, end_ms
             ),
         )
@@ -1314,6 +1318,16 @@ async def run_dub(ctx: JobContext) -> None:
             )
             source_level = source_levels.get(int(seg["idx"]), tts_level)
             gain_db = matched_loudness_gain(source_level, tts_level)
+            # Gain-only preview keeps editor speak-rate scrubbing meaningful.
+            preview = clips_dir / f"seg_{seg['idx']}_preview.wav"
+            await engine.fit_clip(
+                str(raw),
+                str(preview),
+                1.0,
+                "atempo",
+                None,
+                gain_db,
+            )
             fitted = clips_dir / f"seg_{seg['idx']}_fit.wav"
             await engine.fit_clip(
                 str(raw),
@@ -1323,6 +1337,10 @@ async def run_dub(ctx: JobContext) -> None:
                 decision.output_seconds,
                 gain_db,
             )
+            item["gain_db"] = gain_db
+            item["source_level_db"] = source_level
+            item["tts_level_db"] = tts_level
+            item["preview_clip"] = str(preview)
             placed_clips.append((str(fitted), int(seg["start_ms"])))
 
         try:

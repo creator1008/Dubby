@@ -602,6 +602,17 @@ const realApi = {
         method: "POST",
         body: JSON.stringify({ segments }),
       }),
+    refreshPreview: (
+      projectId: string,
+      segmentIds?: string[],
+    ) =>
+      request<Segment[]>(`/v1/projects/${projectId}/segments/refresh-preview`, {
+        method: "POST",
+        body: JSON.stringify({
+          segment_ids: segmentIds?.length ? segmentIds : null,
+        }),
+        signal: AbortSignal.timeout(10 * 60 * 1000),
+      }),
   },
   jobs: {
     list: (projectId: string) => request<Job[]>(`/v1/projects/${projectId}/jobs`),
