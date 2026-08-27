@@ -42,6 +42,11 @@ class Engine(ABC):
     async def extract_asr_audio(self, source_path: str, audio_out: str) -> None: ...
 
     @abstractmethod
+    async def trim_asr_audio(
+        self, source_path: str, audio_out: str, start_ms: int, end_ms: int
+    ) -> None: ...
+
+    @abstractmethod
     async def transcribe(
         self, asr_audio_path: str, language: str
     ) -> TranscribeResult: ...
@@ -245,6 +250,16 @@ class RealEngine(Engine):
     async def extract_asr_audio(self, source_path: str, audio_out: str) -> None:
         await self._run(
             media.build_asr_audio_cmd(self._settings, source_path, audio_out),
+            errors.FFMPEG_FAILED,
+        )
+
+    async def trim_asr_audio(
+        self, source_path: str, audio_out: str, start_ms: int, end_ms: int
+    ) -> None:
+        await self._run(
+            media.build_asr_trim_cmd(
+                self._settings, source_path, audio_out, start_ms, end_ms
+            ),
             errors.FFMPEG_FAILED,
         )
 
@@ -538,6 +553,12 @@ class MockEngine(Engine):
 
     async def extract_asr_audio(self, source_path: str, audio_out: str) -> None:
         _write_wav(audio_out, _MOCK_DEFAULT_DURATION)
+
+    async def trim_asr_audio(
+        self, source_path: str, audio_out: str, start_ms: int, end_ms: int
+    ) -> None:
+        del source_path
+        _write_wav(audio_out, max(0.2, (end_ms - start_ms) / 1000))
 
     async def transcribe(
         self, asr_audio_path: str, language: str

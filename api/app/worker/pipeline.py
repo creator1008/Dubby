@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 import tempfile
 import time
@@ -54,7 +55,14 @@ from .dub_quality import (
 from .dub_voice_assets import load_dub_voice_manifest, persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
-from .media import ffmpeg_has_rubberband, merge_speech_ranges, validate_source, vocal_energy_ranges
+from .asr_quality import word_timeline_is_reliable
+from .media import (
+    ffmpeg_has_rubberband,
+    merge_speech_ranges,
+    uncovered_voiced_ranges,
+    validate_source,
+    vocal_energy_ranges,
+)
 from .openai_client import SegmentDraft
 from .subtitles import build_ass
 from .timing import (
@@ -65,6 +73,7 @@ from .timing import (
     speak_speed_matching_source,
 )
 from .utterance_pipeline import (
+    TimedToken,
     UtteranceChunk,
     build_breath_utterances,
     dedupe_boundary_overlaps,
@@ -462,7 +471,8 @@ def _apply_corrected_texts(
         if raw is None:
             text = original
         else:
-            text = str(raw).strip() or original
+            candidate = str(raw).strip() or original
+            text = original if _correction_is_lossy(original, candidate) else candidate
         if not text:
             continue
         out.append(
@@ -475,6 +485,17 @@ def _apply_corrected_texts(
             )
         )
     return out
+
+
+def _correction_is_lossy(original: str, corrected: str) -> bool:
+    """Reject ASR proofread that collapses a line into a scrap (dalat ``một``)."""
+    orig_tokens = re.findall(r"\S+", original)
+    new_tokens = re.findall(r"\S+", corrected)
+    if len(orig_tokens) >= 4 and len(new_tokens) <= max(1, len(orig_tokens) // 3):
+        return True
+    if len(original.strip()) >= 12 and len(corrected.strip()) <= 4:
+        return True
+    return False
 
 
 def _rewrite_diverges(original: str, rewritten: str) -> bool:
@@ -536,6 +557,63 @@ async def _load_speech_ranges(
     ]
 
 
+async def _refill_uncovered_asr(
+    ctx: JobContext,
+    engine: object,
+    asr_audio: Path,
+    scratch: Path,
+    drafts: list[SegmentDraft],
+    words: list[TimedToken],
+    language: str,
+) -> tuple[list[SegmentDraft], list[TimedToken], list[tuple[int, int]], str | None]:
+    """Second Whisper pass on voiced windows the first transcript skipped."""
+    energy_wav = scratch / "asr_energy.wav"
+    await engine.extract_audio(str(asr_audio), str(energy_wav))  # type: ignore[attr-defined]
+    voiced = await asyncio.to_thread(vocal_energy_ranges, str(energy_wav))
+    if not voiced:
+        return [], [], [], None
+    covered = [(draft.start_ms, draft.end_ms) for draft in drafts] + [
+        (word.start_ms, word.end_ms) for word in words
+    ]
+    gaps = uncovered_voiced_ranges(voiced, covered, min_ms=900)[:6]
+    extra_drafts: list[SegmentDraft] = []
+    extra_words: list[TimedToken] = []
+    extra_ranges: list[tuple[int, int]] = []
+    for start_ms, end_ms in gaps:
+        clip = scratch / f"asr_gap_{start_ms}_{end_ms}.mp3"
+        await engine.trim_asr_audio(  # type: ignore[attr-defined]
+            str(asr_audio), str(clip), start_ms, end_ms
+        )
+        extra = await _with_retries(
+            ctx,
+            lambda path=str(clip): engine.transcribe(path, language),  # type: ignore[attr-defined]
+            step="asr",
+        )
+        extra_drafts.extend(
+            SegmentDraft(
+                start_ms=draft.start_ms + start_ms,
+                end_ms=draft.end_ms + start_ms,
+                text=draft.text,
+            )
+            for draft in extra.drafts
+        )
+        extra_words.extend(
+            TimedToken(
+                start_ms=word.start_ms + start_ms,
+                end_ms=word.end_ms + start_ms,
+                text=word.text,
+            )
+            for word in extra.words
+        )
+        extra_ranges.extend(
+            (range_start + start_ms, range_end + start_ms)
+            for range_start, range_end in extra.speech_ranges
+        )
+    if not extra_drafts and not extra_words:
+        return [], [], extra_ranges, None
+    return extra_drafts, extra_words, extra_ranges, "asr_gap_refill"
+
+
 # --- handlers --------------------------------------------------------------------
 
 
@@ -577,17 +655,42 @@ async def run_transcribe(ctx: JobContext) -> None:
             step="asr",
         )
         drafts = list(transcribe_result.drafts)
-        if not drafts and not transcribe_result.words:
+        words = list(transcribe_result.words)
+        speech_ranges = list(transcribe_result.speech_ranges)
+        quality_warnings: list[str] = []
+        if ctx.settings.pipeline_mode != "mock":
+            try:
+                extra_drafts, extra_words, extra_ranges, refill_note = (
+                    await _refill_uncovered_asr(
+                        ctx,
+                        engine,
+                        asr_audio,
+                        scratch,
+                        drafts,
+                        words,
+                        str(project["source_lang"]),
+                    )
+                )
+                drafts.extend(extra_drafts)
+                words.extend(extra_words)
+                if extra_ranges:
+                    speech_ranges = merge_speech_ranges(
+                        speech_ranges + extra_ranges
+                    )
+                if refill_note:
+                    quality_warnings.append(refill_note)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("asr gap refill skipped: %s", exc)
+        if not drafts and not words:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
         await _upload_speech_ranges(
             ctx,
             str(project["source_key"]),
-            transcribe_result.speech_ranges,
+            speech_ranges,
             scratch,
         )
 
         speaker_turns: list[tuple[int, int, str, str]] | None = None
-        quality_warnings: list[str] = []
         source_lang = str(project.get("source_lang") or "").strip()
         if bool(project.get("diarization_enabled")):
             provider = create_diarization_provider(ctx.settings)
@@ -618,9 +721,10 @@ async def run_transcribe(ctx: JobContext) -> None:
         speech_cap_ms = max(
             1000, round(float(ctx.settings.speech_segment_max_seconds) * 1000)
         )
-        if transcribe_result.words:
+        use_words = word_timeline_is_reliable(words, drafts)
+        if use_words:
             chunks = build_breath_utterances(
-                list(transcribe_result.words),
+                words,
                 speaker_turns,
                 breath_pause_ms=breath_ms,
                 max_duration_ms=speech_cap_ms,
@@ -646,7 +750,9 @@ async def run_transcribe(ctx: JobContext) -> None:
                 max_duration_ms=speech_cap_ms,
             )
         else:
-            # Mock / segment-only ASR: keep Whisper drafts (already filtered).
+            if words:
+                quality_warnings.append("asr_word_timeline_unreliable")
+            # Segment-only ASR (or unusable word timestamps): keep Whisper drafts.
             chunks = [
                 UtteranceChunk(
                     start_ms=draft.start_ms,

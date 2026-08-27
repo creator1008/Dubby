@@ -352,6 +352,77 @@ def test_parse_whisper_drops_hallucinated_loop() -> None:
     assert parse_whisper_segments({"segments": [segment]}) == []
 
 
+def test_parse_whisper_words_caps_stretched_vietnamese_token() -> None:
+    from app.worker.asr_quality import parse_whisper_words
+
+    words = parse_whisper_words(
+        {
+            "words": [
+                {"word": "một", "start": 14.36, "end": 26.84},
+                {"word": "chuyến", "start": 26.92, "end": 27.20},
+            ]
+        }
+    )
+    assert len(words) == 2
+    assert words[0].text.strip() == "một"
+    assert words[0].end_ms - words[0].start_ms <= 1600
+    assert words[0].end_ms < words[1].start_ms
+
+
+def test_refine_keeps_segment_text_when_word_coverage_is_sparse() -> None:
+    from app.worker.asr_quality import refine_whisper_drafts
+
+    payload = {
+        "segments": [
+            {
+                "start": 13.8,
+                "end": 29.98,
+                "text": "Kính chào quý khách có một chuyến bay an toàn hạ cánh thuận lợi.",
+                "no_speech_prob": 0.1,
+                "avg_logprob": -0.2,
+                "compression_ratio": 1.2,
+            }
+        ],
+        "words": [
+            {"word": "Kính", "start": 13.8, "end": 14.0},
+            {"word": "một", "start": 14.36, "end": 26.84},
+        ],
+    }
+    drafts = refine_whisper_drafts(payload)
+    assert len(drafts) == 1
+    assert "chuyến bay" in drafts[0][2]
+
+
+def test_word_timeline_unreliable_when_cover_is_thin() -> None:
+    from app.worker.asr_quality import parse_whisper_words, word_timeline_is_reliable
+    from app.worker.openai_client import SegmentDraft
+
+    words = parse_whisper_words(
+        {"words": [{"word": "một", "start": 14.36, "end": 26.84}]}
+    )
+    drafts = [
+        SegmentDraft(13800, 29980, "Kính chào quý khách có một chuyến bay an toàn")
+    ]
+    assert not word_timeline_is_reliable(words, drafts)
+
+
+def test_apply_corrected_texts_rejects_lossy_rewrite() -> None:
+    from app.worker.pipeline import _apply_corrected_texts
+    from app.worker.utterance_pipeline import UtteranceChunk
+
+    chunks = [
+        UtteranceChunk(
+            0,
+            3000,
+            "Kính chào quý khách có một chuyến bay an toàn",
+            "speaker_0",
+            (),
+        )
+    ]
+    out = _apply_corrected_texts(chunks, {0: "một"})
+    assert "chuyến bay" in out[0].text
+
+
 def test_whisper_form_repeats_word_and_segment_granularity() -> None:
     import httpx
 

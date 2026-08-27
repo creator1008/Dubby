@@ -140,6 +140,29 @@ def build_asr_audio_cmd(settings: Settings, source: str, mp3_out: str) -> list[s
     ]
 
 
+def build_asr_trim_cmd(
+    settings: Settings,
+    source: str,
+    mp3_out: str,
+    start_ms: int,
+    end_ms: int,
+) -> list[str]:
+    """Cut one ASR window for a second Whisper pass on uncovered speech."""
+    duration = max(0.05, (end_ms - start_ms) / 1000)
+    return [
+        _ffmpeg(settings), "-y", "-nostdin",
+        "-ss", f"{max(0, start_ms) / 1000:.3f}",
+        "-i", source,
+        "-t", f"{duration:.3f}",
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-ar", "16000",
+        "-ac", "1",
+        "-b:a", "64k",
+        mp3_out,
+    ]
+
+
 def build_clip_fit_cmd(
     settings: Settings,
     clip_in: str,
@@ -358,6 +381,31 @@ def merge_speech_ranges(
         else:
             merged.append((start, end))
     return merged
+
+
+def uncovered_voiced_ranges(
+    voiced: list[tuple[int, int]],
+    covered: list[tuple[int, int]],
+    *,
+    min_ms: int = 800,
+    pad_ms: int = 180,
+) -> list[tuple[int, int]]:
+    """Voiced windows that ASR timestamps did not cover (intro / dropped words)."""
+    blocked = merge_speech_ranges(
+        [(max(0, start - pad_ms), end + pad_ms) for start, end in covered]
+    )
+    gaps: list[tuple[int, int]] = []
+    for voiced_start, voiced_end in merge_speech_ranges(voiced):
+        cursor = voiced_start
+        for block_start, block_end in blocked:
+            if block_end <= cursor or block_start >= voiced_end:
+                continue
+            if block_start > cursor and block_start - cursor >= min_ms:
+                gaps.append((cursor, min(block_start, voiced_end)))
+            cursor = max(cursor, block_end)
+        if voiced_end - cursor >= min_ms:
+            gaps.append((cursor, voiced_end))
+    return gaps
 
 
 def speech_mask_expression(

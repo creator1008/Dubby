@@ -45,6 +45,25 @@ def test_asr_audio_cmd_is_mono_16k_mp3() -> None:
     assert cmd[cmd.index("-ac") + 1] == "1"
 
 
+def test_asr_trim_cmd_uses_start_and_duration() -> None:
+    cmd = media.build_asr_trim_cmd(_settings(), "asr.mp3", "gap.mp3", 1000, 3500)
+    assert cmd[cmd.index("-ss") + 1] == "1.000"
+    assert cmd[cmd.index("-t") + 1] == "2.500"
+    assert cmd[-1] == "gap.mp3"
+
+
+def test_uncovered_voiced_ranges_finds_intro_hole() -> None:
+    gaps = media.uncovered_voiced_ranges(
+        [(0, 14000), (14000, 30000)],
+        [(13800, 14280), (14360, 26840)],
+        min_ms=800,
+        pad_ms=180,
+    )
+    assert gaps
+    assert gaps[0][0] == 0
+    assert gaps[0][1] >= 12000
+
+
 def test_clip_fit_cmd_without_speedup_has_no_filter() -> None:
     cmd = media.build_clip_fit_cmd(_settings(), "seg.mp3", "seg.wav", 1.0)
     assert "-filter:a" not in cmd

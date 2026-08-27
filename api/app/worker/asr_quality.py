@@ -145,6 +145,58 @@ def drafts_look_hallucinated(drafts: list[tuple[int, int, str]]) -> bool:
     return False
 
 
+_MAX_WORD_MS = 1600
+_MS_PER_CHAR = 220
+
+
+def _sane_word_end(start_ms: int, end_ms: int, text: str) -> int:
+    """Clamp Whisper word ends that swallow many seconds of later speech.
+
+    dalat stored ``một`` from 14.36s–26.84s, so the editor preview of that
+    subtitle played 12s of unrelated VO.
+    """
+    compact = re.sub(r"\s+", "", text)
+    n_chars = max(1, len(compact))
+    cap = start_ms + min(_MAX_WORD_MS, max(280, n_chars * _MS_PER_CHAR + 180))
+    return min(end_ms, cap)
+
+
+def _covered_duration_ms(words: list[TimedToken], start_ms: int, end_ms: int) -> int:
+    total = 0
+    for word in words:
+        begin = max(start_ms, word.start_ms)
+        finish = min(end_ms, word.end_ms)
+        if finish > begin:
+            total += finish - begin
+    return total
+
+
+def word_timeline_is_reliable(
+    words: list[TimedToken],
+    drafts: list[tuple[int, int, str]] | list[object],
+) -> bool:
+    """False when word timestamps are too sparse or stretched to drive cuts."""
+    if not words:
+        return False
+    if any(word.end_ms - word.start_ms > 1800 for word in words):
+        return False
+    span_start = min(word.start_ms for word in words)
+    span_end = max(word.end_ms for word in words)
+    span = max(1, span_end - span_start)
+    cover = sum(max(0, word.end_ms - word.start_ms) for word in words)
+    if cover / span < 0.45:
+        return False
+    draft_tokens = 0
+    for draft in drafts:
+        text = getattr(draft, "text", None)
+        if text is None:
+            text = draft[2]  # type: ignore[index]
+        draft_tokens += len(re.findall(r"\S+", str(text)))
+    if draft_tokens >= 8 and len(words) < max(3, draft_tokens * 45 // 100):
+        return False
+    return True
+
+
 def parse_whisper_words(payload: dict) -> list[TimedToken]:
     words: list[TimedToken] = []
     for word in payload.get("words") or []:
@@ -152,7 +204,9 @@ def parse_whisper_words(payload: dict) -> list[TimedToken]:
             continue
         text = str(word.get("word", ""))
         start_ms = max(0, round(float(word["start"]) * 1000))
-        end_ms = round(float(word["end"]) * 1000)
+        end_ms = _sane_word_end(
+            start_ms, round(float(word["end"]) * 1000), text
+        )
         if text.strip() and end_ms > start_ms:
             words.append(TimedToken(start_ms=start_ms, end_ms=end_ms, text=text))
     return words
@@ -177,7 +231,15 @@ def refine_whisper_drafts(
             word for word in words if word.start_ms < end and word.end_ms > start
         ]
         sentence_count = len(re.findall(r"[.!?。？！]", text))
-        if segment_words and (end - start > 6500 or sentence_count > 1):
+        duration = end - start
+        word_cover = _covered_duration_ms(segment_words, start, end)
+        words_trustworthy = (
+            bool(segment_words)
+            and duration > 0
+            and word_cover * 100 >= duration * 55
+            and not any(word.end_ms - word.start_ms > 1800 for word in segment_words)
+        )
+        if words_trustworthy and (duration > 6500 or sentence_count > 1):
             split = group_words(
                 segment_words,
                 gap_ms=500,

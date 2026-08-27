@@ -23,7 +23,8 @@ _VI_UTTERANCE_END_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_WEIGHT_TOKEN_RE = re.compile(
-    r"[A-Za-z0-9]+(?:'[A-Za-z]+)?|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+"
+    r"[0-9A-Za-z\u00c0-\u024f\u1e00-\u1eff]+(?:'[A-Za-z]+)?|"
+    r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+"
 )
 
 
