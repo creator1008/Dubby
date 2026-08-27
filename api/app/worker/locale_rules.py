@@ -92,7 +92,7 @@ def whisper_vocab_prompt(language: str) -> str | None:
     lang = (language or "").strip().lower()
     if lang == "vi":
         return (
-            "Đà Lạt, Đà Nẵng, thổ cư, mặt tiền, thung lũng, săn mây, "
+            "Đà Lạt, thổ cư, mặt tiền, thung lũng, săn mây, "
             "hoàng hôn, triệu, tỷ."
         )
     return None
@@ -148,8 +148,10 @@ def apply_vi_ko_postprocess(source_text: str, korean_text: str) -> str:
                 break
         if not replaced and spoken not in out and n_str in out:
             # Bare number left as "620" near price context → prefer spoken form.
+            # The Korean particle must actually be present; an optional group
+            # used to rewrite 5km / 191m as currency.
             out = re.sub(
-                rf"(?<!\d){re.escape(n_str)}(?!\d)(?=\s*(?:입니다|이에요|예요|원|동)?)",
+                rf"(?<!\d){re.escape(n_str)}(?!\d)(?=\s*(?:입니다|이에요|예요|원|동))",
                 spoken,
                 out,
                 count=1,

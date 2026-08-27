@@ -425,7 +425,12 @@ def _apply_corrected_texts(
 ) -> list[UtteranceChunk]:
     out: list[UtteranceChunk] = []
     for index, chunk in enumerate(chunks):
-        text = (corrected.get(index) or chunk.text or "").strip()
+        original = (chunk.text or "").strip()
+        raw = corrected.get(index)
+        if raw is None:
+            text = original
+        else:
+            text = str(raw).strip() or original
         if not text:
             continue
         out.append(
@@ -960,7 +965,8 @@ async def run_dub(ctx: JobContext) -> None:
         project_tone = normalize_emotion_tone(
             str(project.get("tone_style") or "calm")
         )
-        emotion_by_idx = detect_emotions_for_segments(
+        emotion_by_idx = await asyncio.to_thread(
+            detect_emotions_for_segments,
             str(vocals),
             speakable,
             fallback=project_tone,
@@ -1375,7 +1381,7 @@ async def run_dub(ctx: JobContext) -> None:
             no_vocals,
             removal_ranges,
             str(selective_bed),
-            no_vocals_in_mask=0.35,
+            no_vocals_in_mask=0.15,
         )
 
         await ctx.report(0.78, "mix_bgm")

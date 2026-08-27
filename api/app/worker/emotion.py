@@ -263,7 +263,7 @@ def detect_segment_emotion(
     fallback: EmotionTone = "calm",
 ) -> EmotionTone:
     """Classify one segment from the vocals stem."""
-    analysis_end = max(start_ms + 120, end_ms)
+    analysis_end = min(max(start_ms + 120, end_ms), start_ms + 1500)
     features = extract_emotion_features(vocals_path, start_ms, analysis_end)
     return classify_emotion_tone(
         features, source_text=source_text, fallback=fallback

@@ -619,14 +619,19 @@ def allocate_target_parts(
     return _split_text_by_weights(target, weights)
 
 
+_BOUNDARY_DEDUPE_MIN_CHARS = 4
+_BOUNDARY_CONTAINED_MIN_CHARS = 6
+_BOUNDARY_DEDUPE_MAX_GAP_MS = 280
+
+
 def _boundary_overlap_chars(left: str, right: str) -> int:
-    """Longest suffix of ``left`` that equals a prefix of ``right`` (min 2 chars)."""
+    """Longest suffix of ``left`` that equals a prefix of ``right``."""
     a = (left or "").strip()
     b = (right or "").strip()
     if not a or not b:
         return 0
     max_n = min(len(a), len(b))
-    for n in range(max_n, 1, -1):
+    for n in range(max_n, _BOUNDARY_DEDUPE_MIN_CHARS - 1, -1):
         if a.endswith(b[:n]):
             return n
     return 0
@@ -638,6 +643,7 @@ def dedupe_boundary_overlaps(chunks: list[UtteranceChunk]) -> list[UtteranceChun
     Whisper often repeats a clause across a breath boundary (e.g. both chunks
     contain ``놀라는데``). Keep timing; trim the repeated prefix from the next
     chunk, or merge when the next text is fully contained in the previous.
+    Short Vietnamese syllables must not be treated as duplicates.
     """
     if not chunks:
         return []
@@ -651,13 +657,16 @@ def dedupe_boundary_overlaps(chunks: list[UtteranceChunk]) -> list[UtteranceChun
         if not prev_text:
             result.append(nxt)
             continue
-        # Identical or fully redundant next scrap → extend previous window.
+        adjacent = (nxt.start_ms - prev.end_ms) <= _BOUNDARY_DEDUPE_MAX_GAP_MS
         compact_prev = re.sub(r"\s+", "", prev_text)
         compact_nxt = re.sub(r"\s+", "", nxt_text)
-        if compact_nxt == compact_prev or (
-            compact_nxt
-            and compact_prev.endswith(compact_nxt)
-            and len(compact_nxt) >= 2
+        if adjacent and (
+            compact_nxt == compact_prev
+            or (
+                compact_nxt
+                and compact_prev.endswith(compact_nxt)
+                and len(compact_nxt) >= _BOUNDARY_CONTAINED_MIN_CHARS
+            )
         ):
             result[-1] = UtteranceChunk(
                 start_ms=prev.start_ms,
@@ -667,8 +676,8 @@ def dedupe_boundary_overlaps(chunks: list[UtteranceChunk]) -> list[UtteranceChun
                 words=tuple([*prev.words, *nxt.words]) if prev.words or nxt.words else (),
             )
             continue
-        overlap = _boundary_overlap_chars(prev_text, nxt_text)
-        if overlap >= 2:
+        overlap = _boundary_overlap_chars(prev_text, nxt_text) if adjacent else 0
+        if overlap >= _BOUNDARY_DEDUPE_MIN_CHARS:
             trimmed = nxt_text[overlap:].lstrip(" ,،、")
             if not trimmed:
                 result[-1] = UtteranceChunk(

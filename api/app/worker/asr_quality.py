@@ -129,9 +129,12 @@ def drafts_look_hallucinated(drafts: list[tuple[int, int, str]]) -> bool:
     tokens = re.findall(r"\S+", " ".join(text for _, _, text in drafts))
     if len(tokens) < 8:
         return False
-    counts = Counter(tokens)
+    # Short function words (Vietnamese là/có/của, Korean 이/가) loop in real speech.
+    significant = [token for token in tokens if len(token) >= 4]
+    scored = significant if len(significant) >= 8 else tokens
+    counts = Counter(scored)
     top_count = counts.most_common(1)[0][1]
-    if top_count / len(tokens) >= 0.3:
+    if top_count / len(scored) >= 0.45:
         return True
     if len(drafts) >= 4:
         heads = [re.sub(r"\s+", "", text)[:8] for _, _, text in drafts if text.strip()]

@@ -116,6 +116,18 @@ def test_dub_voice_removal_fills_mid_phrase_gaps() -> None:
     assert filled[0][1] >= 13940
 
 
+def test_dub_voice_removal_covers_word_ranges_outside_kept_segments() -> None:
+    from app.worker.dub_quality import voice_removal_ranges
+
+    filled = voice_removal_ranges(
+        [(1000, 1800), (9000, 9800)],
+        [(1000, 1800)],
+        fill_interiors=True,
+    )
+    assert filled[0][0] <= 1000
+    assert filled[-1][1] >= 9800
+
+
 def test_preview_voice_removal_keeps_interior_sobbing_gaps() -> None:
     from app.worker.dub_quality import voice_removal_ranges
 

@@ -308,3 +308,15 @@ def test_expand_onset_leftward_pulls_late_whisper_start(tmp_path) -> None:
 
     onset = _expand_onset_leftward(path, 460, lookback_ms=900, stop_before_ms=0)
     assert onset <= 120, onset
+
+
+def test_dedupe_keeps_short_vietnamese_syllables() -> None:
+    from app.worker.utterance_pipeline import UtteranceChunk, dedupe_boundary_overlaps
+
+    chunks = [
+        UtteranceChunk(0, 800, "Đất này rồi", "A", ()),
+        UtteranceChunk(900, 1600, "rồi", "A", ()),
+        UtteranceChunk(2000, 2800, "là thổ cư", "A", ()),
+    ]
+    kept = dedupe_boundary_overlaps(chunks)
+    assert [c.text for c in kept] == ["Đất này rồi", "rồi", "là thổ cư"]

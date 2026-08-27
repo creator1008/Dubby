@@ -7,6 +7,7 @@ without network access). Transient failures raise retryable
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -404,16 +405,20 @@ class OpenAIClient:
     ) -> dict[int, str]:
         if not items:
             return {}
-        merged: dict[int, str] = {}
-        for chunk in chunked(items, self._settings.translation_batch_size):
-            merged.update(
-                await self._translate_chunk(
+        parts = await asyncio.gather(
+            *[
+                self._translate_chunk(
                     chunk,
                     source_lang,
                     target_lang,
                     document_context=document_context,
                 )
-            )
+                for chunk in chunked(items, self._settings.translation_batch_size)
+            ]
+        )
+        merged: dict[int, str] = {}
+        for part in parts:
+            merged.update(part)
         return merged
 
     async def _translate_chunk(
@@ -468,7 +473,8 @@ class OpenAIClient:
             "context across neighboring idxs: wrong near-homophones, "
             "truncated words, nonsense tokens. "
             "Remove duplicated phrases repeated across neighboring "
-            "idxs. Do not rewrite style or add new meaning. Keep each "
+            "idxs by shortening the later line — never blank an idx "
+            "and never drop a subtitle. Do not rewrite style or add new meaning. Keep each "
             "idx as its own subtitle line. Return JSON "
             '{"translations":[{"idx":0,"text":"..."}]} — use the same '
             "idxs; field name is translations but values are corrected "
@@ -478,8 +484,8 @@ class OpenAIClient:
         if extra:
             proofread = f"{proofread}\n\n{extra}"
         full_transcript = "\n".join(f"[{idx}] {text}" for idx, text in items)
-        merged: dict[int, str] = {}
-        for chunk in chunked(items, self._settings.translation_batch_size):
+
+        async def _correct_chunk(chunk: list[tuple[int, str]]) -> dict[int, str]:
             content = await self._chat_completion(
                 {
                     "temperature": 0,
@@ -503,9 +509,17 @@ class OpenAIClient:
                 },
                 "ASR correction failed",
             )
-            merged.update(
-                parse_translation_content(content, [idx for idx, _ in chunk])
-            )
+            return parse_translation_content(content, [idx for idx, _ in chunk])
+
+        parts = await asyncio.gather(
+            *[
+                _correct_chunk(chunk)
+                for chunk in chunked(items, self._settings.translation_batch_size)
+            ]
+        )
+        merged: dict[int, str] = {}
+        for part in parts:
+            merged.update(part)
         return merged
 
     async def translate_document(

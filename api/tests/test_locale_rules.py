@@ -31,6 +31,22 @@ def test_trieu_rewrites_wrong_man_form() -> None:
     assert "620만" not in fixed
 
 
+def test_trieu_does_not_rewrite_area_numbers() -> None:
+    src = "Diện tích 191m, giá 5 triệu."
+    korean = "면적 191m, 가격 5만입니다."
+    fixed = apply_vi_ko_postprocess(src, korean)
+    assert "191m" in fixed
+    assert "500만" in fixed
+
+
+def test_whisper_vocab_omits_da_nang_competitor() -> None:
+    from app.worker.locale_rules import whisper_vocab_prompt
+
+    prompt = whisper_vocab_prompt("vi") or ""
+    assert "Đà Lạt" in prompt
+    assert "Đà Nẵng" not in prompt
+
+
 def test_vi_ko_translation_prompt_includes_glossary() -> None:
     messages = build_translation_messages(
         [(0, "Đà Lạt 620 triệu", 3.0)],

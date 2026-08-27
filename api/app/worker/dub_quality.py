@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -95,7 +96,7 @@ async def source_loudness_levels_async(
     measure_fn: Callable[[int, int], Awaitable[float]],
 ) -> dict[int, float]:
     """Async variant of :func:`source_loudness_levels`."""
-    levels: dict[int, float] = {}
+    pending: list[tuple[int, list[tuple[int, int]]]] = []
     for segment in segments:
         idx = int(segment["idx"])
         if idx not in segment_indices:
@@ -109,11 +110,30 @@ async def source_loudness_levels_async(
         ]
         if not voiced_ranges:
             voiced_ranges = [(start_ms, end_ms)]
+        pending.append((idx, voiced_ranges))
+
+    sem = asyncio.Semaphore(6)
+
+    async def _measure(start_ms: int, end_ms: int) -> float:
+        async with sem:
+            return await measure_fn(start_ms, end_ms)
+
+    measured = await asyncio.gather(
+        *[
+            _measure(start, end)
+            for _, ranges in pending
+            for start, end in ranges
+        ]
+    )
+    levels: dict[int, float] = {}
+    offset = 0
+    for idx, ranges in pending:
         weighted_power = 0.0
         total_duration = 0
-        for range_start, range_end in voiced_ranges:
+        for range_start, range_end in ranges:
             duration = max(1, range_end - range_start)
-            level_db = await measure_fn(range_start, range_end)
+            level_db = measured[offset]
+            offset += 1
             weighted_power += (10 ** (level_db / 10)) * duration
             total_duration += duration
         levels[idx] = round(
@@ -136,7 +156,13 @@ def voice_removal_ranges(
     ``fill_interiors=False`` (editor preview) preserves larger interior gaps so
     sobbing / non-lexical sounds can remain audible outside word hits.
     """
-    if fill_interiors or not saved_ranges:
+    if fill_interiors:
+        # Solid dialogue windows plus any word-level speech whose segment row
+        # was dropped during ASR proofread / dedupe.
+        covered = merge_speech_ranges(
+            list(segment_bounds) + list(saved_ranges or [])
+        )
+    elif not saved_ranges:
         covered = merge_speech_ranges(segment_bounds)
     else:
         covered = cover_recognized_phrase_boundaries(saved_ranges, segment_bounds)
