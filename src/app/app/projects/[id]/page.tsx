@@ -12,7 +12,7 @@ import { downloadProjectOutput } from "@/lib/mobile";
 import { retranslateLocalSegments } from "@/lib/local-step12";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
-import { preferStableMediaUrl } from "@/lib/media-url";
+import { preferStableMediaUrl, signedUrlIsFresh } from "@/lib/media-url";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 import {
@@ -284,7 +284,19 @@ function ProjectEditor() {
     if (!projectId) return undefined;
     const row = segments.find((segment) => segment.id === segmentId);
     if (!row) return undefined;
-    if (row.dubbed_audio_url) return row.dubbed_audio_url;
+    if (row.dubbed_audio_url && signedUrlIsFresh(row.dubbed_audio_url)) {
+      return row.dubbed_audio_url;
+    }
+    if (row.dubbed_audio_url) {
+      const listed = await api.segments.list(projectId);
+      const nextRows = ensureSourceEndMs(
+        mergeSegmentVoiceFields(segments, listed),
+      );
+      setSegments(nextRows);
+      const fresh = nextRows.find((segment) => segment.id === segmentId)
+        ?.dubbed_audio_url;
+      if (fresh && signedUrlIsFresh(fresh)) return fresh;
+    }
     setMessage("미리듣기 음성을 생성하는 중…");
     setError(null);
     try {

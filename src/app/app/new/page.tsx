@@ -10,7 +10,7 @@ import { ApiError, api, isDemoMode, isTransientNetworkError, pingApi, uploadSour
 import { formatPipelineError } from "@/lib/job-labels";
 import { useVoiceConsent } from "@/lib/consent";
 import { demoApi } from "@/lib/demo-api";
-import { formatQualityWarning, preferStableMediaUrl } from "@/lib/media-url";
+import { formatQualityWarning, preferStableMediaUrl, signedUrlIsFresh } from "@/lib/media-url";
 import {
   extractLocalStep12,
   extractLocalStep12FromUrl,
@@ -190,7 +190,20 @@ export default function NewDubPage() {
         )
         .catch(() => undefined);
     }
-    if (nextProject.status === "completed" && !outputUrl) {
+    if (nextProject.source_key) {
+      void api.projects
+        .sourceUrl(project.id)
+        .then(({ url }) =>
+          setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
+        )
+        .catch(() => undefined);
+    }
+    const dubRunning = nextJobs.some(
+      (job) =>
+        job.kind === "dub" &&
+        (job.status === "queued" || job.status === "running"),
+    );
+    if (nextProject.status === "completed" && !dubRunning) {
       const { url } = await api.projects.download(project.id);
       setOutputUrl((prev) => preferStableMediaUrl(prev, url));
       window.dispatchEvent(new Event("credits-changed"));
@@ -200,7 +213,7 @@ export default function NewDubPage() {
     } else {
       setError((prev) => (isTransientNetworkError(prev) ? null : prev));
     }
-  }, [project, outputUrl]);
+  }, [project]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -212,6 +225,31 @@ export default function NewDubPage() {
     }, 2000);
     return () => window.clearInterval(timer);
   }, [activeJob, refresh]);
+
+  useEffect(() => {
+    if (!project) return;
+    const refreshMedia = () => {
+      if (project.source_key) {
+        void api.projects
+          .sourceUrl(project.id)
+          .then(({ url }) =>
+            setSourceUrl((prev) => preferStableMediaUrl(prev, url)),
+          )
+          .catch(() => undefined);
+      }
+      if (project.status === "completed") {
+        void api.projects
+          .download(project.id)
+          .then(({ url }) =>
+            setOutputUrl((prev) => preferStableMediaUrl(prev, url)),
+          )
+          .catch(() => undefined);
+      }
+    };
+    const onFocus = () => refreshMedia();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [project]);
 
   // Step 1 — 파일선택 및 자막추출
   const validateExtractInput = () => {
@@ -530,19 +568,16 @@ export default function NewDubPage() {
               .catch(() => undefined);
             return { project: nextProject, segments: nextSegments };
           }
-        } else if (
-          job?.status === "completed" ||
-          nextProject.status === "completed"
-        ) {
-          if (nextProject.status === "completed") {
-            const { url } = await api.projects.download(projectId);
-            setOutputUrl((prev) => preferStableMediaUrl(prev, url));
-          }
+        } else if (nextProject.status === "completed") {
+          const { url } = await api.projects.download(projectId);
+          setOutputUrl((prev) => preferStableMediaUrl(prev, url));
           const nextSegments = await api.segments
             .list(projectId)
             .catch(() => segments);
           setSegments(nextSegments);
           return { project: nextProject, segments: nextSegments };
+        } else if (job?.status === "completed") {
+          // Job row can flip before project.output_key is visible; keep polling.
         }
         const progress =
           typeof job?.progress === "number"
@@ -762,7 +797,19 @@ export default function NewDubPage() {
     if (!project) return undefined;
     const row = segments.find((segment) => segment.id === segmentId);
     if (!row) return undefined;
-    if (row.dubbed_audio_url) return row.dubbed_audio_url;
+    if (row.dubbed_audio_url && signedUrlIsFresh(row.dubbed_audio_url)) {
+      return row.dubbed_audio_url;
+    }
+    if (row.dubbed_audio_url) {
+      const listed = await api.segments.list(project.id);
+      const nextRows = ensureSourceEndMs(
+        mergeSegmentVoiceFields(segments, listed),
+      );
+      setSegments(nextRows);
+      const fresh = nextRows.find((segment) => segment.id === segmentId)
+        ?.dubbed_audio_url;
+      if (fresh && signedUrlIsFresh(fresh)) return fresh;
+    }
     setMessage("미리듣기 음성을 생성하는 중…");
     setError(null);
     try {

@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     r2_endpoint_url: str = ""
     r2_region: str = "auto"
     presign_expires_seconds: int = 3600
-    download_expires_seconds: int = Field(default=300, ge=60, le=3600)
+    download_expires_seconds: int = Field(default=3600, ge=60, le=3600)
     # Uploads above this size must use multipart (S3 minimum part is 5 MiB).
     multipart_part_size_bytes: int = 64 * 1024 * 1024
     max_upload_bytes: int = 4 * 1024 * 1024 * 1024  # 4 GiB safety cap

@@ -395,6 +395,39 @@ def test_refine_keeps_segment_text_when_word_coverage_is_sparse() -> None:
     assert drafts[0][1] == 29980
 
 
+def test_refine_keeps_whisper_sentence_when_word_join_is_lossy() -> None:
+    from app.worker.asr_quality import refine_whisper_drafts
+
+    text = (
+        "Cảnh hàng không quốc tế Liên Khương đã chính thức "
+        "hoạt động trở lại sau một thời gian."
+    )
+    words = []
+    cursor = 3.92
+    for index in range(20):
+        words.append(
+            {"word": f"w{index}", "start": cursor, "end": cursor + 0.32}
+        )
+        cursor += 0.36
+    payload = {
+        "segments": [
+            {
+                "start": 3.92,
+                "end": 12.0,
+                "text": text,
+                "no_speech_prob": 0.1,
+                "avg_logprob": -0.2,
+                "compression_ratio": 1.2,
+            }
+        ],
+        "words": words,
+    }
+    drafts = refine_whisper_drafts(payload)
+    joined = " ".join(part for _, _, part in drafts)
+    assert "Liên Khương" in joined
+    assert "thời gian" in joined
+
+
 def test_word_timeline_unreliable_when_cover_is_thin() -> None:
     from app.worker.asr_quality import parse_whisper_words, word_timeline_is_reliable
     from app.worker.openai_client import SegmentDraft
@@ -489,7 +522,7 @@ def test_whisper_form_repeats_word_and_segment_granularity() -> None:
     assert b'name="prompt"' not in request.content
 
 
-def test_whisper_drops_high_no_speech_like_ver1() -> None:
+def test_whisper_keeps_substantial_text_despite_high_no_speech() -> None:
     from app.worker.asr_quality import whisper_segment_is_hallucination
 
     segment = {
@@ -500,7 +533,7 @@ def test_whisper_drops_high_no_speech_like_ver1() -> None:
         "no_speech_prob": 0.92,
         "avg_logprob": -0.4,
     }
-    assert whisper_segment_is_hallucination(segment)
+    assert not whisper_segment_is_hallucination(segment)
 
 
 def test_refine_splits_multi_sentence_segment_on_punctuation() -> None:

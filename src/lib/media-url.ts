@@ -8,12 +8,50 @@ export function isSameMediaAsset(a: string | null | undefined, b: string | null 
   }
 }
 
+/** AWS/R2 presigned expiry, or null when the URL is not signed. */
+export function signedUrlExpiryMs(url: string): number | null {
+  try {
+    const parsed = new URL(url);
+    const stamp = parsed.searchParams.get("X-Amz-Date");
+    const expires = parsed.searchParams.get("X-Amz-Expires");
+    if (!stamp || !expires) return null;
+    const year = Number(stamp.slice(0, 4));
+    const month = Number(stamp.slice(4, 6));
+    const day = Number(stamp.slice(6, 8));
+    const hour = Number(stamp.slice(9, 11));
+    const minute = Number(stamp.slice(11, 13));
+    const second = Number(stamp.slice(13, 15));
+    if (![year, month, day, hour, minute, second].every(Number.isFinite)) {
+      return null;
+    }
+    const startMs = Date.UTC(year, month - 1, day, hour, minute, second);
+    const ttlSec = Number(expires);
+    if (!Number.isFinite(ttlSec) || ttlSec <= 0) return null;
+    return startMs + ttlSec * 1000;
+  } catch {
+    return null;
+  }
+}
+
+export function signedUrlIsFresh(
+  url: string | null | undefined,
+  minRemainingMs = 60_000,
+): boolean {
+  if (!url) return false;
+  const expiry = signedUrlExpiryMs(url);
+  if (expiry == null) return true;
+  return expiry - Date.now() >= minRemainingMs;
+}
+
 /** Keep the current object URL when only the signature/expiry query changed. */
 export function preferStableMediaUrl(
   current: string | null | undefined,
   next: string,
 ): string {
-  return isSameMediaAsset(current, next) ? (current as string) : next;
+  if (isSameMediaAsset(current, next) && signedUrlIsFresh(current)) {
+    return current as string;
+  }
+  return next;
 }
 
 const QUALITY_WARNING_KO: Record<string, string> = {

@@ -30,13 +30,17 @@ def whisper_segment_is_hallucination(segment: dict) -> bool:
     compression = float(segment.get("compression_ratio", 0.0) or 0.0)
     if compression >= 2.4:
         return True
-    if no_speech > 0.6 and avg_logprob < -0.8:
-        return True
-    if no_speech > 0.85:
-        return True
-    if end - start < 0.35 and no_speech > 0.4:
-        return True
     tokens = re.findall(r"\S+", text)
+    substantial = len(tokens) >= 3 and len(text) >= 8
+    # BGM under real VO often yields high no_speech; V1 dropped those lines
+    # (dalat1 lost 19s–37s). Only apply no_speech cuts to scraps / noise.
+    if not substantial:
+        if no_speech > 0.6 and avg_logprob < -0.8:
+            return True
+        if no_speech > 0.85:
+            return True
+        if end - start < 0.35 and no_speech > 0.4:
+            return True
     if len(tokens) >= 6:
         for n in (2, 3, 4):
             if len(tokens) < n * 3:
@@ -164,6 +168,23 @@ def dedupe_repetitive_drafts(
     return cleaned
 
 
+def _compact_len(value: str) -> int:
+    return len(re.sub(r"\s+", "", value or ""))
+
+
+def _split_keeps_segment_text(
+    original: str, split: list[tuple[int, int, str]]
+) -> bool:
+    """Reject word regrouping that drops most of Whisper's segment sentence."""
+    if not split:
+        return False
+    orig = _compact_len(original)
+    if orig < 8:
+        return True
+    kept = sum(_compact_len(text) for _, _, text in split)
+    return kept * 100 >= orig * 80
+
+
 def drafts_look_hallucinated(drafts: list[tuple[int, int, str]]) -> bool:
     """True when the transcript is dominated by a looping junk phrase."""
     if not drafts:
@@ -289,7 +310,12 @@ def refine_whisper_drafts(
                 gap_ms=500,
                 max_duration_ms=4500,
             )
-            drafts.extend(split or [(start, end, text)])
+            if _split_keeps_segment_text(text, split):
+                drafts.extend(split)
+            else:
+                drafts.extend(
+                    split_segment_text(start, end, text) or [(start, end, text)]
+                )
         else:
             drafts.extend(split_segment_text(start, end, text))
 

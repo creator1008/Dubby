@@ -396,7 +396,6 @@ async def get_source_url(
     url = await storage.presign_get(
         source_key,
         expires_in=expires_in,
-        download_filename=f"{row.get('title') or 'dubby-output'}-original.mp4",
     )
     return DownloadUrlResponse(url=url, expires_in=expires_in)
 
@@ -436,7 +435,6 @@ async def get_output_url(
     url = await storage.presign_get(
         output_key,
         expires_in=expires_in,
-        download_filename=f"{row.get('title') or 'dubby-output'}-dubbed.mp4",
     )
     return DownloadUrlResponse(url=url, expires_in=expires_in)
 
