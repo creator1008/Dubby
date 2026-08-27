@@ -1,7 +1,9 @@
-"""High-quality Whisper post-processing (ported from local_step12).
+"""High-quality Whisper post-processing (ported from local_step12 Ver 1.0).
 
-Filters hallucinations, regroups long segments on word timestamps, and
-exposes timed word tokens for breath/pause utterance chunking.
+Keep Whisper's sentence-aware segment text. Filter hallucinations. Split a
+long or multi-sentence segment on its own word timestamps only when those
+words actually cover the span; otherwise split the segment text on
+punctuation. Word tokens stay attached for mix timing, not as the transcript.
 """
 
 from __future__ import annotations
@@ -26,16 +28,14 @@ def whisper_segment_is_hallucination(segment: dict) -> bool:
     no_speech = float(segment.get("no_speech_prob", 0.0) or 0.0)
     avg_logprob = float(segment.get("avg_logprob", 0.0) or 0.0)
     compression = float(segment.get("compression_ratio", 0.0) or 0.0)
-    substantial = len(re.findall(r"\S+", text)) >= 3 and len(text) >= 8
-    if compression >= 3.2:
+    if compression >= 2.4:
         return True
-    if not substantial:
-        if no_speech > 0.6 and avg_logprob < -0.8:
-            return True
-        if no_speech > 0.85:
-            return True
-        if end - start < 0.35 and no_speech > 0.4:
-            return True
+    if no_speech > 0.6 and avg_logprob < -0.8:
+        return True
+    if no_speech > 0.85:
+        return True
+    if end - start < 0.35 and no_speech > 0.4:
+        return True
     tokens = re.findall(r"\S+", text)
     if len(tokens) >= 6:
         for n in (2, 3, 4):
@@ -95,6 +95,46 @@ def group_words(
         if end > start:
             result.append((start, end, text))
     return result
+
+
+def split_segment_text(
+    start_ms: int,
+    end_ms: int,
+    text: str,
+) -> list[tuple[int, int, str]]:
+    """Keep Whisper's segment text; only cut on punctuation.
+
+    Ver 1.0 local_step12: segment boundaries are sentence-aware. Word tokens
+    may be stretched or sparse (dalat ``một`` at 12s) and must not replace
+    the transcript. When word timestamps are unusable, split the *segment
+    text* on sentence punctuation instead of regrouping words.
+    """
+    cleaned = (text or "").strip()
+    if not cleaned or end_ms <= start_ms:
+        return []
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?。？！])\s+", cleaned)
+        if part.strip()
+    ]
+    if len(sentences) <= 1:
+        return [(start_ms, end_ms, cleaned)]
+    duration = end_ms - start_ms
+    weights = [max(1, len(part)) for part in sentences]
+    total = sum(weights)
+    out: list[tuple[int, int, str]] = []
+    cursor = start_ms
+    for index, (part, weight) in enumerate(zip(sentences, weights)):
+        next_end = (
+            end_ms
+            if index == len(sentences) - 1
+            else cursor + max(80, round(duration * weight / total))
+        )
+        next_end = min(end_ms, max(cursor + 80, next_end))
+        if next_end > cursor and part:
+            out.append((cursor, next_end, part))
+            cursor = next_end
+    return out or [(start_ms, end_ms, cleaned)]
 
 
 def dedupe_repetitive_drafts(
@@ -232,14 +272,18 @@ def refine_whisper_drafts(
         ]
         sentence_count = len(re.findall(r"[.!?。？！]", text))
         duration = end - start
+        needs_split = duration > 6500 or sentence_count > 1
+        if not needs_split:
+            drafts.append((start, end, text))
+            continue
         word_cover = _covered_duration_ms(segment_words, start, end)
         words_trustworthy = (
             bool(segment_words)
             and duration > 0
             and word_cover * 100 >= duration * 55
-            and not any(word.end_ms - word.start_ms > 1800 for word in segment_words)
         )
-        if words_trustworthy and (duration > 6500 or sentence_count > 1):
+        if words_trustworthy:
+            # Ver 1.0: split a long/multi-sentence segment on its own words.
             split = group_words(
                 segment_words,
                 gap_ms=500,
@@ -247,7 +291,7 @@ def refine_whisper_drafts(
             )
             drafts.extend(split or [(start, end, text)])
         else:
-            drafts.append((start, end, text))
+            drafts.extend(split_segment_text(start, end, text))
 
     if not drafts and not raw_segments:
         usable_words = [

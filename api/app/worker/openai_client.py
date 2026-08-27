@@ -405,15 +405,13 @@ class OpenAIClient:
         return assistant_message_text(resp.json())
 
     async def transcribe(self, audio_path: str, language: str) -> TranscribeResult:
-        from .locale_rules import whisper_vocab_prompt
-
-        vocab = whisper_vocab_prompt(language)
         file_bytes = Path(audio_path).read_bytes()
         files = whisper_multipart_files(
             self._settings.whisper_model,
             language,
             file=(Path(audio_path).name, file_bytes, "audio/mpeg"),
-            prompt=vocab,
+            # Ver 1.0: whisper-1 can echo a prompt and skip real speech.
+            prompt=None,
         )
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

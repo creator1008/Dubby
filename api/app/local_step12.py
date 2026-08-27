@@ -732,69 +732,11 @@ def _openai_transcribe(
     # Normalize verbose_json language names to our ISO codes when needed.
     if detected:
         detected = LANGUAGE_ALIASES.get(detected, detected)
-    words = [
-        TimedWord(
-            start_ms=max(0, round(float(word["start"]) * 1000)),
-            end_ms=round(float(word["end"]) * 1000),
-            text=str(word.get("word", "")),
-        )
-        for word in payload.get("words") or []
-        if word.get("start") is not None and word.get("end") is not None
-    ]
-    # Whisper's segment boundaries are generally sentence-aware. Keep them
-    # rather than globally regrouping words into arbitrary 9-second chunks.
-    # Only split an unusually long segment using its own word timestamps.
-    drafts: list[tuple[int, int, str]] = []
-    raw_segments = payload.get("segments") or []
-    kept_segments = 0
-    for segment in raw_segments:
-        if _whisper_segment_is_hallucination(segment):
-            continue
-        kept_segments += 1
-        start = max(0, round(float(segment.get("start", 0)) * 1000))
-        end = round(float(segment.get("end", 0)) * 1000)
-        text = str(segment.get("text", "")).strip()
-        segment_words = [
-            word
-            for word in words
-            if word.start_ms < end and word.end_ms > start
-        ]
-        sentence_count = len(re.findall(r"[.!?。？！]", text))
-        if segment_words and (end - start > 6500 or sentence_count > 1):
-            split = group_words(
-                segment_words,
-                gap_ms=500,
-                max_duration_ms=4500,
-            )
-            drafts.extend(split or [(start, end, text)])
-        else:
-            drafts.append((start, end, text))
+    from .worker.asr_quality import parse_whisper_words, refine_whisper_drafts
 
-    if not drafts and not raw_segments:
-        # No segment metadata at all — fall back to word grouping.
-        usable_words = [
-            word
-            for word in words
-            if word.text.strip() and word.end_ms - word.start_ms >= 40
-        ]
-        if usable_words and len(usable_words) <= 80:
-            drafts = group_words(usable_words, gap_ms=500, max_duration_ms=4500)
-    elif not drafts and raw_segments and kept_segments == 0:
-        # Every segment looked like music/noise hallucination. Do not promote
-        # the accompanying word list (it is usually the same junk loop); the
-        # caller can retry with auto-detect or another language.
-        drafts = []
-
-    drafts = _dedupe_repetitive_drafts(drafts)
-    if _drafts_look_hallucinated(drafts):
-        drafts = []
-
-    non_overlapping: list[tuple[int, int, str]] = []
-    for start, end, text in sorted(drafts, key=lambda item: (item[0], item[1])):
-        if non_overlapping and start < non_overlapping[-1][1]:
-            start = non_overlapping[-1][1]
-        if end > start and text:
-            non_overlapping.append((start, end, text))
+    # Same segment-first refine as the SaaS worker (Ver 1.0 local_step12).
+    words = parse_whisper_words(payload)
+    non_overlapping = refine_whisper_drafts(payload)
     word_ranges = _merge_speech_ranges(
         [
             (word.start_ms, word.end_ms)

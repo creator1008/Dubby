@@ -55,11 +55,9 @@ from .dub_quality import (
 from .dub_voice_assets import load_dub_voice_manifest, persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
-from .asr_quality import word_timeline_is_reliable
 from .media import (
     ffmpeg_has_rubberband,
     merge_speech_ranges,
-    uncovered_voiced_ranges,
     validate_source,
     vocal_energy_ranges,
 )
@@ -75,10 +73,7 @@ from .timing import (
 from .utterance_pipeline import (
     TimedToken,
     UtteranceChunk,
-    build_breath_utterances,
     dedupe_boundary_overlaps,
-    merge_dangling_chunks,
-    split_overlong_chunks,
 )
 
 logger = logging.getLogger("dubby.worker.pipeline")
@@ -541,6 +536,33 @@ async def _upload_speech_ranges(
     )
 
 
+def _chunks_from_whisper_drafts(
+    drafts: list[SegmentDraft],
+    words: list[TimedToken],
+) -> list[UtteranceChunk]:
+    """Keep Whisper segment text/timing; attach overlapping words for mix only."""
+    chunks: list[UtteranceChunk] = []
+    for draft in drafts:
+        overlapping = tuple(
+            word
+            for word in words
+            if word.start_ms < draft.end_ms and word.end_ms > draft.start_ms
+        )
+        text = (draft.text or "").strip()
+        if not text or draft.end_ms <= draft.start_ms:
+            continue
+        chunks.append(
+            UtteranceChunk(
+                start_ms=draft.start_ms,
+                end_ms=draft.end_ms,
+                text=text,
+                speaker_id="speaker_0",
+                words=overlapping,
+            )
+        )
+    return chunks
+
+
 async def _load_speech_ranges(
     ctx: JobContext, source_key: str, scratch: Path
 ) -> list[tuple[int, int]]:
@@ -555,63 +577,6 @@ async def _load_speech_ranges(
         for item in payload
         if int(item.get("end_ms", 0)) > int(item.get("start_ms", 0))
     ]
-
-
-async def _refill_uncovered_asr(
-    ctx: JobContext,
-    engine: object,
-    asr_audio: Path,
-    scratch: Path,
-    drafts: list[SegmentDraft],
-    words: list[TimedToken],
-    language: str,
-) -> tuple[list[SegmentDraft], list[TimedToken], list[tuple[int, int]], str | None]:
-    """Second Whisper pass on voiced windows the first transcript skipped."""
-    energy_wav = scratch / "asr_energy.wav"
-    await engine.extract_audio(str(asr_audio), str(energy_wav))  # type: ignore[attr-defined]
-    voiced = await asyncio.to_thread(vocal_energy_ranges, str(energy_wav))
-    if not voiced:
-        return [], [], [], None
-    covered = [(draft.start_ms, draft.end_ms) for draft in drafts] + [
-        (word.start_ms, word.end_ms) for word in words
-    ]
-    gaps = uncovered_voiced_ranges(voiced, covered, min_ms=900)[:6]
-    extra_drafts: list[SegmentDraft] = []
-    extra_words: list[TimedToken] = []
-    extra_ranges: list[tuple[int, int]] = []
-    for start_ms, end_ms in gaps:
-        clip = scratch / f"asr_gap_{start_ms}_{end_ms}.mp3"
-        await engine.trim_asr_audio(  # type: ignore[attr-defined]
-            str(asr_audio), str(clip), start_ms, end_ms
-        )
-        extra = await _with_retries(
-            ctx,
-            lambda path=str(clip): engine.transcribe(path, language),  # type: ignore[attr-defined]
-            step="asr",
-        )
-        extra_drafts.extend(
-            SegmentDraft(
-                start_ms=draft.start_ms + start_ms,
-                end_ms=draft.end_ms + start_ms,
-                text=draft.text,
-            )
-            for draft in extra.drafts
-        )
-        extra_words.extend(
-            TimedToken(
-                start_ms=word.start_ms + start_ms,
-                end_ms=word.end_ms + start_ms,
-                text=word.text,
-            )
-            for word in extra.words
-        )
-        extra_ranges.extend(
-            (range_start + start_ms, range_end + start_ms)
-            for range_start, range_end in extra.speech_ranges
-        )
-    if not extra_drafts and not extra_words:
-        return [], [], extra_ranges, None
-    return extra_drafts, extra_words, extra_ranges, "asr_gap_refill"
 
 
 # --- handlers --------------------------------------------------------------------
@@ -658,29 +623,6 @@ async def run_transcribe(ctx: JobContext) -> None:
         words = list(transcribe_result.words)
         speech_ranges = list(transcribe_result.speech_ranges)
         quality_warnings: list[str] = []
-        if ctx.settings.pipeline_mode != "mock":
-            try:
-                extra_drafts, extra_words, extra_ranges, refill_note = (
-                    await _refill_uncovered_asr(
-                        ctx,
-                        engine,
-                        asr_audio,
-                        scratch,
-                        drafts,
-                        words,
-                        str(project["source_lang"]),
-                    )
-                )
-                drafts.extend(extra_drafts)
-                words.extend(extra_words)
-                if extra_ranges:
-                    speech_ranges = merge_speech_ranges(
-                        speech_ranges + extra_ranges
-                    )
-                if refill_note:
-                    quality_warnings.append(refill_note)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("asr gap refill skipped: %s", exc)
         if not drafts and not words:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
         await _upload_speech_ranges(
@@ -716,86 +658,13 @@ async def run_transcribe(ctx: JobContext) -> None:
                     quality_warnings.append("diarization_empty_turns_single_speaker_fallback")
 
         await ctx.report(0.58, "segment_timing")
-        # Split on real voice gaps (>= breath_pause_ms), even inside one sentence.
-        breath_ms = max(400, int(getattr(ctx.settings, "breath_pause_ms", 650)))
-        speech_cap_ms = max(
-            1000, round(float(ctx.settings.speech_segment_max_seconds) * 1000)
-        )
-        use_words = word_timeline_is_reliable(words, drafts)
-        if use_words:
-            chunks = build_breath_utterances(
-                words,
-                speaker_turns,
-                breath_pause_ms=breath_ms,
-                max_duration_ms=speech_cap_ms,
-                soft_pause_ms=400,
-            )
-            if not chunks:
-                chunks = [
-                    UtteranceChunk(
-                        start_ms=draft.start_ms,
-                        end_ms=draft.end_ms,
-                        text=draft.text,
-                        speaker_id="speaker_0",
-                        words=(),
-                    )
-                    for draft in drafts
-                ]
-            # Only re-glue micro-scraps (soft-split crumbs). Never undo a
-            # deliberate breath/gap split the user expects to stay separate.
-            merge_gap_ms = min(400, max(200, breath_ms // 2))
-            chunks = merge_dangling_chunks(
-                chunks,
-                max_gap_ms=merge_gap_ms,
-                max_duration_ms=speech_cap_ms,
-            )
-        else:
-            if words:
-                quality_warnings.append("asr_word_timeline_unreliable")
-            # Segment-only ASR (or unusable word timestamps): keep Whisper drafts.
-            chunks = [
-                UtteranceChunk(
-                    start_ms=draft.start_ms,
-                    end_ms=draft.end_ms,
-                    text=draft.text,
-                    speaker_id="speaker_0",
-                    words=(),
-                )
-                for draft in drafts
-            ]
-            if speaker_turns:
-                # Prefer diarization turn text/timing when word tokens are absent.
-                rebuilt: list[UtteranceChunk] = []
-                for start, end, speaker, text in speaker_turns:
-                    clean = (text or "").strip()
-                    if end <= start:
-                        continue
-                    rebuilt.append(
-                        UtteranceChunk(
-                            start_ms=start,
-                            end_ms=end,
-                            text=clean or " ",
-                            speaker_id=speaker or "speaker_0",
-                            words=(),
-                        )
-                    )
-                # Only replace when turns carry usable transcript text.
-                if rebuilt and any(c.text.strip() for c in rebuilt):
-                    chunks = [
-                        UtteranceChunk(
-                            start_ms=c.start_ms,
-                            end_ms=c.end_ms,
-                            text=c.text.strip(),
-                            speaker_id=c.speaker_id,
-                            words=(),
-                        )
-                        for c in rebuilt
-                        if c.text.strip()
-                    ]
+        # Ver 1.0 local_step12: Whisper segment text is the transcript.
+        # Do not regroup words into breath utterances, refill gaps, or
+        # overwrite drafts with diarization turn text.
+        chunks = _chunks_from_whisper_drafts(drafts, words)
         if not chunks:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
 
-        chunks = split_overlong_chunks(chunks, max_duration_ms=speech_cap_ms)
         chunks = dedupe_boundary_overlaps(chunks)
 
         await ctx.report(0.62, "correct_asr")

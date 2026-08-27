@@ -232,40 +232,6 @@ def test_soft_split_overlong_prefers_pause_not_forced_cut() -> None:
     assert groups[1][0].text == "w11"
 
 
-def test_resplit_after_refine_cuts_whisper_megachunk() -> None:
-    """Long mega-chunks may split; short promo breaths must not."""
-    from app.local_step12 import _clamp_stage1_chunk_ends, _resplit_stage1_after_refine
-    from app.worker.utterance_pipeline import UtteranceChunk
-
-    words = [
-        TimedToken(460, 700, "도자기는"),
-        TimedToken(840, 1260, "뒤에"),
-        TimedToken(1260, 1580, "이제"),
-        TimedToken(1880, 2680, "후작업으로"),  # 300ms gap
-        TimedToken(2860, 5140, "건조후에"),
-        TimedToken(5520, 8180, "초벌재벌"),  # 380ms gap
-    ]
-    mega = UtteranceChunk(460, 8490, "전체문장", "A", tuple(words))
-    # Short enough that only_if_longer_ms=7000 keeps it whole when under threshold
-    short = UtteranceChunk(460, 3000, "짧은문장", "A", tuple(words[:3]))
-    kept = _resplit_stage1_after_refine(
-        [short],
-        pause_ms=280,
-        max_duration_ms=8000,
-        only_if_longer_ms=7000,
-    )
-    assert len(kept) == 1
-
-    split = _resplit_stage1_after_refine(
-        [mega], pause_ms=280, max_duration_ms=8000, only_if_longer_ms=7000
-    )
-    split = _clamp_stage1_chunk_ends(split)
-    assert len(split) >= 2
-    assert split[0].end_ms <= 1880
-    assert "도자기는" in split[0].text
-    assert "후작업으로" in split[1].text
-
-
 def test_merge_dangling_chunks_rebuilds_promo_sentence() -> None:
     from app.worker.utterance_pipeline import UtteranceChunk, merge_dangling_chunks
 
@@ -282,34 +248,6 @@ def test_merge_dangling_chunks_rebuilds_promo_sentence() -> None:
     assert merged[0].start_ms == 5350
     assert merged[0].end_ms == 10740
     assert "I think he was interested." in merged[1].text
-
-def test_expand_onset_leftward_pulls_late_whisper_start(tmp_path) -> None:
-    """Whisper start 460ms must not cut speech that began near 60ms."""
-    import math
-    import struct
-    import wave
-
-    from app.local_step12 import _expand_onset_leftward
-
-    rate = 16000
-    duration_s = 1.0
-    samples = []
-    for i in range(int(rate * duration_s)):
-        t = i / rate
-        if 0.06 <= t < 0.35 or 0.46 <= t < 0.9:
-            amp = int(12000 * math.sin(2 * math.pi * 220 * t))
-        else:
-            amp = int(40 * math.sin(2 * math.pi * 50 * t))
-        samples.append(amp)
-    path = tmp_path / "onset.wav"
-    with wave.open(str(path), "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(rate)
-        wav.writeframes(struct.pack("<" + "h" * len(samples), *samples))
-
-    onset = _expand_onset_leftward(path, 460, lookback_ms=900, stop_before_ms=0)
-    assert onset <= 120, onset
 
 
 def test_dedupe_keeps_short_vietnamese_syllables() -> None:

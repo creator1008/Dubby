@@ -209,9 +209,9 @@ def test_validate_source_rejects_oversize() -> None:
     assert exc.value.code == errors.SOURCE_TOO_LARGE
 
 
-def test_validate_source_rejects_over_ten_minutes() -> None:
+def test_validate_source_rejects_over_duration_limit() -> None:
     with pytest.raises(PipelineError) as exc:
-        validate_source(_info(duration_seconds=601.0), _settings())
+        validate_source(_info(duration_seconds=1801.0), _settings())
     assert exc.value.code == errors.SOURCE_TOO_LONG
 
 
@@ -391,6 +391,8 @@ def test_refine_keeps_segment_text_when_word_coverage_is_sparse() -> None:
     drafts = refine_whisper_drafts(payload)
     assert len(drafts) == 1
     assert "chuyến bay" in drafts[0][2]
+    assert drafts[0][0] == 13800
+    assert drafts[0][1] == 29980
 
 
 def test_word_timeline_unreliable_when_cover_is_thin() -> None:
@@ -423,6 +425,28 @@ def test_apply_corrected_texts_rejects_lossy_rewrite() -> None:
     assert "chuyến bay" in out[0].text
 
 
+def test_chunks_from_whisper_drafts_keep_segment_text() -> None:
+    from app.worker.openai_client import SegmentDraft
+    from app.worker.pipeline import _chunks_from_whisper_drafts
+    from app.worker.utterance_pipeline import TimedToken
+
+    drafts = [
+        SegmentDraft(13800, 29980, "Kính chào quý khách có một chuyến bay an toàn."),
+        SegmentDraft(
+            29980,
+            37190,
+            "Cảm ơn quý khách. Chúc quý khách một ngày tốt lành.",
+        ),
+    ]
+    words = [
+        TimedToken(start_ms=14360, end_ms=26840, text="một"),
+    ]
+    chunks = _chunks_from_whisper_drafts(drafts, words)
+    assert [c.text for c in chunks] == [d.text for d in drafts]
+    assert chunks[0].start_ms == 13800
+    assert chunks[0].words[0].text == "một"
+
+
 def test_whisper_form_repeats_word_and_segment_granularity() -> None:
     import httpx
 
@@ -452,8 +476,20 @@ def test_whisper_form_repeats_word_and_segment_granularity() -> None:
     assert b"word" in body and b"segment" in body
     assert b"clip.mp3" in body
 
+    no_prompt = whisper_multipart_files(
+        "whisper-1",
+        "vi",
+        file=("clip.mp3", b"ID3", "audio/mpeg"),
+        prompt=None,
+    )
+    request = httpx.Request(
+        "POST", "https://example.com/v1/audio/transcriptions", files=no_prompt
+    )
+    request.read()
+    assert b'name="prompt"' not in request.content
 
-def test_whisper_keeps_substantial_text_despite_high_no_speech() -> None:
+
+def test_whisper_drops_high_no_speech_like_ver1() -> None:
     from app.worker.asr_quality import whisper_segment_is_hallucination
 
     segment = {
@@ -464,7 +500,35 @@ def test_whisper_keeps_substantial_text_despite_high_no_speech() -> None:
         "no_speech_prob": 0.92,
         "avg_logprob": -0.4,
     }
-    assert not whisper_segment_is_hallucination(segment)
+    assert whisper_segment_is_hallucination(segment)
+
+
+def test_refine_splits_multi_sentence_segment_on_punctuation() -> None:
+    from app.worker.asr_quality import refine_whisper_drafts
+
+    payload = {
+        "segments": [
+            {
+                "start": 29.92,
+                "end": 37.19,
+                "text": (
+                    "Cảm ơn quý khách. Chúc quý khách một ngày tốt lành. "
+                    "Hẹn gặp lại quý khách trên những chuyến bay tiếp theo."
+                ),
+                "no_speech_prob": 0.1,
+                "avg_logprob": -0.2,
+                "compression_ratio": 1.2,
+            }
+        ],
+        "words": [
+            {"word": "Cảm", "start": 29.92, "end": 30.10},
+        ],
+    }
+    drafts = refine_whisper_drafts(payload)
+    assert len(drafts) == 3
+    assert drafts[0][2].startswith("Cảm ơn")
+    assert "tốt lành" in drafts[1][2]
+    assert "Hẹn gặp lại" in drafts[2][2]
 
 
 def test_coerce_quality_warnings_repairs_character_split_json() -> None:

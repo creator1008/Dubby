@@ -524,6 +524,16 @@ def _wav_duration(path: str) -> float:
         return r.getnframes() / float(rate) if rate else 0.0
 
 
+def _mock_transcript_line(language: str, index: int) -> str:
+    """Script-matching mock STT so V2 language passthrough still dubs."""
+    lang = (language or "").strip().lower().split("-", 1)[0]
+    if lang == "ko":
+        return f"모의 구간 {index}"
+    if lang == "vi":
+        return f"Doan mo phong {index}"
+    return f"Mock segment {index} ({language})"
+
+
 class MockEngine(Engine):
     """Deterministic, offline replacement for every external dependency."""
 
@@ -570,7 +580,7 @@ class MockEngine(Engine):
             SegmentDraft(
                 start_ms=i * step,
                 end_ms=(i + 1) * step,
-                text=f"Mock segment {i + 1} ({language})",
+                text=_mock_transcript_line(language, i + 1),
             )
             for i in range(count)
         ]
@@ -726,8 +736,10 @@ class MockEngine(Engine):
         no_vocals_wav: str,
         ranges_ms: list[tuple[int, int]],
         wav_out: str,
+        *,
+        no_vocals_in_mask: float = 0.4,
     ) -> None:
-        del no_vocals_wav, ranges_ms
+        del no_vocals_wav, ranges_ms, no_vocals_in_mask
         shutil.copyfile(original_wav, wav_out)
 
     async def mix(
