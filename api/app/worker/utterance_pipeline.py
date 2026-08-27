@@ -16,6 +16,12 @@ _SENTENCE_END_RE = re.compile(r"[.!?。？！][\"'”’)]*$")
 _KO_UTTERANCE_END_RE = re.compile(
     r"(?:다|요|까|냐|네|군|죠|야|어|아|지|라|(?<!에)게|(?<![는은])데|군려)[\"'”’)]*$"
 )
+# Vietnamese VO rarely uses a period; particles still close the spoken beat.
+_VI_UTTERANCE_END_RE = re.compile(
+    r"(?:rồi|nhé|nhá|nha|nhỉ|chứ|thôi|đi|ạ|à|ư|hả|sao|nè|luôn|"
+    r"không|được|đấy|thế|vậy|mà)[\"'”’)]*$",
+    re.IGNORECASE,
+)
 _SOURCE_WEIGHT_TOKEN_RE = re.compile(
     r"[A-Za-z0-9]+(?:'[A-Za-z]+)?|[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+"
 )
@@ -316,15 +322,17 @@ def build_breath_utterances(
 def looks_like_sentence_end(text: str) -> bool:
     """True when ``text`` already closes a spoken utterance.
 
-    Latin/CJK punctuation counts, and so do common Korean sentence closers
-    (다/요/까/…) because dramatic dialogue rarely carries a period.
+    Latin/CJK punctuation counts, and so do common Korean / Vietnamese
+    spoken closers because dramatic VO rarely carries a period.
     """
     cleaned = (text or "").strip()
     if not cleaned:
         return True
     if _SENTENCE_END_RE.search(cleaned):
         return True
-    return bool(_KO_UTTERANCE_END_RE.search(cleaned))
+    if _KO_UTTERANCE_END_RE.search(cleaned):
+        return True
+    return bool(_VI_UTTERANCE_END_RE.search(cleaned))
 
 
 def is_translation_dangling(text: str) -> bool:
@@ -792,6 +800,90 @@ def _force_split_tokens_by_duration(
     if current:
         groups.append(current)
     return groups
+
+
+def split_overlong_chunks(
+    chunks: list[UtteranceChunk],
+    *,
+    max_duration_ms: int,
+) -> list[UtteranceChunk]:
+    """Hard-cap utterance length even when Whisper omitted word timestamps.
+
+    dalat's live transcript was two Whisper drafts (16s + 3.5s) because the
+    multipart form never requested ``words``. Those drafts must still be cut
+    to ``speech_segment_max_seconds`` or TTS/mix treat them as one line.
+    """
+    if max_duration_ms <= 0 or not chunks:
+        return list(chunks)
+    out: list[UtteranceChunk] = []
+    for chunk in chunks:
+        duration = chunk.end_ms - chunk.start_ms
+        words = [word for word in chunk.words if word.text.strip()]
+        if duration <= max_duration_ms:
+            out.append(chunk)
+            continue
+        if len(words) >= 2:
+            groups = _force_split_tokens_by_duration(
+                words, max_duration_ms=max_duration_ms
+            )
+            parts = _split_text_by_weights(
+                chunk.text,
+                [max(1, len(_join_tokens(group))) for group in groups],
+            )
+            for group, part in zip(groups, parts):
+                start_ms = quantize_ms(group[0].start_ms)
+                end_ms = quantize_ms(max(group[-1].end_ms, start_ms + 80))
+                text = (part or "").strip() or _join_tokens(group)
+                if not text or end_ms <= start_ms:
+                    continue
+                out.append(
+                    UtteranceChunk(
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        text=text,
+                        speaker_id=chunk.speaker_id,
+                        words=tuple(group),
+                    )
+                )
+            continue
+        part_count = max(1, (duration + max_duration_ms - 1) // max_duration_ms)
+        tokens = chunk.text.split()
+        if tokens:
+            part_count = min(part_count, len(tokens))
+        if part_count <= 1:
+            out.append(chunk)
+            continue
+        weights = [1] * part_count
+        if tokens and len(tokens) >= part_count:
+            weights = []
+            cursor = 0
+            for index in range(part_count):
+                remaining_tokens = len(tokens) - cursor
+                remaining_parts = part_count - index
+                take = max(1, round(remaining_tokens / remaining_parts))
+                weights.append(max(1, take))
+                cursor += take
+        parts = _split_text_by_weights(chunk.text, weights)
+        for index, part in enumerate(parts):
+            start_ms = chunk.start_ms + round(duration * index / part_count)
+            end_ms = (
+                chunk.end_ms
+                if index == part_count - 1
+                else chunk.start_ms + round(duration * (index + 1) / part_count)
+            )
+            text = (part or "").strip() or chunk.text
+            if end_ms <= start_ms:
+                continue
+            out.append(
+                UtteranceChunk(
+                    start_ms=quantize_ms(start_ms),
+                    end_ms=quantize_ms(end_ms),
+                    text=text,
+                    speaker_id=chunk.speaker_id,
+                    words=(),
+                )
+            )
+    return out or list(chunks)
 
 
 def place_long_units_by_timestamps(

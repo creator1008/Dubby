@@ -227,6 +227,67 @@ def measure_pcm16_wav_db(
     return max(-60.0, 20 * math.log10(math.sqrt(mean_square) / 32768))
 
 
+def vocal_energy_ranges(
+    path: str,
+    *,
+    window_ms: int = 40,
+    min_speech_ms: int = 280,
+    hang_ms: int = 160,
+    floor_db: float = -40.0,
+) -> list[tuple[int, int]]:
+    """Find voiced windows on a Demucs vocals stem via RMS energy.
+
+    STT can miss an intro (dalat 0–13.8s) while the isolated vocal stem still
+    has energy. Union these ranges into the mix scrub so original speech does
+    not leak under the dub.
+    """
+    try:
+        with wave.open(path, "rb") as source:
+            if source.getsampwidth() != 2 or source.getnframes() <= 0:
+                return []
+            rate = max(1, source.getframerate())
+            channels = max(1, source.getnchannels())
+            window_frames = max(1, round(window_ms * rate / 1000))
+            nframes = source.getnframes()
+            voiced: list[tuple[int, int]] = []
+            pos = 0
+            buffer_frames = window_frames * 50
+            while pos < nframes:
+                source.setpos(pos)
+                take = min(buffer_frames, nframes - pos)
+                samples = array("h", source.readframes(take))
+                if not samples:
+                    break
+                offset = 0
+                window_index = 0
+                samples_per_window = window_frames * channels
+                while offset < len(samples):
+                    window = samples[offset : offset + samples_per_window]
+                    if not window:
+                        break
+                    start_frame = pos + window_index * window_frames
+                    end_frame = min(start_frame + window_frames, nframes)
+                    start_ms = round(start_frame * 1000 / rate)
+                    end_ms = round(end_frame * 1000 / rate)
+                    mean_square = sum(sample * sample for sample in window) / len(
+                        window
+                    )
+                    if mean_square > 0:
+                        db = 20 * math.log10(math.sqrt(mean_square) / 32768)
+                        if db >= floor_db:
+                            voiced.append((start_ms, end_ms))
+                    offset += samples_per_window
+                    window_index += 1
+                pos += take
+    except (OSError, wave.Error, EOFError):
+        return []
+    return [
+        (start, end)
+        for start, end in merge_speech_ranges(voiced, max_gap_ms=hang_ms)
+        if end - start >= min_speech_ms
+    ]
+
+
 def build_voice_sample_cmd(
     settings: Settings,
     vocals_in: str,

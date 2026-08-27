@@ -352,6 +352,50 @@ def test_parse_whisper_drops_hallucinated_loop() -> None:
     assert parse_whisper_segments({"segments": [segment]}) == []
 
 
+def test_whisper_form_repeats_word_and_segment_granularity() -> None:
+    from app.worker.openai_client import whisper_transcription_form
+
+    fields = whisper_transcription_form("whisper-1", "vi", prompt="Đà Lạt")
+    values = [value for key, value in fields if key == "timestamp_granularities[]"]
+    assert values == ["word", "segment"]
+    assert ("language", "vi") in fields
+    assert ("prompt", "Đà Lạt") in fields
+
+
+def test_whisper_keeps_substantial_text_despite_high_no_speech() -> None:
+    from app.worker.asr_quality import whisper_segment_is_hallucination
+
+    segment = {
+        "start": 0.0,
+        "end": 8.0,
+        "text": "Xin chào quý khách đến với Đà Lạt",
+        "compression_ratio": 1.5,
+        "no_speech_prob": 0.92,
+        "avg_logprob": -0.4,
+    }
+    assert not whisper_segment_is_hallucination(segment)
+
+
+def test_coerce_quality_warnings_repairs_character_split_json() -> None:
+    from app.worker.pipeline import coerce_quality_warnings
+
+    assert coerce_quality_warnings(None) == []
+    assert coerce_quality_warnings(["segment_0:ok"]) == ["segment_0:ok"]
+    assert coerce_quality_warnings('["segment_0:ok"]') == ["segment_0:ok"]
+    # list("[]") plus a later warning — the live dalat jsonb string case.
+    assert coerce_quality_warnings(
+        ["[", "]", "segment_0:speech_not_extended_beyond_quality_limit"]
+    ) == ["segment_0:speech_not_extended_beyond_quality_limit"]
+
+
+def test_postgres_jsonb_patch_casts_quality_warnings() -> None:
+    from app.db.postgres import _assignment_sql
+
+    assert _assignment_sql("quality_warnings", 3) == "quality_warnings = $3::jsonb"
+    assert _assignment_sql("dub_voice_ids", 4) == "dub_voice_ids = $4::jsonb"
+    assert _assignment_sql("status", 2) == "status = $2"
+
+
 def test_build_translation_messages_include_document_context() -> None:
     from app.worker.openai_client import build_translation_messages
     import json

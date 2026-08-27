@@ -54,7 +54,7 @@ from .dub_quality import (
 from .dub_voice_assets import load_dub_voice_manifest, persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
-from .media import ffmpeg_has_rubberband, validate_source
+from .media import ffmpeg_has_rubberband, merge_speech_ranges, validate_source, vocal_energy_ranges
 from .openai_client import SegmentDraft
 from .subtitles import build_ass
 from .timing import (
@@ -69,6 +69,7 @@ from .utterance_pipeline import (
     build_breath_utterances,
     dedupe_boundary_overlaps,
     merge_dangling_chunks,
+    split_overlong_chunks,
 )
 
 logger = logging.getLogger("dubby.worker.pipeline")
@@ -151,6 +152,37 @@ def _cleanup_scratch(scratch: Path) -> None:
         time.sleep(0.5)
     if scratch.exists():
         logger.warning("scratch %s could not be fully removed", scratch)
+
+
+def coerce_quality_warnings(value: object) -> list[str]:
+    """Normalize ``projects.quality_warnings`` after jsonb string mishandling.
+
+    ``list("[]")`` produced character warnings like ``[`` / ``]`` on dalat.
+    """
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        try:
+            return coerce_quality_warnings(json.loads(value))
+        except json.JSONDecodeError:
+            text = value.strip()
+            return [text] if text and text not in {"[", "]"} else []
+    if isinstance(value, list):
+        if value and all(isinstance(item, str) and len(item) == 1 for item in value):
+            joined = "".join(value)
+            if joined[:1] in {"[", '"'}:
+                try:
+                    return coerce_quality_warnings(json.loads(joined))
+                except json.JSONDecodeError:
+                    pass
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                text = item.strip()
+                if text and text not in {"[", "]"}:
+                    result.append(text)
+        return result
+    return []
 
 
 async def _download_source(ctx: JobContext, source_key: str, dest: Path) -> int:
@@ -583,14 +615,15 @@ async def run_transcribe(ctx: JobContext) -> None:
         await ctx.report(0.58, "segment_timing")
         # Split on real voice gaps (>= breath_pause_ms), even inside one sentence.
         breath_ms = max(400, int(getattr(ctx.settings, "breath_pause_ms", 650)))
+        speech_cap_ms = max(
+            1000, round(float(ctx.settings.speech_segment_max_seconds) * 1000)
+        )
         if transcribe_result.words:
             chunks = build_breath_utterances(
                 list(transcribe_result.words),
                 speaker_turns,
                 breath_pause_ms=breath_ms,
-                max_duration_ms=max(
-                    8000, round(ctx.settings.speech_segment_max_seconds * 1000 * 2)
-                ),
+                max_duration_ms=speech_cap_ms,
                 soft_pause_ms=400,
             )
             if not chunks:
@@ -610,7 +643,7 @@ async def run_transcribe(ctx: JobContext) -> None:
             chunks = merge_dangling_chunks(
                 chunks,
                 max_gap_ms=merge_gap_ms,
-                max_duration_ms=13000,
+                max_duration_ms=speech_cap_ms,
             )
         else:
             # Mock / segment-only ASR: keep Whisper drafts (already filtered).
@@ -656,6 +689,7 @@ async def run_transcribe(ctx: JobContext) -> None:
         if not chunks:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
 
+        chunks = split_overlong_chunks(chunks, max_duration_ms=speech_cap_ms)
         chunks = dedupe_boundary_overlaps(chunks)
 
         await ctx.report(0.62, "correct_asr")
@@ -919,6 +953,7 @@ async def run_dub(ctx: JobContext) -> None:
         stems_dir = scratch / "stems"
         stems_dir.mkdir()
         vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
+        vad_ranges = await asyncio.to_thread(vocal_energy_ranges, str(vocals))
 
         segment_bounds = [
             (
@@ -1014,7 +1049,7 @@ async def run_dub(ctx: JobContext) -> None:
         voice_ids.update(speaker_voices.values())
 
         placed_clips: list[tuple[str, int]] = []
-        quality_warnings = list(project.get("quality_warnings") or [])
+        quality_warnings = coerce_quality_warnings(project.get("quality_warnings"))
         quality_warnings.extend(voice_warnings)
         clips_dir = scratch / "clips"
         clips_dir.mkdir()
@@ -1370,8 +1405,11 @@ async def run_dub(ctx: JobContext) -> None:
         final_bounds = final_voice_removal_bounds(list(refined), next_start_by_idx)
         if not final_bounds:
             final_bounds = segment_bounds
+        mix_speech_ranges = merge_speech_ranges(
+            list(saved_ranges or []) + list(vad_ranges or [])
+        )
         removal_ranges = voice_removal_ranges(
-            saved_ranges,
+            mix_speech_ranges,
             final_bounds,
             fill_interiors=True,
         )

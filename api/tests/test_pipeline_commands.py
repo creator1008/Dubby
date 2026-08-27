@@ -181,3 +181,29 @@ def test_demucs_missing_stems_raises(tmp_path) -> None:
     with pytest.raises(PipelineError) as exc:
         stems.locate_stems(_settings(), "audio.wav", str(tmp_path))
     assert exc.value.code == "demucs_failed"
+
+
+def test_vocal_energy_ranges_finds_speech_and_skips_silence(tmp_path) -> None:
+    import math
+
+    path = tmp_path / "vocals.wav"
+    rate = 8000
+    samples = array("h", [0] * int(rate * 0.9))
+    for index in range(int(rate * 0.2), int(rate * 0.7)):
+        samples[index] = int(14000 * math.sin(2 * math.pi * 220 * index / rate))
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(samples.tobytes())
+
+    ranges = media.vocal_energy_ranges(
+        str(path),
+        window_ms=20,
+        min_speech_ms=80,
+        hang_ms=40,
+        floor_db=-40.0,
+    )
+    assert len(ranges) == 1
+    assert ranges[0][0] <= 250
+    assert ranges[0][1] >= 650

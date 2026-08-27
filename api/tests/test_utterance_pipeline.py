@@ -135,6 +135,8 @@ def test_translation_groups_neoreul_jegeo_and_lays_english() -> None:
     assert not looks_like_sentence_end("현대 시청자에게")
     assert is_translation_dangling("현대 시청자에게")
     assert looks_like_sentence_end("그렇게")
+    assert looks_like_sentence_end("Cảm ơn quý khách đã đến Đà Lạt nhé")
+    assert looks_like_sentence_end("Chúng ta đi thôi")
 
     chunks = [
         UtteranceChunk(26350, 27020, "너를", "A", ()),
@@ -320,3 +322,27 @@ def test_dedupe_keeps_short_vietnamese_syllables() -> None:
     ]
     kept = dedupe_boundary_overlaps(chunks)
     assert [c.text for c in kept] == ["Đất này rồi", "rồi", "là thổ cư"]
+
+
+def test_split_overlong_chunks_cuts_wordless_whisper_drafts() -> None:
+    from app.worker.utterance_pipeline import UtteranceChunk, split_overlong_chunks
+
+    chunks = split_overlong_chunks(
+        [
+            UtteranceChunk(
+                13800,
+                29980,
+                "Đây là bản giới thiệu dài về Đà Lạt với nhiều câu liền nhau",
+                "speaker_0",
+                (),
+            )
+        ],
+        max_duration_ms=6000,
+    )
+    assert len(chunks) >= 2
+    assert chunks[0].start_ms == 13800
+    assert chunks[-1].end_ms == 29980
+    assert all(c.end_ms - c.start_ms <= 6000 + 20 for c in chunks[:-1])
+    joined = " ".join(c.text for c in chunks)
+    assert "Đà Lạt" in joined
+    assert "giới thiệu" in joined

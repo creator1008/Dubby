@@ -26,14 +26,16 @@ def whisper_segment_is_hallucination(segment: dict) -> bool:
     no_speech = float(segment.get("no_speech_prob", 0.0) or 0.0)
     avg_logprob = float(segment.get("avg_logprob", 0.0) or 0.0)
     compression = float(segment.get("compression_ratio", 0.0) or 0.0)
-    if compression >= 2.4:
+    substantial = len(re.findall(r"\S+", text)) >= 3 and len(text) >= 8
+    if compression >= 3.2:
         return True
-    if no_speech > 0.6 and avg_logprob < -0.8:
-        return True
-    if no_speech > 0.85:
-        return True
-    if end - start < 0.35 and no_speech > 0.4:
-        return True
+    if not substantial:
+        if no_speech > 0.6 and avg_logprob < -0.8:
+            return True
+        if no_speech > 0.85:
+            return True
+        if end - start < 0.35 and no_speech > 0.4:
+            return True
     tokens = re.findall(r"\S+", text)
     if len(tokens) >= 6:
         for n in (2, 3, 4):

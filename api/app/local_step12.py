@@ -47,7 +47,7 @@ from .worker.dub_quality import (
 )
 from .languages import LANGUAGE_ALIASES, LANG_QUERY_PATTERN, LANGUAGE_NAMES, SUPPORTED_LANGUAGES
 from .worker.elevenlabs_client import tts_model_for_language
-from .worker.media import merge_speech_ranges as _merge_speech_ranges
+from .worker.media import merge_speech_ranges as _merge_speech_ranges, vocal_energy_ranges as _vocal_energy_ranges
 from .worker.timing import (
     ELEVENLABS_SPEAK_SPEED_MAX,
     ELEVENLABS_SPEAK_SPEED_MIN,
@@ -646,38 +646,9 @@ def _translation_chat_config() -> tuple[str, str, dict[str, str], dict[str, obje
 
 def _whisper_segment_is_hallucination(segment: dict) -> bool:
     """Drop Whisper segments that look like music/noise hallucinations."""
-    text = str(segment.get("text", "")).strip()
-    if not text:
-        return True
-    start = float(segment.get("start", 0.0) or 0.0)
-    end = float(segment.get("end", 0.0) or 0.0)
-    if end <= start:
-        return True
-    no_speech = float(segment.get("no_speech_prob", 0.0) or 0.0)
-    avg_logprob = float(segment.get("avg_logprob", 0.0) or 0.0)
-    compression = float(segment.get("compression_ratio", 0.0) or 0.0)
-    # OpenAI/Whisper guidance: high compression usually means looping junk.
-    if compression >= 2.4:
-        return True
-    if no_speech > 0.6 and avg_logprob < -0.8:
-        return True
-    if no_speech > 0.85:
-        return True
-    # Tiny fragments near the end of music clips are almost always garbage.
-    if end - start < 0.35 and no_speech > 0.4:
-        return True
-    # Detect immediate phrase loops inside one segment ("A A A").
-    tokens = re.findall(r"\S+", text)
-    if len(tokens) >= 6:
-        for n in (2, 3, 4):
-            if len(tokens) < n * 3:
-                continue
-            ngrams = [
-                " ".join(tokens[i : i + n]) for i in range(0, len(tokens) - n + 1, n)
-            ]
-            if len(ngrams) >= 3 and len(set(ngrams)) == 1:
-                return True
-    return False
+    from .worker.asr_quality import whisper_segment_is_hallucination
+
+    return whisper_segment_is_hallucination(segment)
 
 
 def _dedupe_repetitive_drafts(
@@ -732,16 +703,15 @@ def _openai_transcribe(
     """
     base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("WHISPER_MODEL", "whisper-1")
+    from .worker.openai_client import whisper_transcription_form
+
     # No initial prompt here: whisper-1 can echo the prompt verbatim into the
     # transcript on noisy inputs, replacing the actual speech.
-    form: dict[str, object] = {
-        "model": model,
-        "response_format": "verbose_json",
-        "timestamp_granularities[]": ["word", "segment"],
-        "temperature": 0,
-    }
-    if language:
-        form["language"] = language
+    form = whisper_transcription_form(
+        model,
+        language,
+        prompt=None,
+    )
     with asr_wav.open("rb") as audio:
         response = httpx.post(
             f"{base}/audio/transcriptions",
@@ -2670,7 +2640,7 @@ def _mux_video(
 def _render_dubbed_video(request: RenderDubRequest) -> dict:
     work_dir = _resolve_work_dir(request.run_id)
     source = _source_file(work_dir)
-    _, no_vocals = _separate_no_vocals(work_dir)
+    vocals, no_vocals = _separate_no_vocals(work_dir)
     ordered = sorted(request.segments, key=lambda segment: (segment.start_ms, segment.idx))
     manifest_path = work_dir / "manifest.json"
     manifest = (
@@ -2684,6 +2654,8 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
         for item in saved_ranges
         if int(item.get("end_ms", 0)) > int(item.get("start_ms", 0))
     ]
+    if vocals.is_file():
+        word_ranges.extend(_vocal_energy_ranges(str(vocals)))
     segment_bounds = [
         (segment.start_ms, segment.end_ms)
         for segment in ordered

@@ -105,6 +105,31 @@ def sanitize_secret(value: str) -> str:
     return text
 
 
+def whisper_transcription_form(
+    model: str,
+    language: str | None,
+    *,
+    prompt: str | None = None,
+) -> list[tuple[str, str]]:
+    """Multipart fields so Whisper actually returns word timestamps.
+
+    A Python list under ``timestamp_granularities[]`` is sent as one string
+    and OpenAI then omits ``words``, collapsing a 37s clip into two segments.
+    """
+    fields: list[tuple[str, str]] = [
+        ("model", model),
+        ("response_format", "verbose_json"),
+        ("timestamp_granularities[]", "word"),
+        ("timestamp_granularities[]", "segment"),
+        ("temperature", "0"),
+    ]
+    if language:
+        fields.append(("language", str(language)))
+    if prompt:
+        fields.append(("prompt", prompt))
+    return fields
+
+
 def is_grok_model(model: str) -> bool:
     """True for xAI Grok chat models (``grok-4.6``, ``grok-4.5``, …)."""
     normalized = (model or "").strip().lower().replace("_", "-")
@@ -361,18 +386,12 @@ class OpenAIClient:
     async def transcribe(self, audio_path: str, language: str) -> TranscribeResult:
         from .locale_rules import whisper_vocab_prompt
 
-        data = {
-            "model": self._settings.whisper_model,
-            "language": language,
-            "response_format": "verbose_json",
-            "timestamp_granularities[]": ["word", "segment"],
-            # Deterministic decoding — matches local_step12 quality path.
-            "temperature": "0",
-        }
         vocab = whisper_vocab_prompt(language)
-        if vocab:
-            # Short vocabulary bias only — avoid long prose (whisper-1 may echo it).
-            data["prompt"] = vocab
+        data = whisper_transcription_form(
+            self._settings.whisper_model,
+            language,
+            prompt=vocab,
+        )
         file_bytes = Path(audio_path).read_bytes()
         files = {"file": (Path(audio_path).name, file_bytes, "audio/mpeg")}
         try:

@@ -70,6 +70,13 @@ _PROJECT_PATCHABLE = {
 }
 
 _PROJECT_DELETED_SENTINEL = "__deleted__"
+_JSONB_PATCH_COLUMNS = frozenset({"quality_warnings", "dub_voice_ids"})
+
+
+def _assignment_sql(column: str, param: int) -> str:
+    if column in _JSONB_PATCH_COLUMNS:
+        return f"{column} = ${param}::jsonb"
+    return f"{column} = ${param}"
 
 
 class PostgresRepository(Repository):
@@ -236,7 +243,9 @@ class PostgresRepository(Repository):
             )
         if not cols:
             return await self.get_project(owner_id, project_id)
-        sets = ", ".join(f"{col} = ${i + 3}" for i, col in enumerate(cols))
+        sets = ", ".join(
+            _assignment_sql(col, i + 3) for i, col in enumerate(cols)
+        )
         row = await self.pool.fetchrow(
             f"UPDATE public.projects SET {sets} "
             "WHERE owner_id = $1 AND id = $2 "
@@ -554,7 +563,9 @@ class PostgresRepository(Repository):
             cols["quality_warnings"] = json.dumps(cols["quality_warnings"])
         if not cols:
             return
-        sets = ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(cols))
+        sets = ", ".join(
+            _assignment_sql(col, i + 2) for i, col in enumerate(cols)
+        )
         await self.pool.execute(
             f"UPDATE public.projects SET {sets} WHERE id = $1",
             project_id,
