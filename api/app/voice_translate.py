@@ -56,7 +56,7 @@ async def translate_descriptions(
 
     needs_key = (
         settings.xai_api_key
-        if is_grok_model(settings.translation_model or "grok-4.6")
+        if is_grok_model(settings.translation_model or "gpt-4o-mini")
         else settings.openai_api_key
     )
     if not needs_key:
@@ -114,7 +114,7 @@ async def _translate_chunk(
         "Return ONLY a JSON object: {\"items\":[{\"id\":0,\"text\":\"...\"}, ...]} "
         "with the same ids and count as the input."
     )
-    model = settings.translation_model or "grok-4.6"
+    model = settings.translation_model or "gpt-4o-mini"
     base, headers, extras = chat_endpoint_for_model(
         model,
         openai_api_key=settings.openai_api_key,

@@ -629,7 +629,7 @@ def _translation_chat_config() -> tuple[str, str, dict[str, str], dict[str, obje
     from .worker.errors import PipelineError
     from .worker.openai_client import chat_endpoint_for_model
 
-    model = os.getenv("TRANSLATION_MODEL", "grok-4.6")
+    model = os.getenv("TRANSLATION_MODEL", "gpt-4o-mini")
     try:
         base, headers, extras = chat_endpoint_for_model(
             model,

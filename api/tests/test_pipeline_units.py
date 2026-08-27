@@ -435,9 +435,9 @@ def test_gpt_chat_endpoint_stays_on_openai() -> None:
     assert extras == {}
 
 
-def test_default_translation_model_is_grok() -> None:
+def test_default_translation_model_is_openai() -> None:
     settings = Settings(_env_file=None)
-    assert settings.translation_model == "grok-4.6"
+    assert settings.translation_model == "gpt-4o-mini"
 
 
 def test_parse_translation_content_missing_idx_is_retryable() -> None:
