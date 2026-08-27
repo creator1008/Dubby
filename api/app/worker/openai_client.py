@@ -111,10 +111,10 @@ def whisper_transcription_form(
     *,
     prompt: str | None = None,
 ) -> list[tuple[str, str]]:
-    """Multipart fields so Whisper actually returns word timestamps.
+    """Form fields so Whisper actually returns word timestamps.
 
-    A Python list under ``timestamp_granularities[]`` is sent as one string
-    and OpenAI then omits ``words``, collapsing a 37s clip into two segments.
+    A Python list under one ``timestamp_granularities[]`` key is sent as the
+    string ``"['word', 'segment']"`` and OpenAI then omits ``words``.
     """
     fields: list[tuple[str, str]] = [
         ("model", model),
@@ -128,6 +128,27 @@ def whisper_transcription_form(
     if prompt:
         fields.append(("prompt", prompt))
     return fields
+
+
+def whisper_multipart_files(
+    model: str,
+    language: str | None,
+    *,
+    file: tuple[str, object, str],
+    prompt: str | None = None,
+) -> list[tuple[str, object]]:
+    """httpx ``files=`` parts for Whisper (duplicate keys + audio).
+
+    Do not pass :func:`whisper_transcription_form` as ``data=``. httpx 0.28
+    treats a list of tuples as a byte iterator and raises
+    ``Attempted to send an sync request with an AsyncClient instance``.
+    """
+    parts: list[tuple[str, object]] = [
+        (key, (None, value))
+        for key, value in whisper_transcription_form(model, language, prompt=prompt)
+    ]
+    parts.append(("file", file))
+    return parts
 
 
 def is_grok_model(model: str) -> bool:
@@ -387,19 +408,18 @@ class OpenAIClient:
         from .locale_rules import whisper_vocab_prompt
 
         vocab = whisper_vocab_prompt(language)
-        data = whisper_transcription_form(
+        file_bytes = Path(audio_path).read_bytes()
+        files = whisper_multipart_files(
             self._settings.whisper_model,
             language,
+            file=(Path(audio_path).name, file_bytes, "audio/mpeg"),
             prompt=vocab,
         )
-        file_bytes = Path(audio_path).read_bytes()
-        files = {"file": (Path(audio_path).name, file_bytes, "audio/mpeg")}
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.post(
                     f"{self._base}/audio/transcriptions",
                     headers=self._headers,
-                    data=data,
                     files=files,
                 )
         except httpx.HTTPError as exc:

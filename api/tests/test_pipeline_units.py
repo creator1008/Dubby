@@ -353,13 +353,33 @@ def test_parse_whisper_drops_hallucinated_loop() -> None:
 
 
 def test_whisper_form_repeats_word_and_segment_granularity() -> None:
-    from app.worker.openai_client import whisper_transcription_form
+    import httpx
+
+    from app.worker.openai_client import (
+        whisper_multipart_files,
+        whisper_transcription_form,
+    )
 
     fields = whisper_transcription_form("whisper-1", "vi", prompt="Đà Lạt")
     values = [value for key, value in fields if key == "timestamp_granularities[]"]
     assert values == ["word", "segment"]
     assert ("language", "vi") in fields
     assert ("prompt", "Đà Lạt") in fields
+
+    files = whisper_multipart_files(
+        "whisper-1",
+        "vi",
+        file=("clip.mp3", b"ID3", "audio/mpeg"),
+        prompt="Đà Lạt",
+    )
+    request = httpx.Request(
+        "POST", "https://example.com/v1/audio/transcriptions", files=files
+    )
+    request.read()
+    body = request.content
+    assert body.count(b'name="timestamp_granularities[]"') == 2
+    assert b"word" in body and b"segment" in body
+    assert b"clip.mp3" in body
 
 
 def test_whisper_keeps_substantial_text_despite_high_no_speech() -> None:

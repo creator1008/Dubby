@@ -703,27 +703,24 @@ def _openai_transcribe(
     """
     base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("WHISPER_MODEL", "whisper-1")
-    from .worker.openai_client import whisper_transcription_form
+    from .worker.openai_client import whisper_multipart_files
 
     # No initial prompt here: whisper-1 can echo the prompt verbatim into the
     # transcript on noisy inputs, replacing the actual speech.
-    form = whisper_transcription_form(
-        model,
-        language,
-        prompt=None,
-    )
     with asr_wav.open("rb") as audio:
         response = httpx.post(
             f"{base}/audio/transcriptions",
             headers=_openai_headers(),
-            data=form,
-            files={
-                "file": (
+            files=whisper_multipart_files(
+                model,
+                language,
+                file=(
                     asr_wav.name,
                     audio,
                     _audio_upload_content_type(asr_wav),
-                )
-            },
+                ),
+                prompt=None,
+            ),
             timeout=600,
         )
     if response.status_code >= 400:
