@@ -68,6 +68,19 @@ def normalize_emotion_tone(value: str | None, *, fallback: EmotionTone = "calm")
     return fallback
 
 
+def resolve_segment_emotion(
+    saved: str | None,
+    *,
+    project_tone: str | None,
+    user_set: bool = False,
+) -> EmotionTone:
+    """Project tone for every line unless the editor saved a per-segment override."""
+    fallback = normalize_emotion_tone(project_tone)
+    if user_set and (saved or "").strip():
+        return normalize_emotion_tone(saved, fallback=fallback)
+    return fallback
+
+
 def voice_settings_for_emotion(tone: str | None) -> dict[str, float]:
     """ElevenLabs voice_settings (without speed / speaker boost)."""
     key = normalize_emotion_tone(tone)

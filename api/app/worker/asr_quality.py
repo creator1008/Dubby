@@ -16,7 +16,9 @@ from .utterance_pipeline import TimedToken
 _SENTENCE_END_RE = re.compile(r"[.!?。？！]\s*$")
 
 
-def whisper_segment_is_hallucination(segment: dict) -> bool:
+def whisper_segment_is_hallucination(
+    segment: dict, *, keep_opening_speech: bool = False
+) -> bool:
     """Drop Whisper segments that look like music/noise hallucinations."""
     text = str(segment.get("text", "")).strip()
     if not text:
@@ -28,12 +30,18 @@ def whisper_segment_is_hallucination(segment: dict) -> bool:
     no_speech = float(segment.get("no_speech_prob", 0.0) or 0.0)
     avg_logprob = float(segment.get("avg_logprob", 0.0) or 0.0)
     compression = float(segment.get("compression_ratio", 0.0) or 0.0)
-    if compression >= 2.4:
-        return True
     tokens = re.findall(r"\S+", text)
+    if _is_ngram_loop(tokens):
+        return True
+    if compression >= 3.2:
+        return True
+    if compression >= 2.4 and not keep_opening_speech:
+        return True
     substantial = len(tokens) >= 3 and len(text) >= 8
-    # BGM under real VO often yields high no_speech; V1 dropped those lines
-    # (dalat1 lost 19s–37s). Only apply no_speech cuts to scraps / noise.
+    # BGM under real VO often yields high no_speech. The first spoken line is
+    # frequently a short greeting; dropping it looks like a missing sentence.
+    if keep_opening_speech and len(tokens) >= 2 and len(text) >= 4:
+        return False
     if not substantial:
         if no_speech > 0.6 and avg_logprob < -0.8:
             return True
@@ -41,15 +49,20 @@ def whisper_segment_is_hallucination(segment: dict) -> bool:
             return True
         if end - start < 0.35 and no_speech > 0.4:
             return True
-    if len(tokens) >= 6:
-        for n in (2, 3, 4):
-            if len(tokens) < n * 3:
-                continue
-            ngrams = [
-                " ".join(tokens[i : i + n]) for i in range(0, len(tokens) - n + 1, n)
-            ]
-            if len(ngrams) >= 3 and len(set(ngrams)) == 1:
-                return True
+    return False
+
+
+def _is_ngram_loop(tokens: list[str]) -> bool:
+    if len(tokens) < 6:
+        return False
+    for n in (2, 3, 4):
+        if len(tokens) < n * 3:
+            continue
+        ngrams = [
+            " ".join(tokens[i : i + n]) for i in range(0, len(tokens) - n + 1, n)
+        ]
+        if len(ngrams) >= 3 and len(set(ngrams)) == 1:
+            return True
     return False
 
 
@@ -281,8 +294,11 @@ def refine_whisper_drafts(
     drafts: list[tuple[int, int, str]] = []
     raw_segments = payload.get("segments") or []
     kept_segments = 0
+    opening_kept = False
     for segment in raw_segments:
-        if whisper_segment_is_hallucination(segment):
+        if whisper_segment_is_hallucination(
+            segment, keep_opening_speech=not opening_kept
+        ):
             continue
         kept_segments += 1
         start = max(0, round(float(segment.get("start", 0)) * 1000))
@@ -296,6 +312,7 @@ def refine_whisper_drafts(
         needs_split = duration > 6500 or sentence_count > 1
         if not needs_split:
             drafts.append((start, end, text))
+            opening_kept = True
             continue
         word_cover = _covered_duration_ms(segment_words, start, end)
         words_trustworthy = (
@@ -318,6 +335,7 @@ def refine_whisper_drafts(
                 )
         else:
             drafts.extend(split_segment_text(start, end, text))
+        opening_kept = True
 
     if not drafts and not raw_segments:
         usable_words = [

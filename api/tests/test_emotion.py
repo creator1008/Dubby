@@ -16,6 +16,14 @@ def test_normalize_maps_legacy_presets() -> None:
     assert normalize_emotion_tone("excited") == "excited"
 
 
+def test_resolve_segment_emotion_uses_project_tone_unless_editor_override() -> None:
+    from app.worker.emotion import resolve_segment_emotion
+
+    assert resolve_segment_emotion("sad", project_tone="calm", user_set=False) == "calm"
+    assert resolve_segment_emotion("sad", project_tone="calm", user_set=True) == "sad"
+    assert resolve_segment_emotion("", project_tone="cheerful", user_set=True) == "cheerful"
+
+
 def test_voice_settings_cover_all_tones() -> None:
     for tone in (
         "sad",

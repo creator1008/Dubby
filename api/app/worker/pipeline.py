@@ -824,10 +824,10 @@ async def run_dub(ctx: JobContext) -> None:
                     if speed_f is not None and speed_f > 0:
                         row["speak_speed"] = speed_f
 
-                # Editor-saved emotion tone wins over acoustic re-detection.
-                saved_tone = row.get("emotion_tone") or meta.get("emotion_tone")
-                if saved_tone:
-                    row["emotion_tone"] = str(saved_tone).strip()
+                # Per-segment tone only when the subtitle editor saved an override.
+                if meta.get("emotion_user_set") and meta.get("emotion_tone"):
+                    row["emotion_tone"] = str(meta.get("emotion_tone")).strip()
+                    row["emotion_user_set"] = True
 
                 # Freeze original ASR end; never overwrite with a rate-adjusted end_ms.
                 source_end = row.get("source_end_ms")
@@ -970,29 +970,24 @@ async def run_dub(ctx: JobContext) -> None:
             ),
         )
 
-        from .emotion import detect_emotions_for_segments, normalize_emotion_tone
+        from .emotion import resolve_segment_emotion
 
-        project_tone = normalize_emotion_tone(
-            str(project.get("tone_style") or "calm")
-        )
-        emotion_by_idx = await asyncio.to_thread(
-            detect_emotions_for_segments,
-            str(vocals),
-            speakable,
-            fallback=project_tone,
+        project_tone = resolve_segment_emotion(
+            None, project_tone=str(project.get("tone_style") or "calm")
         )
         for segment in speakable:
-            try:
-                idx = int(segment["idx"])
-            except (KeyError, TypeError, ValueError):
-                continue
+            user_set = bool(segment.get("emotion_user_set"))
             saved = str(segment.get("emotion_tone") or "").strip()
-            if saved:
-                segment["emotion_tone"] = normalize_emotion_tone(
-                    saved, fallback=project_tone
-                )
+            segment["_tts_emotion"] = resolve_segment_emotion(
+                saved,
+                project_tone=project_tone,
+                user_set=user_set,
+            )
+            if user_set and saved:
+                segment["emotion_tone"] = segment["_tts_emotion"]
             else:
-                segment["emotion_tone"] = emotion_by_idx.get(idx, project_tone)
+                segment.pop("emotion_tone", None)
+                segment.pop("emotion_user_set", None)
 
         await ctx.report(0.40, "dub_voice_tts")
         speakers: list[str] = []
@@ -1062,7 +1057,7 @@ async def run_dub(ctx: JobContext) -> None:
                 # ElevenLabs TTS rate (clamped).
                 speak_speed = max(0.7, min(1.2, editor_speak_speed))
                 segment_tone = str(
-                    seg.get("emotion_tone") or tone_style or "calm"
+                    seg.get("_tts_emotion") or tone_style or "calm"
                 )
                 await _with_retries(
                     ctx,

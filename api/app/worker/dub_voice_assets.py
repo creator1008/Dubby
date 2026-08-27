@@ -119,8 +119,10 @@ async def persist_dub_voice_assets(
         if source_end_ms is not None:
             meta_row["source_end_ms"] = source_end_ms
         emotion = item.get("emotion_tone") or seg.get("emotion_tone")
-        if emotion:
+        user_set = bool(seg.get("emotion_user_set") or item.get("emotion_user_set"))
+        if user_set and emotion:
             meta_row["emotion_tone"] = str(emotion)
+            meta_row["emotion_user_set"] = True
         for key in ("gain_db", "source_level_db", "tts_level_db"):
             try:
                 value = float(item[key]) if item.get(key) is not None else None
@@ -313,15 +315,16 @@ async def update_manifest_speak_speeds(
                     "idx": idx,
                     "speak_speed": 1.0,
                     "emotion_tone": cleaned,
+                    "emotion_user_set": True,
                     "audio_key": "",
                 }
                 changed = True
                 continue
             prior = str(row.get("emotion_tone") or "").strip()
-            if prior != cleaned:
+            if prior != cleaned or not row.get("emotion_user_set"):
                 row["emotion_tone"] = cleaned
-                # Tone drives TTS delivery — stale clips must not linger.
-                if str(row.get("audio_key") or "").strip():
+                row["emotion_user_set"] = True
+                if prior != cleaned and str(row.get("audio_key") or "").strip():
                     row["audio_key"] = ""
                 changed = True
     if not changed:
@@ -400,8 +403,10 @@ async def enrich_segments_with_dub_voice(
         if source_end_i is not None and source_end_i > 0:
             copied["source_end_ms"] = source_end_i
         emotion = meta.get("emotion_tone", copied.get("emotion_tone"))
-        if emotion:
+        if meta.get("emotion_user_set") and emotion:
             copied["emotion_tone"] = str(emotion)
+        else:
+            copied.pop("emotion_tone", None)
         audio_key = str(meta.get("audio_key") or "").strip()
         meta_text = str(meta.get("target_text") or "").strip()
         current_text = str(copied.get("target_text") or "").strip()

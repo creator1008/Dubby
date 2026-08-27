@@ -536,6 +536,35 @@ def test_whisper_keeps_substantial_text_despite_high_no_speech() -> None:
     assert not whisper_segment_is_hallucination(segment)
 
 
+def test_refine_keeps_opening_greeting_under_bgm() -> None:
+    from app.worker.asr_quality import refine_whisper_drafts
+
+    drafts = refine_whisper_drafts(
+        {
+            "segments": [
+                {
+                    "start": 0.4,
+                    "end": 1.9,
+                    "text": "Xin chào quý khách",
+                    "no_speech_prob": 0.93,
+                    "avg_logprob": -0.5,
+                    "compression_ratio": 2.5,
+                },
+                {
+                    "start": 3.9,
+                    "end": 8.0,
+                    "text": "Cảnh hàng không quốc tế Liên Khương đã hoạt động trở lại.",
+                    "no_speech_prob": 0.1,
+                    "avg_logprob": -0.2,
+                    "compression_ratio": 1.2,
+                },
+            ]
+        }
+    )
+    assert drafts
+    assert "Xin chào" in drafts[0][2]
+
+
 def test_refine_splits_multi_sentence_segment_on_punctuation() -> None:
     from app.worker.asr_quality import refine_whisper_drafts
 

@@ -2084,8 +2084,7 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         )
         voices = voices_future.result()
         source_levels = levels_future.result()
-    from .worker.emotion import (
-        detect_segment_emotion,
+    from .emotion import (
         normalize_emotion_tone,
         voice_settings_for_emotion,
     )
@@ -2124,14 +2123,6 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         if segment.emotion_tone:
             emotion_tone = normalize_emotion_tone(
                 segment.emotion_tone, fallback=project_tone
-            )
-        elif vocals_path.is_file() and end_ms > start_ms:
-            emotion_tone = detect_segment_emotion(
-                str(vocals_path),
-                start_ms=start_ms,
-                end_ms=end_ms,
-                source_text=source_text,
-                fallback=project_tone,
             )
         else:
             emotion_tone = project_tone

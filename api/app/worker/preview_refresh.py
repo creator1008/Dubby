@@ -20,7 +20,7 @@ from .dub_voice_assets import (
     upsert_manifest_segment,
 )
 from .elevenlabs_client import ElevenLabsClient
-from .emotion import normalize_emotion_tone
+from .emotion import resolve_segment_emotion
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,9 @@ async def refresh_preview_clips(
 
     client = ElevenLabsClient(settings)
     target_lang = str(project.get("target_lang") or "")
-    project_tone = normalize_emotion_tone(str(project.get("tone_style") or "calm"))
+    project_tone = resolve_segment_emotion(
+        None, project_tone=str(project.get("tone_style") or "calm")
+    )
     refreshed: list[int] = []
 
     with tempfile.TemporaryDirectory(prefix="dubby-preview-") as tmp:
@@ -122,13 +124,10 @@ async def refresh_preview_clips(
             speaker = str(row.get("speaker_id") or "").strip() or "speaker_1"
             voice_id = voices.get(speaker) or next(iter(voices.values()))
             meta = by_idx_meta.get(idx) or {}
-            emotion = normalize_emotion_tone(
-                str(
-                    meta.get("emotion_tone")
-                    or row.get("emotion_tone")
-                    or project_tone
-                ),
-                fallback=project_tone,
+            emotion = resolve_segment_emotion(
+                str(meta.get("emotion_tone") or row.get("emotion_tone") or ""),
+                project_tone=project_tone,
+                user_set=bool(meta.get("emotion_user_set")),
             )
             try:
                 speak_speed = float(
@@ -157,8 +156,10 @@ async def refresh_preview_clips(
                 "clip_speak_speed": speak_speed,
                 "audio_key": clip_key,
                 "target_text": text,
-                "emotion_tone": emotion,
             }
+            if meta.get("emotion_user_set"):
+                meta_row["emotion_tone"] = emotion
+                meta_row["emotion_user_set"] = True
             for key in ("source_end_ms", "gain_db", "source_level_db", "tts_level_db"):
                 if meta.get(key) is not None:
                     meta_row[key] = meta[key]
