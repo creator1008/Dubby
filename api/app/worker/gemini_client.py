@@ -79,6 +79,44 @@ _TRANSLATION_SCHEMA: dict[str, Any] = {
 _CLOCK_RE = re.compile(
     r"^(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)$"
 )
+_UNKNOWN_GEN_FIELD_RE = re.compile(r'Unknown name "(\w+)"')
+
+
+def build_generation_config(schema: dict[str, Any]) -> dict[str, Any]:
+    """Gemini Developer API (API key) generationConfig.
+
+    Do not send ``audioTimestamp``: that field exists only on Vertex AI and
+    returns HTTP 400 ``Cannot find field`` on AI Studio keys.
+    """
+    return {
+        "temperature": 0.1,
+        "responseMimeType": "application/json",
+        "responseSchema": schema,
+        "thinkingConfig": {"thinkingLevel": "LOW"},
+    }
+
+
+def strip_unknown_generation_field(
+    generation: dict[str, Any], error_text: str
+) -> bool:
+    """Drop a generationConfig field the current Gemini endpoint rejects."""
+    match = _UNKNOWN_GEN_FIELD_RE.search(error_text or "")
+    if match:
+        name = match.group(1)
+        if name in generation:
+            generation.pop(name)
+            return True
+        if name.lower() in {"thinkinglevel", "thinkingconfig"}:
+            return generation.pop("thinkingConfig", None) is not None
+        nested = generation.get("thinkingConfig")
+        if isinstance(nested, dict) and name in nested:
+            nested.pop(name)
+            if not nested:
+                generation.pop("thinkingConfig", None)
+            return True
+    if "thinking" in (error_text or "").lower():
+        return generation.pop("thinkingConfig", None) is not None
+    return False
 
 
 def _raise_for_status(resp: httpx.Response, code: str) -> None:
@@ -286,7 +324,8 @@ class GeminiClient:
             "- segments: utterance captions covering every spoken word, typically 2–12 "
             "seconds, split on sentence or speaker change.\n"
             "  start_sec / end_sec are seconds from the start of this audio file "
-            "(use audio timestamps; include milliseconds as decimals).\n"
+            "(00:03.920 → 3.92). Include millisecond decimals. Anchor every "
+            "segment to audible speech; do not invent equal-length slices.\n"
             "  text is exactly what was spoken in that range.\n"
             "The concatenation of segment texts must cover the same words as "
             "full_transcript. Sort segments by start_sec. start_sec < end_sec."
@@ -295,7 +334,6 @@ class GeminiClient:
             prompt,
             schema=_TRANSCRIPT_SCHEMA,
             audio_path=asr_audio_path,
-            audio_timestamp=True,
             error_code=errors.ASR_FAILED,
         )
         full, drafts = normalize_transcript_segments(payload, duration_ms=duration_ms)
@@ -371,7 +409,6 @@ class GeminiClient:
             f"{prompt}\n\n{user}",
             schema=_TRANSLATION_SCHEMA,
             audio_path=None,
-            audio_timestamp=False,
             error_code=errors.TRANSLATION_FAILED,
         )
         wanted = [idx for idx, _, _ in items]
@@ -394,7 +431,6 @@ class GeminiClient:
         *,
         schema: dict[str, Any],
         audio_path: str | None,
-        audio_timestamp: bool,
         error_code: str,
     ) -> dict[str, Any]:
         file_name: str | None = None
@@ -404,29 +440,27 @@ class GeminiClient:
                 audio_part, file_name = await self._audio_part(audio_path)
                 parts.append(audio_part)
             parts.append({"text": prompt})
-            generation: dict[str, Any] = {
-                "temperature": 0.1,
-                "responseMimeType": "application/json",
-                "responseSchema": schema,
-                "thinkingConfig": {"thinkingLevel": "LOW"},
-            }
-            if audio_timestamp:
-                generation["audioTimestamp"] = True
-            body = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": generation,
-            }
+            generation = build_generation_config(schema)
             url = f"{self._base}/models/{self._model}:generateContent"
+            resp: httpx.Response | None = None
             try:
-                resp = await self._client.post(url, headers=self._headers, json=body)
+                for _ in range(3):
+                    body = {
+                        "contents": [{"role": "user", "parts": parts}],
+                        "generationConfig": generation,
+                    }
+                    resp = await self._client.post(
+                        url, headers=self._headers, json=body
+                    )
+                    if resp.status_code != 400:
+                        break
+                    if not strip_unknown_generation_field(generation, resp.text):
+                        break
             except httpx.HTTPError as exc:
                 raise PipelineError(
                     error_code, f"Gemini request failed: {exc}", retryable=True
                 ) from exc
-            if resp.status_code == 400 and "thinking" in (resp.text or "").lower():
-                generation.pop("thinkingConfig", None)
-                body["generationConfig"] = generation
-                resp = await self._client.post(url, headers=self._headers, json=body)
+            assert resp is not None
             _raise_for_status(resp, error_code)
             try:
                 raw = extract_gemini_text(resp.json())

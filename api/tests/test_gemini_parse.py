@@ -6,9 +6,11 @@ import pytest
 
 from app.worker.elevenlabs_client import v3_tagged_text
 from app.worker.gemini_client import (
+    build_generation_config,
     extract_gemini_text,
     normalize_transcript_segments,
     parse_clock_or_number_to_ms,
+    strip_unknown_generation_field,
 )
 from app.worker.locale_rules import spoken_char_budget
 
@@ -93,3 +95,19 @@ def test_extract_gemini_text_empty_is_retryable() -> None:
     with pytest.raises(PipelineError) as exc:
         extract_gemini_text({"candidates": [{"content": {"parts": [{"text": ""}]}}]})
     assert exc.value.retryable
+
+
+def test_generation_config_omits_vertex_audio_timestamp() -> None:
+    cfg = build_generation_config({"type": "object"})
+    assert "audioTimestamp" not in cfg
+    assert "audio_timestamp" not in cfg
+    assert cfg["responseMimeType"] == "application/json"
+
+
+def test_strip_unknown_audio_timestamp_field() -> None:
+    cfg = {"temperature": 0.1, "audioTimestamp": True}
+    error = (
+        'Unknown name "audioTimestamp" at \'generation_config\': Cannot find field.'
+    )
+    assert strip_unknown_generation_field(cfg, error) is True
+    assert "audioTimestamp" not in cfg
