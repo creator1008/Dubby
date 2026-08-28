@@ -198,7 +198,7 @@ def test_dub_mock_end_to_end(tmp_path: Path) -> None:
     messages = [m for _, m in repo.progress_log]
     for expected in (
         "stem_split",
-        "voice_clone_tts",
+        "dub_voice_tts",
         "tts",
         "mix_bgm",
         "burn_subtitles",

@@ -697,8 +697,12 @@ def test_gpt_chat_endpoint_stays_on_openai() -> None:
 
 
 def test_default_translation_model_is_openai() -> None:
-    settings = Settings(_env_file=None)
-    assert settings.translation_model == "gpt-4o-mini"
+    fields = Settings.model_fields
+    assert fields["stt_provider"].default == "gemini"
+    assert fields["translation_provider"].default == "gemini"
+    assert fields["gemini_model"].default == "gemini-3.7-flash"
+    assert fields["elevenlabs_tts_model"].default == "eleven_v3"
+    assert fields["translation_model"].default == "gpt-4o-mini"
 
 
 def test_parse_translation_content_missing_idx_is_retryable() -> None:

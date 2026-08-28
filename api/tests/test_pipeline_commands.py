@@ -38,8 +38,18 @@ def test_audio_extract_cmd_is_stereo_pcm_44100() -> None:
     assert cmd[-1] == "out.wav"
 
 
-def test_asr_audio_cmd_is_mono_16k_mp3() -> None:
+def test_asr_audio_cmd_gemini_is_48k_mp3() -> None:
     cmd = media.build_asr_audio_cmd(_settings(), "src.mp4", "asr.mp3")
+    assert cmd[cmd.index("-acodec") + 1] == "libmp3lame"
+    assert cmd[cmd.index("-ar") + 1] == "48000"
+    assert cmd[cmd.index("-ac") + 1] == "1"
+    assert cmd[cmd.index("-b:a") + 1] == "160k"
+
+
+def test_asr_audio_cmd_whisper_is_mono_16k_mp3() -> None:
+    cmd = media.build_asr_audio_cmd(
+        _settings(stt_provider="openai"), "src.mp4", "asr.mp3"
+    )
     assert cmd[cmd.index("-acodec") + 1] == "libmp3lame"
     assert cmd[cmd.index("-ar") + 1] == "16000"
     assert cmd[cmd.index("-ac") + 1] == "1"

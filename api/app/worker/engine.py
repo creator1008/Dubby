@@ -20,6 +20,7 @@ from ..config import Settings
 from . import errors, media, stems
 from .elevenlabs_client import ElevenLabsClient
 from .errors import PipelineError
+from .gemini_client import GeminiClient
 from .media import HeartbeatFn, MediaInfo
 from .openai_client import OpenAIClient, SegmentDraft, TranscribeResult
 
@@ -48,7 +49,12 @@ class Engine(ABC):
 
     @abstractmethod
     async def transcribe(
-        self, asr_audio_path: str, language: str
+        self,
+        asr_audio_path: str,
+        language: str,
+        *,
+        duration_seconds: float | None = None,
+        diarize: bool = False,
     ) -> TranscribeResult: ...
 
     @abstractmethod
@@ -210,6 +216,7 @@ class RealEngine(Engine):
         self._settings = settings
         self._heartbeat = heartbeat
         self._openai: OpenAIClient | None = None
+        self._gemini: GeminiClient | None = None
         self._elevenlabs: ElevenLabsClient | None = None
 
     @property
@@ -217,6 +224,12 @@ class RealEngine(Engine):
         if self._openai is None:
             self._openai = OpenAIClient(self._settings)
         return self._openai
+
+    @property
+    def gemini(self) -> GeminiClient:
+        if self._gemini is None:
+            self._gemini = GeminiClient(self._settings)
+        return self._gemini
 
     @property
     def elevenlabs(self) -> ElevenLabsClient:
@@ -264,8 +277,20 @@ class RealEngine(Engine):
         )
 
     async def transcribe(
-        self, asr_audio_path: str, language: str
+        self,
+        asr_audio_path: str,
+        language: str,
+        *,
+        duration_seconds: float | None = None,
+        diarize: bool = False,
     ) -> TranscribeResult:
+        if (self._settings.stt_provider or "").strip().lower() == "gemini":
+            return await self.gemini.transcribe(
+                asr_audio_path,
+                language,
+                duration_seconds=duration_seconds,
+                diarize=diarize,
+            )
         return await self.openai.transcribe(asr_audio_path, language)
 
     async def translate_batch(
@@ -276,6 +301,13 @@ class RealEngine(Engine):
         *,
         document_context: str | None = None,
     ) -> dict[int, str]:
+        if (self._settings.translation_provider or "").strip().lower() == "gemini":
+            return await self.gemini.translate_batch(
+                items,
+                source_lang,
+                target_lang,
+                document_context=document_context,
+            )
         return await self.openai.translate_batch(
             items,
             source_lang,
@@ -571,9 +603,15 @@ class MockEngine(Engine):
         _write_wav(audio_out, max(0.2, (end_ms - start_ms) / 1000))
 
     async def transcribe(
-        self, asr_audio_path: str, language: str
+        self,
+        asr_audio_path: str,
+        language: str,
+        *,
+        duration_seconds: float | None = None,
+        diarize: bool = False,
     ) -> TranscribeResult:
-        duration_ms = int(_wav_duration(asr_audio_path) * 1000) or 8000
+        del diarize
+        duration_ms = int((duration_seconds or _wav_duration(asr_audio_path)) * 1000) or 8000
         count = 3 if duration_ms >= 3000 else 1
         step = duration_ms // count
         drafts = [

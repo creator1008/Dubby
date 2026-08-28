@@ -48,7 +48,7 @@ async def _save_dub_meta(
     *,
     voice_ids: list[str] | None = None,
     voice_mode: str | None = None,
-    pipeline_version: str = "2.0",
+    pipeline_version: str = "3.0",
 ) -> None:
     key = storage.project_meta_key(owner_id, project_id, _DUB_VOICE_META)
     existing: dict = {}
@@ -64,7 +64,7 @@ async def _save_dub_meta(
         existing["voice_ids"] = [str(v).strip() for v in voice_ids if str(v).strip()][:8]
     if voice_mode is not None:
         existing["voice_mode"] = voice_mode if voice_mode in {"voice_box", "auto_clone"} else "voice_box"
-    existing["pipeline_version"] = pipeline_version or "2.0"
+    existing["pipeline_version"] = pipeline_version or "3.0"
     await storage.upload_bytes(
         json.dumps(existing).encode("utf-8"),
         key,
@@ -122,7 +122,7 @@ async def _with_dub_voices(
     if meta.get("pipeline_version"):
         out["pipeline_version"] = str(meta["pipeline_version"])
     elif not out.get("pipeline_version"):
-        out["pipeline_version"] = "2.0"
+        out["pipeline_version"] = "3.0"
     return out
 
 
@@ -186,7 +186,7 @@ async def create_project(
     voice_mode = body.voice_mode if body.voice_mode in {"voice_box", "auto_clone"} else "voice_box"
     owner_id = user.id
     project_id = UUID(str(row["id"]))
-    pipeline_version = body.pipeline_version or "2.0"
+    pipeline_version = body.pipeline_version or "3.0"
 
     async def _persist_meta() -> None:
         try:

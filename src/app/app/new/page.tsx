@@ -309,7 +309,7 @@ export default function NewDubPage() {
       tone_style: toneStyle,
       diarization_enabled: diarizationEnabled,
       voice_mode: voiceMode,
-      pipeline_version: "2.0",
+      pipeline_version: "3.0",
       dub_voice_ids: voiceMode === "voice_box" ? selectedDubVoiceIds : [],
     });
     if (inputMode === "file" && file) {

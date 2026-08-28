@@ -56,6 +56,7 @@ class SegmentDraft:
     start_ms: int
     end_ms: int
     text: str
+    speaker_id: str = "speaker_0"
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,10 @@ class TranscribeResult:
     drafts: list[SegmentDraft]
     speech_ranges: list[tuple[int, int]]
     words: list[TimedToken] = field(default_factory=list)
+    full_transcript: str = ""
+    speakers_labeled: bool = False
+    skip_proofread: bool = False
+    provider: str = "openai"
 
 
 # --- parsing (pure) -------------------------------------------------------------

@@ -2093,7 +2093,7 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
     base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
     target_language = str(manifest.get("target_language") or "")
     model = tts_model_for_language(
-        os.getenv("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5"),
+        os.getenv("ELEVENLABS_TTS_MODEL", "eleven_v3"),
         target_language,
     )
     output_dir = work_dir / "dubbed_speech"

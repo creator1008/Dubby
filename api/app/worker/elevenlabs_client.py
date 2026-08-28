@@ -21,21 +21,54 @@ logger = logging.getLogger("dubby.worker.elevenlabs")
 _TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=300.0, pool=10.0)
 
 
-# Languages that need Flash when the configured model is multilingual.
-# Prefer Flash by default for cost/latency; multilingual remains opt-in via env.
-_FLASH_V25_LANGUAGES = frozenset({"vi", "ur"})
+# multilingual_v2 does not support Vietnamese/Urdu; Ver 3.0 uses v3 instead.
+_V3_ONLY_LANGUAGES = frozenset({"vi", "ur", "th"})
+
+_V3_STABILITY = {
+    "sad": 1.0,
+    "whisper": 1.0,
+    "calm": 0.5,
+    "cheerful": 0.5,
+    "angry": 0.0,
+    "excited": 0.0,
+    "energetic": 0.0,
+}
+
+_V3_AUDIO_TAGS = {
+    "whisper": "[whispers] ",
+    "excited": "[excited] ",
+    "angry": "[angry] ",
+    "sad": "[sad] ",
+    "cheerful": "[happily] ",
+    "energetic": "[excited] ",
+}
 
 
 def tts_model_for_language(configured_model: str, language: str) -> str:
     """Select a model that actually supports the requested language."""
     normalized = language.strip().lower().split("-", 1)[0]
-    configured = (configured_model or "eleven_flash_v2_5").strip()
-    if normalized in _FLASH_V25_LANGUAGES and configured in {
+    configured = (configured_model or "eleven_v3").strip()
+    if configured in {"eleven_v3", "eleven_v3_conversational"}:
+        return configured
+    if normalized in _V3_ONLY_LANGUAGES and configured in {
         "eleven_multilingual_v1",
         "eleven_multilingual_v2",
     }:
-        return "eleven_flash_v2_5"
+        return "eleven_v3"
     return configured
+
+
+def _is_eleven_v3(model: str) -> bool:
+    return (model or "").startswith("eleven_v3")
+
+
+def v3_tagged_text(text: str, tone_style: str) -> str:
+    prefix = _V3_AUDIO_TAGS.get((tone_style or "").strip().lower(), "")
+    if not prefix:
+        return text
+    if text.startswith("["):
+        return text
+    return f"{prefix}{text}"
 
 
 def _raise_for_status(resp: httpx.Response, code: str) -> None:
@@ -304,18 +337,35 @@ class ElevenLabsClient:
             max(float(speed), 0.7),
             1.2,
         )
-        body = {
-            "text": text,
-            "model_id": model,
-            "voice_settings": {
-                **voice_settings,
-                "use_speaker_boost": True,
-                "speed": clamped_speed,
-            },
-            "apply_text_normalization": "on",
-        }
-        if language and model != "eleven_multilingual_v2":
-            body["language_code"] = language.strip().lower().split("-", 1)[0]
+        lang_code = language.strip().lower().split("-", 1)[0] if language else ""
+        if _is_eleven_v3(model):
+            body: dict = {
+                "text": v3_tagged_text(text, tone_style),
+                "model_id": model,
+                "voice_settings": {
+                    "stability": _V3_STABILITY.get(
+                        (tone_style or "").strip().lower(), 0.5
+                    ),
+                    "similarity_boost": float(
+                        voice_settings.get("similarity_boost", 0.75)
+                    ),
+                },
+            }
+            if lang_code:
+                body["language_code"] = lang_code
+        else:
+            body = {
+                "text": text,
+                "model_id": model,
+                "voice_settings": {
+                    **voice_settings,
+                    "use_speaker_boost": True,
+                    "speed": clamped_speed,
+                },
+                "apply_text_normalization": "on",
+            }
+            if lang_code and model != "eleven_multilingual_v2":
+                body["language_code"] = lang_code
         attempts = max(1, self._settings.pipeline_step_retries + 1)
         last_error: Exception | None = None
         for attempt in range(1, attempts + 1):

@@ -122,13 +122,26 @@ def build_audio_extract_cmd(
 
 
 def build_asr_audio_cmd(settings: Settings, source: str, mp3_out: str) -> list[str]:
-    """Compact mono MP3 that stays under the Whisper API's 25 MB cap.
+    """Extract dialogue audio for STT.
 
-    Matches local_step12 speech band-limiting (highpass/lowpass) before 16 kHz
-    downsample so Whisper sees cleaner dialogue and fewer music hallucinations.
+    Gemini Ver 3.0 gets a wider-band 48 kHz 160 kbps mono MP3 (no Whisper
+    25 MB cap). OpenAI Whisper keeps the compact 16 kHz 64 kbps band-limited
+    file so uploads stay under the API limit.
     """
+    ffmpeg = _ffmpeg(settings)
+    if (getattr(settings, "stt_provider", "gemini") or "gemini").strip().lower() == "gemini":
+        return [
+            ffmpeg, "-y", "-nostdin",
+            "-i", source,
+            "-vn",
+            "-acodec", "libmp3lame",
+            "-ar", "48000",
+            "-ac", "1",
+            "-b:a", "160k",
+            mp3_out,
+        ]
     return [
-        _ffmpeg(settings), "-y", "-nostdin",
+        ffmpeg, "-y", "-nostdin",
         "-i", source,
         "-vn",
         "-af", "highpass=f=60,lowpass=f=7800",

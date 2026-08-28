@@ -556,7 +556,7 @@ def _chunks_from_whisper_drafts(
                 start_ms=draft.start_ms,
                 end_ms=draft.end_ms,
                 text=text,
-                speaker_id="speaker_0",
+                speaker_id=draft.speaker_id or "speaker_0",
                 words=overlapping,
             )
         )
@@ -583,7 +583,7 @@ async def _load_speech_ranges(
 
 
 async def run_transcribe(ctx: JobContext) -> None:
-    """transcribe: R2 source -> validate -> ASR -> translate -> segments rows.
+    """transcribe: R2 source -> Gemini full STT -> document translate -> segments.
 
     Project: * -> processing -> ready_for_edit (failed on error).
     """
@@ -616,7 +616,12 @@ async def run_transcribe(ctx: JobContext) -> None:
         await ctx.report(0.35, "asr")
         transcribe_result = await _with_retries(
             ctx,
-            lambda: engine.transcribe(str(asr_audio), str(project["source_lang"])),
+            lambda: engine.transcribe(
+                str(asr_audio),
+                str(project["source_lang"]),
+                duration_seconds=info.duration_seconds,
+                diarize=bool(project.get("diarization_enabled")),
+            ),
             step="asr",
         )
         drafts = list(transcribe_result.drafts)
@@ -634,7 +639,14 @@ async def run_transcribe(ctx: JobContext) -> None:
 
         speaker_turns: list[tuple[int, int, str, str]] | None = None
         source_lang = str(project.get("source_lang") or "").strip()
-        if bool(project.get("diarization_enabled")):
+        use_gemini_speakers = bool(
+            transcribe_result.speakers_labeled
+            and project.get("diarization_enabled")
+        )
+        if (
+            bool(project.get("diarization_enabled"))
+            and not use_gemini_speakers
+        ):
             provider = create_diarization_provider(ctx.settings)
             if provider is None:
                 quality_warnings.append(
@@ -658,7 +670,7 @@ async def run_transcribe(ctx: JobContext) -> None:
                     quality_warnings.append("diarization_empty_turns_single_speaker_fallback")
 
         await ctx.report(0.58, "segment_timing")
-        # Ver 1.0 local_step12: Whisper segment text is the transcript.
+        # Ver 3.0: Gemini (or Whisper) segment text is the transcript.
         # Do not regroup words into breath utterances, refill gaps, or
         # overwrite drafts with diarization turn text.
         chunks = _chunks_from_whisper_drafts(drafts, words)
@@ -667,31 +679,39 @@ async def run_transcribe(ctx: JobContext) -> None:
 
         chunks = dedupe_boundary_overlaps(chunks)
 
-        await ctx.report(0.62, "correct_asr")
-        correction_items = [(i, c.text) for i, c in enumerate(chunks) if c.text.strip()]
-        try:
-            corrected = await _with_retries(
-                ctx,
-                lambda: engine.correct_transcript(
-                    correction_items, str(project["source_lang"])
-                ),
-                step="correct_asr",
-            )
-            chunks = _apply_corrected_texts(chunks, corrected)
-        except PipelineError as exc:
-            logger.warning("ASR correction skipped: %s", exc)
-            quality_warnings.append("asr_correction_skipped")
+        if transcribe_result.skip_proofread:
+            quality_warnings.append("gemini_full_transcript")
+        else:
+            await ctx.report(0.62, "correct_asr")
+            correction_items = [(i, c.text) for i, c in enumerate(chunks) if c.text.strip()]
+            try:
+                corrected = await _with_retries(
+                    ctx,
+                    lambda: engine.correct_transcript(
+                        correction_items, str(project["source_lang"])
+                    ),
+                    step="correct_asr",
+                )
+                chunks = _apply_corrected_texts(chunks, corrected)
+            except PipelineError as exc:
+                logger.warning("ASR correction skipped: %s", exc)
+                quality_warnings.append("asr_correction_skipped")
 
         chunks = dedupe_boundary_overlaps(chunks)
         if not chunks:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
 
-        speaker_assignments: list[tuple[str | None, bool]] = [
-            (c.speaker_id or "speaker_0", False) for c in chunks
-        ]
-        if bool(project.get("diarization_enabled")) and speaker_turns is None:
+        speaker_assignments: list[tuple[str | None, bool]]
+        if not bool(project.get("diarization_enabled")):
+            speaker_assignments = [("speaker_0", False) for _ in chunks]
+        elif use_gemini_speakers:
+            speaker_assignments = collapse_minor_speakers(
+                [(c.speaker_id or "speaker_1", False) for c in chunks],
+                [(c.start_ms, c.end_ms) for c in chunks],
+            )
+        elif speaker_turns is None:
             speaker_assignments = [(None, False) for _ in chunks]
-        elif speaker_turns:
+        else:
             # Always resolve speakers by time overlap. Keep majority speaker even
             # when overlap is soft — never clear speaker_id (that collapses voices).
             timed = assign_speakers(
@@ -713,10 +733,9 @@ async def run_transcribe(ctx: JobContext) -> None:
             quality_warnings.append("overlapping_speakers_majority_voice")
 
         await ctx.report(0.72, "translate")
-        # Per-segment translation with full-transcript context. Document-level
-        # translate + LLM align used to bleed clauses onto neighbor idxs
-        # (e.g. "I've been thinking…" attached to the next short line).
-        full_source = "\n".join(
+        # Full-document translation (Gemini) then per-idx spoken lines with
+        # duration / character budgets. Document context is the complete STT.
+        full_source = (transcribe_result.full_transcript or "").strip() or "\n".join(
             f"[{i}] {c.text.strip()}" for i, c in enumerate(chunks) if c.text.strip()
         )
         translate_items = [

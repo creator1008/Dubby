@@ -114,7 +114,14 @@ class Settings(BaseSettings):
     demucs_device: str = "cpu"  # cpu | cuda
     demucs_jobs: int = Field(default=2, ge=1, le=16)
 
-    # --- OpenAI (Whisper ASR + GPT translation) --------------------------------
+    # --- Gemini 3.7 Flash (Ver 3.0 STT + translation) --------------------------
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_model: str = "gemini-3.7-flash"
+    stt_provider: Literal["gemini", "openai"] = "gemini"
+    translation_provider: Literal["gemini", "openai", "xai"] = "gemini"
+
+    # --- OpenAI (Whisper ASR + GPT translation fallback / diarize / align) -----
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     whisper_model: str = "whisper-1"
@@ -137,8 +144,8 @@ class Settings(BaseSettings):
     # --- ElevenLabs (voice clone + TTS) ----------------------------------------
     elevenlabs_api_key: str = ""
     elevenlabs_base_url: str = "https://api.elevenlabs.io"
-    # Flash is faster/cheaper; set eleven_multilingual_v2 for max quality.
-    elevenlabs_tts_model: str = "eleven_flash_v2_5"
+    # Ver 3.0 default: Eleven v3 (70+ languages including Vietnamese).
+    elevenlabs_tts_model: str = "eleven_v3"
     # When set, skip Instant Voice Clone and always use this voice.
     elevenlabs_voice_id: str = ""
     # Parallel TTS requests per dub job (cost unchanged; wall-clock drops).
@@ -296,6 +303,12 @@ class Settings(BaseSettings):
             xai_key = (self.xai_api_key or "").strip().strip("\"'")
             if grok and (not xai_key or xai_key.startswith("sk-")):
                 missing.append("XAI_API_KEY (Grok key from console.x.ai, starts with xai-)")
+            uses_gemini = (
+                (self.stt_provider or "").strip().lower() == "gemini"
+                or (self.translation_provider or "").strip().lower() == "gemini"
+            )
+            if uses_gemini and not (self.gemini_api_key or "").strip():
+                missing.append("GEMINI_API_KEY")
             if self.pipeline_mode != "real":
                 raise ValueError("APP_ENV=production requires PIPELINE_MODE=real")
             if missing:

@@ -40,6 +40,29 @@ def korean_spoken_from_millions(millions: float) -> str:
     return " ".join(parts) if parts else "0"
 
 
+# Spoken characters per second for dubbing length (including spaces).
+_SPOKEN_CHARS_PER_SEC: dict[str, float] = {
+    "ko": 9.0,
+    "zh": 6.0,
+    "ja": 7.5,
+    "vi": 12.0,
+    "en": 14.0,
+    "es": 14.0,
+    "fr": 13.0,
+    "de": 13.0,
+    "pt": 14.0,
+    "id": 13.0,
+    "th": 10.0,
+}
+
+
+def spoken_char_budget(language: str, seconds: float) -> int:
+    """Soft max characters that fit a voice-over slot at a natural pace."""
+    lang = (language or "").strip().lower().split("-", 1)[0]
+    rate = _SPOKEN_CHARS_PER_SEC.get(lang, 12.0)
+    return max(8, int(round(max(0.35, seconds) * rate)))
+
+
 def translation_pair_rules(source_lang: str, target_lang: str) -> str:
     """Extra system-prompt rules for a language pair (may be empty)."""
     src = (source_lang or "").strip().lower()

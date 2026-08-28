@@ -31,14 +31,12 @@ def test_group_words_splits_on_sentence_punctuation_and_long_gap() -> None:
 
 
 def test_vietnamese_uses_supported_elevenlabs_model() -> None:
-    assert (
-        tts_model_for_language("eleven_multilingual_v2", "vi")
-        == "eleven_flash_v2_5"
-    )
+    assert tts_model_for_language("eleven_multilingual_v2", "vi") == "eleven_v3"
     assert (
         tts_model_for_language("eleven_multilingual_v2", "ko")
         == "eleven_multilingual_v2"
     )
+    assert tts_model_for_language("eleven_v3", "vi") == "eleven_v3"
     assert tts_model_for_language("eleven_flash_v2_5", "ko") == "eleven_flash_v2_5"
     assert tts_model_for_language("eleven_flash_v2_5", "en") == "eleven_flash_v2_5"
 

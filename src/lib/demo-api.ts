@@ -622,7 +622,7 @@ export const demoApi = {
         diarization_enabled: body.diarization_enabled,
         dub_voice_ids: body.dub_voice_ids ?? [],
         voice_mode: body.voice_mode ?? "voice_box",
-        pipeline_version: body.pipeline_version ?? "2.0",
+        pipeline_version: body.pipeline_version ?? "3.0",
         duration_seconds: null,
         source_key: null,
         output_key: null,
