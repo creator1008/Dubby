@@ -74,6 +74,10 @@ const QUALITY_WARNING_KO: Record<string, string> = {
     "화자 구간이 겹쳐 기본 보이스를 사용했습니다.",
   overlapping_speakers_majority_voice:
     "화자 구간이 일부 겹쳐 비중이 큰 화자 목소리를 사용했습니다.",
+  diarization_split_speaker_turns:
+    "화자가 바뀌는 지점에서 자막을 나눴습니다.",
+  diarization_failed_gemini_speakers_fallback:
+    "화자 분리 API가 실패해 음성 인식 화자 라벨을 사용했습니다.",
   voice_add_edit_limit_default_voice:
     "월간 사용 VOICE ID 한도가 초과되어 기본 음성을 사용했습니다.",
 };
@@ -98,6 +102,10 @@ const QUALITY_WARNING_EN: Record<string, string> = {
     "Overlapping speakers detected; used the default voice.",
   overlapping_speakers_majority_voice:
     "Overlapping speakers detected; used the majority speaker voice.",
+  diarization_split_speaker_turns:
+    "Captions were split where the speaker changed.",
+  diarization_failed_gemini_speakers_fallback:
+    "Speaker diarization failed; used speech-to-text speaker labels.",
   voice_add_edit_limit_default_voice:
     "Monthly Voice ID limit reached; used a default registered voice.",
 };
@@ -122,6 +130,10 @@ const QUALITY_WARNING_VI: Record<string, string> = {
     "Người nói chồng chéo; dùng giọng mặc định.",
   overlapping_speakers_majority_voice:
     "Người nói chồng chéo; dùng giọng của người nói chiếm ưu thế.",
+  diarization_split_speaker_turns:
+    "Đã tách phụ đề khi người nói thay đổi.",
+  diarization_failed_gemini_speakers_fallback:
+    "Tách người nói thất bại; dùng nhãn người nói từ nhận dạng giọng nói.",
   voice_add_edit_limit_default_voice:
     "Đã vượt hạn mức Voice ID tháng; đã dùng giọng mặc định đã đăng ký.",
 };

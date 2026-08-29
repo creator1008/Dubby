@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -179,6 +180,86 @@ def assign_speakers(
         speaker = ranked[0][0] if ranked and total > 0 else None
         assigned.append((speaker, ambiguous))
     return assigned
+
+
+_TEXT_TOKEN_RE = re.compile(r"\S+")
+
+
+def split_text_by_weights(text: str, weights: list[int]) -> list[str]:
+    """Split ``text`` into ``len(weights)`` pieces proportional to weights."""
+    tokens = _TEXT_TOKEN_RE.findall(text or "")
+    if not weights:
+        return []
+    if len(weights) == 1:
+        return [text.strip()]
+    if not tokens:
+        return [""] * len(weights)
+    safe = [max(1, int(w)) for w in weights]
+    total_w = sum(safe)
+    raw_counts = [max(1, round(len(tokens) * w / total_w)) for w in safe]
+    while sum(raw_counts) > len(tokens):
+        i = max(range(len(raw_counts)), key=lambda j: (raw_counts[j], j))
+        if raw_counts[i] <= 1:
+            break
+        raw_counts[i] -= 1
+    while sum(raw_counts) < len(tokens):
+        raw_counts[-1] += 1
+    pieces: list[str] = []
+    idx = 0
+    for count in raw_counts:
+        pieces.append(" ".join(tokens[idx : idx + count]).strip())
+        idx += count
+    return pieces
+
+
+def split_timed_texts_on_turns(
+    segments: list[tuple[int, int, str, str]],
+    turns: list[SpeakerTurn],
+    *,
+    min_overlap_ms: int = 400,
+) -> list[tuple[int, int, str, str]]:
+    """Cut transcript segments wherever diarization speaker turns change.
+
+    Gemini STT often labels A/B but merges a whole conversation into one or two
+    long captions. OpenAI/pyannote turns supply the real change points; Gemini
+    wording is kept and sliced by duration share.
+    """
+    unique = {(t.speaker_id or "").strip() for t in turns if (t.speaker_id or "").strip()}
+    if len(unique) < 2 or not segments:
+        return segments
+
+    out: list[tuple[int, int, str, str]] = []
+    for start, end, text, speaker in segments:
+        overlapping = [
+            turn
+            for turn in turns
+            if max(0, min(end, turn.end_ms) - max(start, turn.start_ms)) >= min_overlap_ms
+        ]
+        overlapping.sort(key=lambda t: (t.start_ms, t.end_ms))
+        if len(overlapping) <= 1:
+            sid = overlapping[0].speaker_id if overlapping else speaker
+            out.append((start, end, text, sid or speaker))
+            continue
+        weights = [
+            max(1, min(end, turn.end_ms) - max(start, turn.start_ms))
+            for turn in overlapping
+        ]
+        pieces = split_text_by_weights(text, weights)
+        emitted = 0
+        for turn, piece in zip(overlapping, pieces):
+            piece_start = max(start, turn.start_ms)
+            piece_end = min(end, turn.end_ms)
+            if piece_end <= piece_start:
+                continue
+            spoken = (piece or turn.text or "").strip()
+            if not spoken:
+                continue
+            out.append((piece_start, piece_end, spoken, turn.speaker_id or speaker))
+            emitted += 1
+        if emitted == 0:
+            out.append((start, end, text, speaker))
+    out.sort(key=lambda row: (row[0], row[1]))
+    return out
 
 
 def collapse_minor_speakers(

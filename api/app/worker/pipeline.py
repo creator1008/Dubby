@@ -43,6 +43,7 @@ from .diarization import (
     collapse_minor_speakers,
     create_diarization_provider,
     normalize_speaker_ids,
+    split_timed_texts_on_turns,
 )
 from .dub_quality import (
     cap_segment_ends_to_neighbors,
@@ -563,6 +564,34 @@ def _chunks_from_whisper_drafts(
     return chunks
 
 
+def _chunks_from_split_rows(
+    originals: list[UtteranceChunk],
+    rows: list[tuple[int, int, str, str]],
+) -> list[UtteranceChunk]:
+    """Rebuild chunks after cutting captions on diarization turn boundaries."""
+    all_words = tuple(word for chunk in originals for word in chunk.words)
+    out: list[UtteranceChunk] = []
+    for start_ms, end_ms, text, speaker_id in rows:
+        spoken = (text or "").strip()
+        if not spoken or end_ms <= start_ms:
+            continue
+        overlapping = tuple(
+            word
+            for word in all_words
+            if word.start_ms < end_ms and word.end_ms > start_ms
+        )
+        out.append(
+            UtteranceChunk(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                text=spoken,
+                speaker_id=speaker_id or "speaker_1",
+                words=overlapping,
+            )
+        )
+    return out or originals
+
+
 async def _load_speech_ranges(
     ctx: JobContext, source_key: str, scratch: Path
 ) -> list[tuple[int, int]]:
@@ -637,47 +666,70 @@ async def run_transcribe(ctx: JobContext) -> None:
             scratch,
         )
 
-        speaker_turns: list[tuple[int, int, str, str]] | None = None
+        speaker_turns: list[SpeakerTurn] = []
         source_lang = str(project.get("source_lang") or "").strip()
-        use_gemini_speakers = bool(
-            transcribe_result.speakers_labeled
-            and project.get("diarization_enabled")
-        )
-        if (
-            bool(project.get("diarization_enabled"))
-            and not use_gemini_speakers
-        ):
+        await ctx.report(0.58, "segment_timing")
+        # Ver 3.0: Gemini (or Whisper) segment text is the transcript.
+        # Do not regroup words into breath utterances or refill gaps.
+        chunks = _chunks_from_whisper_drafts(drafts, words)
+        if not chunks:
+            raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
+
+        chunks = dedupe_boundary_overlaps(chunks)
+
+        if bool(project.get("diarization_enabled")):
             provider = create_diarization_provider(ctx.settings)
             if provider is None:
                 quality_warnings.append(
                     "diarization_provider_unavailable_single_speaker_fallback"
                 )
             else:
-                await ctx.report(0.55, "diarization")
-                turns = await _with_retries(
-                    ctx,
-                    lambda: provider.diarize(str(asr_audio), language=source_lang or None),
-                    step="diarization",
-                )
-                turns = normalize_speaker_ids(
-                    [turn for turn in turns if turn.end_ms > turn.start_ms]
-                )
-                speaker_turns = [
-                    (turn.start_ms, turn.end_ms, turn.speaker_id, turn.text)
-                    for turn in turns
-                ] or None
-                if speaker_turns is None:
-                    quality_warnings.append("diarization_empty_turns_single_speaker_fallback")
-
-        await ctx.report(0.58, "segment_timing")
-        # Ver 3.0: Gemini (or Whisper) segment text is the transcript.
-        # Do not regroup words into breath utterances, refill gaps, or
-        # overwrite drafts with diarization turn text.
-        chunks = _chunks_from_whisper_drafts(drafts, words)
-        if not chunks:
-            raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
-
-        chunks = dedupe_boundary_overlaps(chunks)
+                await ctx.report(0.60, "diarization")
+                try:
+                    raw_turns = await _with_retries(
+                        ctx,
+                        lambda: provider.diarize(
+                            str(asr_audio), language=source_lang or None
+                        ),
+                        step="diarization",
+                    )
+                    speaker_turns = normalize_speaker_ids(
+                        [turn for turn in raw_turns if turn.end_ms > turn.start_ms]
+                    )
+                except PipelineError as exc:
+                    logger.warning("Diarization skipped: %s", exc)
+                    quality_warnings.append(
+                        "diarization_failed_gemini_speakers_fallback"
+                    )
+                    speaker_turns = []
+                unique_turns = {
+                    str(turn.speaker_id or "").strip()
+                    for turn in speaker_turns
+                    if str(turn.speaker_id or "").strip()
+                }
+                if not speaker_turns:
+                    if "diarization_failed_gemini_speakers_fallback" not in quality_warnings:
+                        quality_warnings.append(
+                            "diarization_empty_turns_single_speaker_fallback"
+                        )
+                elif len(unique_turns) >= 2:
+                    before = len(chunks)
+                    split_rows = split_timed_texts_on_turns(
+                        [
+                            (
+                                chunk.start_ms,
+                                chunk.end_ms,
+                                chunk.text,
+                                chunk.speaker_id or "speaker_1",
+                            )
+                            for chunk in chunks
+                        ],
+                        speaker_turns,
+                    )
+                    chunks = _chunks_from_split_rows(chunks, split_rows)
+                    chunks = dedupe_boundary_overlaps(chunks)
+                    if len(chunks) > before:
+                        quality_warnings.append("diarization_split_speaker_turns")
 
         if transcribe_result.skip_proofread:
             quality_warnings.append("gemini_full_transcript")
@@ -704,29 +756,21 @@ async def run_transcribe(ctx: JobContext) -> None:
         speaker_assignments: list[tuple[str | None, bool]]
         if not bool(project.get("diarization_enabled")):
             speaker_assignments = [("speaker_0", False) for _ in chunks]
-        elif use_gemini_speakers:
-            speaker_assignments = collapse_minor_speakers(
-                [(c.speaker_id or "speaker_1", False) for c in chunks],
-                [(c.start_ms, c.end_ms) for c in chunks],
-            )
-        elif speaker_turns is None:
-            speaker_assignments = [(None, False) for _ in chunks]
-        else:
-            # Always resolve speakers by time overlap. Keep majority speaker even
-            # when overlap is soft — never clear speaker_id (that collapses voices).
+        elif len({str(t.speaker_id or "").strip() for t in speaker_turns if str(t.speaker_id or "").strip()}) >= 2:
             timed = assign_speakers(
                 [(c.start_ms, c.end_ms) for c in chunks],
-                [
-                    SpeakerTurn(start, end, speaker, text)
-                    for start, end, speaker, text in speaker_turns
-                ],
+                speaker_turns,
             )
             refined: list[tuple[str | None, bool]] = []
             for chunk, (spk, overlap) in zip(chunks, timed):
                 refined.append((spk or chunk.speaker_id or "speaker_1", overlap))
-            # Drop tiny spurious labels (e.g. 1–2 micro turns as speaker_2).
             speaker_assignments = collapse_minor_speakers(
                 refined,
+                [(c.start_ms, c.end_ms) for c in chunks],
+            )
+        else:
+            speaker_assignments = collapse_minor_speakers(
+                [(c.speaker_id or "speaker_1", False) for c in chunks],
                 [(c.start_ms, c.end_ms) for c in chunks],
             )
         if any(overlap for _, overlap in speaker_assignments):

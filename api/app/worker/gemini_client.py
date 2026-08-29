@@ -307,7 +307,10 @@ class GeminiClient:
         lang = LANGUAGE_NAMES.get(language, language)
         speaker_rule = (
             "Assign a stable speaker label (A, B, C, …) so the same person keeps "
-            "the same letter across the whole clip. Split when the speaker changes."
+            "the same letter across the whole clip. "
+            "Dialogue, couples, and interviews: every time a different person "
+            "starts talking, start a NEW segment. Never put two people in one "
+            "segment. Typical dialogue turns are 0.8–6 seconds."
             if diarize
             else "This is treated as a single narrator: set speaker to A on every segment."
         )
@@ -341,12 +344,17 @@ class GeminiClient:
             raise PipelineError(errors.NO_SEGMENTS, "Gemini produced no speech segments")
         if not full:
             full = " ".join(d.text for d in drafts)
+        unique_speakers = {
+            str(draft.speaker_id or "").strip()
+            for draft in drafts
+            if str(draft.speaker_id or "").strip()
+        }
         return TranscribeResult(
             drafts=drafts,
             speech_ranges=[(d.start_ms, d.end_ms) for d in drafts],
             words=[],
             full_transcript=full,
-            speakers_labeled=True,
+            speakers_labeled=bool(diarize and len(unique_speakers) >= 2),
             skip_proofread=True,
             provider="gemini",
         )

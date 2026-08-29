@@ -49,3 +49,38 @@ def test_collapse_keeps_two_balanced_speakers() -> None:
         "speaker_1",
         "speaker_2",
     ]
+
+
+def test_split_text_by_weights_keeps_all_tokens() -> None:
+    from app.worker.diarization import split_text_by_weights
+
+    pieces = split_text_by_weights("one two three four five six", [2, 1, 3])
+    assert " ".join(pieces).split() == ["one", "two", "three", "four", "five", "six"]
+    assert len(pieces) == 3
+
+
+def test_split_timed_texts_cuts_merged_couple_caption() -> None:
+    from app.worker.diarization import SpeakerTurn, split_timed_texts_on_turns
+
+    # couple-like: Gemini merged the man's line and a woman's interjection.
+    segments = [
+        (
+            600,
+            8800,
+            "Toi thuong co ay la thuong that long chu hong phai vi tien dau nha",
+            "speaker_1",
+        ),
+        (10000, 13000, "Nut luoi cai em moi tin", "speaker_2"),
+    ]
+    turns = [
+        SpeakerTurn(600, 3200, "speaker_1"),
+        SpeakerTurn(3200, 5200, "speaker_2"),
+        SpeakerTurn(5200, 8800, "speaker_1"),
+        SpeakerTurn(10000, 13000, "speaker_2"),
+    ]
+    split = split_timed_texts_on_turns(segments, turns)
+    speakers = [row[3] for row in split]
+    assert len(split) >= 3
+    assert "speaker_1" in speakers and "speaker_2" in speakers
+    assert split[0][0] == 600
+    assert any(row[0] >= 10000 for row in split)
