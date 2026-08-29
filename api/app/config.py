@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     demucs_model: str = "htdemucs"
     demucs_device: str = "cpu"  # cpu | cuda
     demucs_jobs: int = Field(default=2, ge=1, le=16)
+    # Linear gain of the Demucs accompaniment stem under dubbed speech (0–1).
+    # 0.15 made travel-vlog BGM inaudible; ~0.6 keeps music without a loud vocal ghost.
+    mix_no_vocals_in_mask: float = Field(default=0.6, ge=0.05, le=1.0)
 
     # --- Gemini 3.7 Flash (Ver 3.0 STT + translation) --------------------------
     gemini_api_key: str = ""

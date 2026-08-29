@@ -114,6 +114,18 @@ def test_dub_voice_removal_fills_mid_phrase_gaps() -> None:
     assert filled[0][1] >= 13940
 
 
+def test_dub_voice_removal_keeps_bgm_gap_between_separate_lines() -> None:
+    from app.worker.dub_quality import voice_removal_ranges
+
+    filled = voice_removal_ranges(
+        [],
+        [(0, 2000), (3000, 4500)],
+        fill_interiors=True,
+    )
+    # 800ms between lines must not be coalesced into one mute (that kills BGM).
+    assert len(filled) == 2
+
+
 def test_dub_voice_removal_covers_word_ranges_outside_kept_segments() -> None:
     from app.worker.dub_quality import voice_removal_ranges
 

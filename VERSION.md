@@ -4,7 +4,7 @@
 |---------|---------|--------|
 | **1.0** | `v1.0.0` | Pre-redesign pipeline: My Voice Box TTS, Demucs selective bed, full-job dub. Frozen at tag `v1.0.0`. |
 | **2.0** | `v2.0.0` | Whisper-1 STT, gpt-4o-mini translation, ElevenLabs Flash TTS, selective Demucs mix. Frozen at tag `v2.0.0`. |
-| **3.0** | (main) | Gemini 3.7 Flash full-document STT + spoken translation + timestamps/speakers, ElevenLabs v3 TTS. `3.0.1`–`3.0.3` Gemini 400 / YouTube ingest. `3.0.4` splits Gemini captions on OpenAI diarization turns so couple/dialogue videos keep 화자 1/2. |
+| **3.0** | (main) | Gemini 3.7 Flash full-document STT + spoken translation + timestamps/speakers, ElevenLabs v3 TTS. `3.0.5` keeps travel-vlog BGM under the dub (Demucs bed 0.6, no music-VAD mute). |
 
 Restore V2 tree:
 

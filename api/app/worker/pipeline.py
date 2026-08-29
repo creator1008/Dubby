@@ -60,7 +60,6 @@ from .media import (
     ffmpeg_has_rubberband,
     merge_speech_ranges,
     validate_source,
-    vocal_energy_ranges,
 )
 from .openai_client import SegmentDraft
 from .subtitles import build_ass
@@ -986,12 +985,12 @@ async def run_dub(ctx: JobContext) -> None:
         next_start_by_idx = next_start_by_segment_idx(segments)
 
         # Demucs stems: IVC samples / loudness; mix bed rebuilt after TTS timing.
-        # Soft volume ducking left original speech audible under the dub (phuc).
+        # Do not union vocal-energy VAD into the mix mask — music bleed on the
+        # vocals stem was treated as speech and muted the original BGM (jeju1).
         await ctx.report(0.15, "stem_split")
         stems_dir = scratch / "stems"
         stems_dir.mkdir()
         vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
-        vad_ranges = await asyncio.to_thread(vocal_energy_ranges, str(vocals))
 
         segment_bounds = [
             (
@@ -1438,9 +1437,7 @@ async def run_dub(ctx: JobContext) -> None:
         final_bounds = final_voice_removal_bounds(list(refined), next_start_by_idx)
         if not final_bounds:
             final_bounds = segment_bounds
-        mix_speech_ranges = merge_speech_ranges(
-            list(saved_ranges or []) + list(vad_ranges or [])
-        )
+        mix_speech_ranges = merge_speech_ranges(list(saved_ranges or []))
         removal_ranges = voice_removal_ranges(
             mix_speech_ranges,
             final_bounds,
@@ -1452,7 +1449,7 @@ async def run_dub(ctx: JobContext) -> None:
             no_vocals,
             removal_ranges,
             str(selective_bed),
-            no_vocals_in_mask=0.15,
+            no_vocals_in_mask=ctx.settings.mix_no_vocals_in_mask,
         )
 
         await ctx.report(0.78, "mix_bgm")

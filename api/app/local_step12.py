@@ -2369,7 +2369,7 @@ def _build_selective_speech_removed_bed(
     ranges_ms: list[tuple[int, int]],
     output: Path,
     *,
-    no_vocals_in_mask: float = 0.35,
+    no_vocals_in_mask: float = 0.6,
 ) -> None:
     """Remove vocals only while ASR-recognized language is present.
 

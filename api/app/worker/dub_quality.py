@@ -168,10 +168,10 @@ def voice_removal_ranges(
         covered = cover_recognized_phrase_boundaries(saved_ranges, segment_bounds)
     return harden_voice_removal_ranges(
         covered,
-        # Wider coalesce for dub so short residual syllables disappear.
-        merge_gap_ms=900 if fill_interiors else 420,
-        lead_ms=320 if fill_interiors else 280,
-        trail_ms=320 if fill_interiors else 240,
+        # Keep short gaps between lines so original BGM is not wiped (jeju1).
+        merge_gap_ms=480 if fill_interiors else 420,
+        lead_ms=180 if fill_interiors else 280,
+        trail_ms=180 if fill_interiors else 240,
     )
 
 
