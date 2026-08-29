@@ -15,6 +15,8 @@ from app.remote_media import (
     normalize_remote_media_url,
     _is_cookie_auth_error,
     _is_facebook_share_url,
+    _is_youtube_bot_check,
+    _raise_ytdlp_error,
     _strip_ansi,
     _ytdlp_attempt_cookie_opts,
     _ytdlp_cookie_option_sets,
@@ -118,6 +120,26 @@ def test_is_cookie_auth_error_detects_tiktok_gate() -> None:
     )
     assert _is_cookie_auth_error(message) is True
     assert _is_cookie_auth_error("HTTP Error 404: Not Found") is False
+
+
+def test_youtube_bot_check_is_not_age_cookie_error() -> None:
+    message = (
+        "ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you’re not a bot. "
+        "Use --cookies-from-browser or --cookies for the authentication."
+    )
+    assert _is_youtube_bot_check(message) is True
+    assert _is_cookie_auth_error(message) is False
+    with pytest.raises(RemoteMediaError, match="자동화로 차단") as exc_info:
+        _raise_ytdlp_error(Exception(message), url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    assert "쿠키가 필요합니다" not in str(exc_info.value)
+
+
+def test_age_restricted_youtube_still_asks_for_cookies() -> None:
+    message = "ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate."
+    assert _is_cookie_auth_error(message) is True
+    assert _is_youtube_bot_check(message) is False
+    with pytest.raises(RemoteMediaError, match="쿠키가 필요합니다"):
+        _raise_ytdlp_error(Exception(message), url="https://www.youtube.com/watch?v=abc")
 
 
 def test_ytdlp_cookie_option_sets_includes_explicit_browser(

@@ -26,9 +26,16 @@ COPY app ./app
 # --- API server ----------------------------------------------------------------
 FROM base AS api
 
-# yt-dlp URL ingest merges separate video/audio streams; needs ffmpeg on PATH.
+# yt-dlp URL ingest merges video/audio (ffmpeg) and solves YouTube JS challenges.
+# Node 20+ is required; Debian bookworm's `nodejs` package is 18 and yt-dlp rejects it.
+ARG TARGETARCH
+ENV NODE_VERSION=22.18.0
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl xz-utils \
+    && NODE_ARCH=$(case "${TARGETARCH:-amd64}" in amd64) echo x64;; arm64) echo arm64;; *) echo x64;; esac) \
+    && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+       | tar -xJ -C /usr/local --strip-components=1 \
+    && node --version \
     && rm -rf /var/lib/apt/lists/*
 
 USER dubby

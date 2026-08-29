@@ -26,8 +26,13 @@ DEFAULT_MAX_BYTES = 500 * 1024 * 1024
 DOWNLOAD_TIMEOUT_SECONDS = 300.0
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 _COOKIE_AUTH_HINT_RE = re.compile(
-    r"cookies|log in|login|sign in|comfortable for some audiences|"
-    r"age.?restrict|confirm your age|private video",
+    r"comfortable for some audiences|age.?restrict|confirm your age|"
+    r"private video|this video is private|members.?only|join this channel|"
+    r"login required|please log in|log in for access",
+    re.IGNORECASE,
+)
+_YOUTUBE_BOT_HINT_RE = re.compile(
+    r"not a bot|confirm you.?re not a bot|confirm you are not a bot",
     re.IGNORECASE,
 )
 _COOKIE_DB_HINT_RE = re.compile(
@@ -77,6 +82,15 @@ _YTDLP_HOST_SUFFIXES = (
     "tiktok.com",
 )
 
+# YouTube InnerTube clients to try when the default web client hits the bot wall.
+# Android/iOS first: datacenter IPs often fail the web "not a bot" check.
+_YOUTUBE_PLAYER_CLIENT_SETS: tuple[tuple[str, ...] | None, ...] = (
+    ("android", "android_sdkless", "ios"),
+    ("tv", "tv_embedded", "web_embedded"),
+    None,
+    ("mweb",),
+)
+
 _BLOCKED_HOSTNAMES = frozenset(
     {
         "localhost",
@@ -98,6 +112,11 @@ def _hostname(url: str) -> str:
 
 def _host_matches_suffix(host: str, suffix: str) -> bool:
     return host == suffix or host.endswith("." + suffix)
+
+
+def _is_youtube_host(host: str) -> bool:
+    host = host.strip().lower().rstrip(".")
+    return any(_host_matches_suffix(host, suffix) for suffix in ("youtube.com", "youtu.be"))
 
 
 def is_ytdlp_platform_host(host: str) -> bool:
@@ -477,6 +496,10 @@ def _is_cookie_auth_error(message: str) -> bool:
     return bool(_COOKIE_AUTH_HINT_RE.search(message))
 
 
+def _is_youtube_bot_check(message: str) -> bool:
+    return bool(_YOUTUBE_BOT_HINT_RE.search(message))
+
+
 def _ytdlp_cookie_option_sets() -> list[dict]:
     """Build cookie option dicts to try, in order.
 
@@ -596,6 +619,13 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
             "cookies.txt를 내보내 api/.env에 YTDLP_COOKIES_FILE=경로 를 "
             "설정해 주세요."
         ) from exc
+    if _is_youtube_bot_check(message):
+        raise RemoteMediaError(
+            "유튜브가 이 서버를 자동화로 차단했습니다. "
+            "공개 영상도 클라우드 IP에서는 막힐 수 있습니다. "
+            "영상을 내려받아 파일로 업로드하거나, 같은 네트워크에서 "
+            "로그인한 브라우저의 cookies.txt를 YTDLP_COOKIES_FILE로 지정하세요."
+        ) from exc
     if _is_cookie_auth_error(message):
         raise RemoteMediaError(
             "이 영상은 로그인·연령/민감 콘텐츠 제한으로 쿠키가 필요합니다. "
@@ -631,7 +661,10 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
             "api/.env에 YTDLP_COOKIES_FILE=경로 를 넣고 API를 재시작하세요 "
             "(Windows에서 Edge/Chrome 쿠키 자동 읽기는 자주 실패합니다)."
         ) from exc
-    if "sign in" in lower or "private" in lower or "login" in lower:
+    if (
+        not _is_youtube_bot_check(message)
+        and ("sign in" in lower or "private" in lower or "login" in lower)
+    ):
         raise RemoteMediaError(
             "비공개·로그인 필요·연령 제한 영상은 다운로드할 수 없습니다."
         ) from exc
@@ -667,7 +700,14 @@ def _ffmpeg_location() -> str | None:
     return None
 
 
-def _base_ytdlp_opts(outtmpl: str, max_bytes: int, *, impersonate: str | None = None) -> dict:
+def _base_ytdlp_opts(
+    outtmpl: str,
+    max_bytes: int,
+    *,
+    impersonate: str | None = None,
+    youtube_clients: tuple[str, ...] | None = None,
+    allow_impersonate: bool = True,
+) -> dict:
     opts: dict = {
         "outtmpl": outtmpl,
         # Prefer progressive single-file MP4; fall back to mergeable streams.
@@ -688,6 +728,13 @@ def _base_ytdlp_opts(outtmpl: str, max_bytes: int, *, impersonate: str | None = 
     ffmpeg_loc = _ffmpeg_location()
     if ffmpeg_loc:
         opts["ffmpeg_location"] = ffmpeg_loc
+    node_bin = shutil.which("node")
+    if node_bin:
+        opts["js_runtimes"] = {"node": {"path": node_bin}}
+    if youtube_clients:
+        opts["extractor_args"] = {"youtube": {"player_client": list(youtube_clients)}}
+    if not allow_impersonate:
+        return opts
     if impersonate:
         opts["impersonate"] = impersonate
     else:
@@ -718,64 +765,73 @@ def download_with_ytdlp(
     host = _hostname(url)
     facebook_host = bool(host) and _is_facebook_host(host)
     facebook_share = _is_facebook_share_url(url)
+    youtube_host = bool(host) and _is_youtube_host(host)
     try:
         import curl_cffi  # noqa: F401
 
-        impersonate_targets: list[str | None] = list(
-            _ytdlp_impersonate_targets(facebook=facebook_host)
+        impersonate_targets: list[str | None] = (
+            [None] if youtube_host else list(_ytdlp_impersonate_targets(facebook=facebook_host))
         )
     except ImportError:
         impersonate_targets = [None]
 
     attempt_opts = _ytdlp_attempt_cookie_opts(url)
+    client_sets: tuple[tuple[str, ...] | None, ...] = (
+        _YOUTUBE_PLAYER_CLIENT_SETS if youtube_host else (None,)
+    )
 
     info = None
     prepared = Path(outtmpl)
     last_error: BaseException | None = None
     cookie_db_failures = 0
     for impersonate in impersonate_targets:
-        base_opts = _base_ytdlp_opts(outtmpl, max_bytes, impersonate=impersonate)
-        for cookie_opts in attempt_opts:
-            ydl_opts = {**base_opts, **cookie_opts}
-            try:
-                with _open_ytdlp(yt_dlp, ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    if info is None:
-                        raise RemoteMediaError("영상을 찾을 수 없습니다.")
-                    if "entries" in info and info["entries"]:
-                        info = info["entries"][0]
-                    prepared = Path(ydl.prepare_filename(info))
-                last_error = None
+        for youtube_clients in client_sets:
+            base_opts = _base_ytdlp_opts(
+                outtmpl,
+                max_bytes,
+                impersonate=impersonate,
+                youtube_clients=youtube_clients,
+                allow_impersonate=not youtube_host,
+            )
+            for cookie_opts in attempt_opts:
+                ydl_opts = {**base_opts, **cookie_opts}
+                try:
+                    with _open_ytdlp(yt_dlp, ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        if info is None:
+                            raise RemoteMediaError("영상을 찾을 수 없습니다.")
+                        if "entries" in info and info["entries"]:
+                            info = info["entries"][0]
+                        prepared = Path(ydl.prepare_filename(info))
+                    last_error = None
+                    break
+                except RemoteMediaError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - surface yt-dlp errors clearly
+                    last_error = exc
+                    message = _strip_ansi(str(exc))
+                    lower = message.lower()
+                    # Cookie/profile locked or missing browser → try next option.
+                    if cookie_opts and _COOKIE_DB_HINT_RE.search(message):
+                        cookie_db_failures += 1
+                        continue
+                    if _is_youtube_bot_check(message) or _is_cookie_auth_error(message):
+                        continue
+                    if _TIKTOK_EXTRACT_HINT_RE.search(message):
+                        continue
+                    if "unsupported" in lower and "impersonat" in lower:
+                        continue
+                    if facebook_share and "unsupported url" in lower:
+                        continue
+                    if facebook_host and "cannot parse data" in lower:
+                        continue
+                    if cookie_opts and (
+                        "assertionerror" in lower or message in {"", "AssertionError"}
+                    ):
+                        continue
+                    _raise_ytdlp_error(exc, url=url)
+            if last_error is None and info is not None:
                 break
-            except RemoteMediaError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - surface yt-dlp errors clearly
-                last_error = exc
-                message = _strip_ansi(str(exc))
-                lower = message.lower()
-                # Cookie/profile locked or missing browser → try next option.
-                if cookie_opts and _COOKIE_DB_HINT_RE.search(message):
-                    cookie_db_failures += 1
-                    continue
-                if _is_cookie_auth_error(message):
-                    # Public fetch failed or cookies insufficient — try next source.
-                    continue
-                if _TIKTOK_EXTRACT_HINT_RE.search(message):
-                    # Stale cookies / wrong impersonate — try next combo.
-                    continue
-                if "unsupported" in lower and "impersonat" in lower:
-                    continue
-                # Facebook share → `_fb_noscript` dead-end; try cookies / next UA.
-                if facebook_share and "unsupported url" in lower:
-                    continue
-                # Facebook "Cannot parse data" often needs chrome-99 + cookies.
-                if facebook_host and "cannot parse data" in lower:
-                    continue
-                if cookie_opts and (
-                    "assertionerror" in lower or message in {"", "AssertionError"}
-                ):
-                    continue
-                _raise_ytdlp_error(exc, url=url)
         if last_error is None and info is not None:
             break
 
