@@ -4,7 +4,7 @@
 |---------|---------|--------|
 | **1.0** | `v1.0.0` | Pre-redesign pipeline: My Voice Box TTS, Demucs selective bed, full-job dub. Frozen at tag `v1.0.0`. |
 | **2.0** | `v2.0.0` | Whisper-1 STT, gpt-4o-mini translation, ElevenLabs Flash TTS, selective Demucs mix. Frozen at tag `v2.0.0`. |
-| **3.0** | (main) | Gemini 3.7 Flash full-document STT + spoken translation + timestamps/speakers, ElevenLabs v3 TTS. `3.0.1` removes Vertex-only `audioTimestamp`. `3.0.2` fixes YouTube ingest: bot-wall was mislabeled as an age/cookie gate; API image uses Node 22 + android InnerTube clients. |
+| **3.0** | (main) | Gemini 3.7 Flash full-document STT + spoken translation + timestamps/speakers, ElevenLabs v3 TTS. `3.0.1` removes Vertex-only `audioTimestamp`. `3.0.2` labels YouTube's bot wall correctly. `3.0.3` restores Chrome TLS impersonate for YouTube URL ingest (3.0.2 skipped it and broke previously working public videos). |
 
 Restore V2 tree:
 

@@ -82,13 +82,14 @@ _YTDLP_HOST_SUFFIXES = (
     "tiktok.com",
 )
 
-# YouTube InnerTube clients to try when the default web client hits the bot wall.
-# Android/iOS first: datacenter IPs often fail the web "not a bot" check.
+# YouTube InnerTube clients. Default (None) first — that is the path that
+# previously worked with Chrome TLS impersonate. Forced android/ios-first
+# often returns LOGIN_REQUIRED on datacenter IPs and skips working clients.
 _YOUTUBE_PLAYER_CLIENT_SETS: tuple[tuple[str, ...] | None, ...] = (
-    ("android", "android_sdkless", "ios"),
-    ("tv", "tv_embedded", "web_embedded"),
     None,
-    ("mweb",),
+    ("android",),
+    ("web_embedded", "tv_embedded", "tv"),
+    ("ios", "mweb"),
 )
 
 _BLOCKED_HOSTNAMES = frozenset(
@@ -706,7 +707,6 @@ def _base_ytdlp_opts(
     *,
     impersonate: str | None = None,
     youtube_clients: tuple[str, ...] | None = None,
-    allow_impersonate: bool = True,
 ) -> dict:
     opts: dict = {
         "outtmpl": outtmpl,
@@ -733,17 +733,8 @@ def _base_ytdlp_opts(
         opts["js_runtimes"] = {"node": {"path": node_bin}}
     if youtube_clients:
         opts["extractor_args"] = {"youtube": {"player_client": list(youtube_clients)}}
-    if not allow_impersonate:
-        return opts
     if impersonate:
         opts["impersonate"] = impersonate
-    else:
-        try:
-            import curl_cffi  # noqa: F401
-
-            opts["impersonate"] = _ytdlp_impersonate_targets()[0]  # generic default
-        except ImportError:
-            pass
     return opts
 
 
@@ -769,9 +760,13 @@ def download_with_ytdlp(
     try:
         import curl_cffi  # noqa: F401
 
-        impersonate_targets: list[str | None] = (
-            [None] if youtube_host else list(_ytdlp_impersonate_targets(facebook=facebook_host))
+        impersonate_targets: list[str | None] = list(
+            _ytdlp_impersonate_targets(facebook=facebook_host)
         )
+        if youtube_host:
+            # Restore the pre-3.0.2 working combo (Chrome TLS + default client),
+            # then a bare request if impersonate itself triggers the bot wall.
+            impersonate_targets = [*impersonate_targets, None]
     except ImportError:
         impersonate_targets = [None]
 
@@ -791,7 +786,6 @@ def download_with_ytdlp(
                 max_bytes,
                 impersonate=impersonate,
                 youtube_clients=youtube_clients,
-                allow_impersonate=not youtube_host,
             )
             for cookie_opts in attempt_opts:
                 ydl_opts = {**base_opts, **cookie_opts}

@@ -15,6 +15,7 @@ from app.remote_media import (
     normalize_remote_media_url,
     _is_cookie_auth_error,
     _is_facebook_share_url,
+    _base_ytdlp_opts,
     _is_youtube_bot_check,
     _raise_ytdlp_error,
     _strip_ansi,
@@ -132,6 +133,17 @@ def test_youtube_bot_check_is_not_age_cookie_error() -> None:
     with pytest.raises(RemoteMediaError, match="자동화로 차단") as exc_info:
         _raise_ytdlp_error(Exception(message), url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     assert "쿠키가 필요합니다" not in str(exc_info.value)
+
+
+def test_base_ytdlp_opts_impersonate_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.remote_media.shutil.which", lambda _name: None)
+    monkeypatch.setattr("app.remote_media._ffmpeg_location", lambda: None)
+    bare = _base_ytdlp_opts("/tmp/source.%(ext)s", 100, impersonate=None)
+    assert "impersonate" not in bare
+    chrome = _base_ytdlp_opts("/tmp/source.%(ext)s", 100, impersonate="chrome")
+    assert chrome["impersonate"] == "chrome"
 
 
 def test_age_restricted_youtube_still_asks_for_cookies() -> None:
