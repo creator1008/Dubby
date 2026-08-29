@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,9 +66,15 @@ class Settings(BaseSettings):
     r2_region: str = "auto"
     presign_expires_seconds: int = 3600
     download_expires_seconds: int = Field(default=3600, ge=60, le=3600)
-    # Uploads above this size must use multipart (S3 minimum part is 5 MiB).
-    multipart_part_size_bytes: int = 64 * 1024 * 1024
+    # Keep parts modest so browser PUTs stay reliable (R2 5 MiB min except last).
+    multipart_part_size_bytes: int = 16 * 1024 * 1024
     max_upload_bytes: int = 4 * 1024 * 1024 * 1024  # 4 GiB safety cap
+
+    @field_validator("multipart_part_size_bytes")
+    @classmethod
+    def cap_browser_part_size(cls, value: int) -> int:
+        # Older env files shipped 64 MiB; that second PUT is flaky from browsers.
+        return min(max(int(value), 5 * 1024 * 1024), 16 * 1024 * 1024)
 
     # --- Worker -------------------------------------------------------------
     # Number of jobs a single worker process runs at once. Demucs is memory

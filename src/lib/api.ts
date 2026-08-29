@@ -764,24 +764,33 @@ const realApi = {
       part_count: number;
     }>("/v1/uploads/multipart", { method: "POST", body: JSON.stringify(body) }),
     signPart: (uploadId: string, key: string, partNumber: number) =>
-      request<{ url: string }>(`/v1/uploads/multipart/${uploadId}/parts`, {
-        method: "POST",
-        body: JSON.stringify({ key, part_number: partNumber }),
-      }),
+      request<{ url: string }>(
+        `/v1/uploads/multipart/${encodeURIComponent(uploadId)}/parts`,
+        {
+          method: "POST",
+          body: JSON.stringify({ key, part_number: partNumber }),
+        },
+      ),
     complete: (
       uploadId: string,
       key: string,
       parts: Array<{ part_number: number; etag: string }>,
     ) =>
-      request(`/v1/uploads/multipart/${uploadId}/complete`, {
-        method: "POST",
-        body: JSON.stringify({ key, parts }),
-      }),
+      request(
+        `/v1/uploads/multipart/${encodeURIComponent(uploadId)}/complete`,
+        {
+          method: "POST",
+          body: JSON.stringify({ key, parts }),
+        },
+      ),
     abort: (uploadId: string, key: string) =>
-      request<void>(`/v1/uploads/multipart/${uploadId}/abort`, {
-        method: "POST",
-        body: JSON.stringify({ key }),
-      }),
+      request<void>(
+        `/v1/uploads/multipart/${encodeURIComponent(uploadId)}/abort`,
+        {
+          method: "POST",
+          body: JSON.stringify({ key }),
+        },
+      ),
   },
 };
 
@@ -828,34 +837,69 @@ async function putMultipartFile(
   file: File,
   onProgress: (pct: number) => void,
 ): Promise<void> {
+  const partAttempts = 4;
   try {
     const parts: Array<{ part_number: number; etag: string }> = [];
     for (let index = 0; index < upload.part_count; index += 1) {
       const partNumber = index + 1;
-      const { url } = await realApi.uploads.signPart(
-        upload.upload_id,
-        upload.key,
-        partNumber,
-      );
       const start = index * upload.part_size_bytes;
-      let response: Response;
-      try {
-        response = await fetch(url, {
-          method: "PUT",
-          body: file.slice(
-            start,
-            Math.min(file.size, start + upload.part_size_bytes),
-          ),
-        });
-      } catch {
-        throw new Error(
-          "저장소(R2) 업로드에 실패했습니다. CORS에 GitHub Pages origin이 허용되는지 확인하세요.",
+      const chunk = file.slice(
+        start,
+        Math.min(file.size, start + upload.part_size_bytes),
+      );
+      // Empty type so fetch does not add Content-Type (unsigned in the presign).
+      const body = new Blob([chunk], { type: "" });
+      let lastPartError: Error | null = null;
+      for (let attempt = 1; attempt <= partAttempts; attempt += 1) {
+        const { url } = await realApi.uploads.signPart(
+          upload.upload_id,
+          upload.key,
+          partNumber,
         );
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method: "PUT",
+            body,
+            mode: "cors",
+            credentials: "omit",
+            cache: "no-store",
+          });
+        } catch {
+          lastPartError = new Error(
+            "저장소(R2) 업로드에 실패했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.",
+          );
+          if (attempt < partAttempts) {
+            await sleep(500 * attempt);
+            continue;
+          }
+          throw lastPartError;
+        }
+        if (response.ok) {
+          const etag = response.headers.get("etag");
+          if (!etag) {
+            throw new Error(
+              "R2 CORS에서 ETag 응답 헤더를 노출해야 합니다.",
+            );
+          }
+          parts.push({ part_number: partNumber, etag });
+          lastPartError = null;
+          break;
+        }
+        const xml = await response.text().catch(() => "");
+        const code = xml.match(/<Code>([^<]+)<\/Code>/i)?.[1] ?? "";
+        lastPartError = new Error(
+          code
+            ? `업로드 파트 ${partNumber} 실패 (${code}). 다시 시도해 주세요.`
+            : `업로드 파트 ${partNumber} 실패 (${response.status}). 다시 시도해 주세요.`,
+        );
+        if (attempt < partAttempts && response.status >= 500) {
+          await sleep(500 * attempt);
+          continue;
+        }
+        throw lastPartError;
       }
-      if (!response.ok) throw new Error(`업로드 파트 ${partNumber} 실패`);
-      const etag = response.headers.get("etag");
-      if (!etag) throw new Error("R2 CORS에서 ETag 응답 헤더를 노출해야 합니다.");
-      parts.push({ part_number: partNumber, etag });
+      if (lastPartError) throw lastPartError;
       onProgress(Math.round((partNumber / upload.part_count) * 100));
     }
     await realApi.uploads.complete(upload.upload_id, upload.key, parts);

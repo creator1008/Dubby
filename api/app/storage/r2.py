@@ -30,6 +30,30 @@ from ..config import Settings
 _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _s3_boto_config() -> BotoConfig:
+    """Path-style S3v4 client that does not sign empty-body CRC32 checksums.
+
+    Newer botocore defaults attach checksums to ``upload_part`` presigns. The
+    browser then PUTs real bytes and R2 rejects the part.
+    """
+    kwargs: dict[str, Any] = {
+        "signature_version": "s3v4",
+        "s3": {
+            "addressing_style": "path",
+            "payload_signing_enabled": False,
+        },
+        "retries": {"max_attempts": 3, "mode": "standard"},
+    }
+    try:
+        return BotoConfig(
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+            **kwargs,
+        )
+    except TypeError:
+        return BotoConfig(**kwargs)
+
+
 def sanitize_filename(filename: str) -> str:
     """Normalize to a safe ASCII object-key component."""
     name = unicodedata.normalize("NFKD", filename)
@@ -53,14 +77,7 @@ class R2Storage:
                 aws_access_key_id=self._settings.r2_access_key_id,
                 aws_secret_access_key=self._settings.r2_secret_access_key,
                 region_name=self._settings.r2_region,
-                config=BotoConfig(
-                    signature_version="s3v4",
-                    # R2 requires path-style-off (virtual host style is not
-                    # used with the account endpoint); boto's default "auto"
-                    # addressing works with the R2 endpoint.
-                    s3={"addressing_style": "path"},
-                    retries={"max_attempts": 3, "mode": "standard"},
-                ),
+                config=_s3_boto_config(),
             )
         return self._client
 

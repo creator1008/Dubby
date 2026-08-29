@@ -312,37 +312,44 @@ export default function NewDubPage() {
       pipeline_version: "3.0",
       dub_voice_ids: voiceMode === "voice_box" ? selectedDubVoiceIds : [],
     });
-    if (inputMode === "file" && file) {
-      setLocalStage(text.uploading);
-      await uploadSourceFile(created.id, file, (pct) => {
-        setUploadPct(pct);
-        setLocalStage(`${text.uploading} ${pct}%`);
-      });
-    } else {
-      setLocalStage(text.fetchingLink);
-      setUploadPct(20);
-      await api.projects.sourceFromUrl(created.id, trimmedUrl);
-      // Ingest runs in the background (tunnel-safe). Poll until ready.
-      try {
-        const ready = await api.projects.waitUntilSourceReady(created.id, {
-          onTick: (elapsedMs) => {
-            setUploadPct(Math.min(85, 25 + Math.floor(elapsedMs / 3000)));
-            setLocalStage(text.fetchingLink);
-          },
+    try {
+      if (inputMode === "file" && file) {
+        setLocalStage(text.uploading);
+        await uploadSourceFile(created.id, file, (pct) => {
+          setUploadPct(pct);
+          setLocalStage(`${text.uploading} ${pct}%`);
         });
-        if (ready.status === "failed") {
-          throw new Error(ready.error || text.fetchingLinkFailed);
+      } else {
+        setLocalStage(text.fetchingLink);
+        setUploadPct(20);
+        await api.projects.sourceFromUrl(created.id, trimmedUrl);
+        // Ingest runs in the background (tunnel-safe). Poll until ready.
+        try {
+          const ready = await api.projects.waitUntilSourceReady(created.id, {
+            onTick: (elapsedMs) => {
+              setUploadPct(Math.min(85, 25 + Math.floor(elapsedMs / 3000)));
+              setLocalStage(text.fetchingLink);
+            },
+          });
+          if (ready.status === "failed") {
+            throw new Error(ready.error || text.fetchingLinkFailed);
+          }
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 408) {
+            throw new Error(text.fetchingLinkTimeout);
+          }
+          if (err instanceof ApiError && err.status === 400) {
+            throw new Error(err.message || text.fetchingLinkFailed);
+          }
+          throw err;
         }
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 408) {
-          throw new Error(text.fetchingLinkTimeout);
-        }
-        if (err instanceof ApiError && err.status === 400) {
-          throw new Error(err.message || text.fetchingLinkFailed);
-        }
-        throw err;
+        setUploadPct(90);
       }
-      setUploadPct(90);
+    } catch (err) {
+      if (!isDemoMode) {
+        await api.projects.remove(created.id).catch(() => undefined);
+      }
+      throw err;
     }
 
     let nextSegments: Segment[] = [];

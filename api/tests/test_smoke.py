@@ -137,10 +137,18 @@ def test_filename_sanitizer() -> None:
 
 def test_part_count_math() -> None:
     from app.config import Settings
-    from app.storage.r2 import R2Storage
+    from app.storage.r2 import R2Storage, _s3_boto_config
 
     storage = R2Storage(Settings(_env_file=None))
     part = Settings(_env_file=None).multipart_part_size_bytes
+    assert part == 16 * 1024 * 1024
+    assert (
+        Settings(_env_file=None, multipart_part_size_bytes=64 * 1024 * 1024)
+        .multipart_part_size_bytes
+        == part
+    )
     assert storage.part_count_for(1) == 1
     assert storage.part_count_for(part) == 1
     assert storage.part_count_for(part + 1) == 2
+    assert storage.part_count_for(117 * 1024 * 1024) == 8
+    assert _s3_boto_config().signature_version == "s3v4"
