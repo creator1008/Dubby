@@ -264,6 +264,19 @@ class VoiceFilterOptionsOut(BaseModel):
     categories: list[str]
 
 
+class VoiceBoxCloneUploadCreate(BaseModel):
+    filename: str = Field(min_length=1, max_length=300)
+    content_type: str = Field(default="application/octet-stream", max_length=100)
+    size_bytes: int = Field(gt=0)
+
+
+class VoiceBoxCloneRequest(BaseModel):
+    nickname: str = Field(min_length=1, max_length=30)
+    language: str = Field(min_length=1, max_length=16)
+    gender: str = Field(min_length=1, max_length=40)
+    source_key: str = Field(min_length=1, max_length=500)
+
+
 class UserVoiceCreate(BaseModel):
     voice_id: str = Field(min_length=1, max_length=120)
     public_owner_id: str = Field(min_length=1, max_length=200)

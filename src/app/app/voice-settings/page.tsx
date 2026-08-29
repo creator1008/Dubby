@@ -76,6 +76,8 @@ export default function VoiceSettingsPage() {
   );
   const [cloneRecording, setCloneRecording] = useState(false);
   const [cloning, setCloning] = useState(false);
+  const [cloneUploadPct, setCloneUploadPct] = useState(0);
+  const [clonePhase, setClonePhase] = useState<"upload" | "clone" | null>(null);
   const [activeTab, setActiveTab] = useState<"box" | "clone" | "library">(
     "box",
   );
@@ -282,14 +284,22 @@ export default function VoiceSettingsPage() {
       return;
     }
     setCloning(true);
+    setClonePhase("upload");
+    setCloneUploadPct(0);
     setMsg(null);
     try {
-      const saved = await api.voices.box.clone({
-        nickname,
-        language: cloneLanguage,
-        gender: cloneGender,
-        file: cloneFile,
-      });
+      const saved = await api.voices.box.clone(
+        {
+          nickname,
+          language: cloneLanguage,
+          gender: cloneGender,
+          file: cloneFile,
+        },
+        (phase, pct) => {
+          setClonePhase(phase);
+          if (phase === "upload") setCloneUploadPct(pct);
+        },
+      );
       setBox((prev) => [saved, ...prev.filter((v) => v.id !== saved.id)]);
       setCloneNickname("");
       setCloneFile(null);
@@ -299,6 +309,8 @@ export default function VoiceSettingsPage() {
       setMsg(err instanceof Error ? err.message : text.voiceCloneFailed);
     } finally {
       setCloning(false);
+      setClonePhase(null);
+      setCloneUploadPct(0);
     }
   };
 
@@ -574,7 +586,14 @@ export default function VoiceSettingsPage() {
             }
             onClick={() => void cloneVoice()}
           >
-            {cloning ? text.voiceCloneWorking : text.voiceCloneSubmit}
+            {cloning
+              ? clonePhase === "upload"
+                ? text.voiceCloneUploading.replace(
+                    "{pct}",
+                    String(cloneUploadPct),
+                  )
+                : text.voiceCloneWorking
+              : text.voiceCloneSubmit}
           </button>
         </div>
       </section>

@@ -11,7 +11,8 @@
 	encode gzip
 	header -Alt-Svc
 
-	# Uploads go straight to R2 via presigned URLs, so bodies here stay small.
+	# Project sources and voice-clone media go to R2 via presigned URLs,
+	# so JSON/API bodies here stay small. Do not raise this for 100MB+ files.
 	request_body {
 		max_size 10MB
 	}

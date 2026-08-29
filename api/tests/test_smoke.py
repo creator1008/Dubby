@@ -81,6 +81,8 @@ def test_expected_routes_registered() -> None:
         "/v1/uploads/multipart/{upload_id}/parts",
         "/v1/uploads/multipart/{upload_id}/complete",
         "/v1/uploads/multipart/{upload_id}/abort",
+        "/v1/voices/box/clone",
+        "/v1/voices/box/clone/uploads",
     }
     assert expected <= paths
 

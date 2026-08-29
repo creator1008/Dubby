@@ -25,6 +25,21 @@ CLONE_MIN_SECONDS = 1.0
 # Longer uploads are truncated to the first 3 minutes for IVC.
 CLONE_MAX_SECONDS = 180.0
 CLONE_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+CLONE_ALLOWED_SUFFIXES = frozenset(
+    {
+        ".mp4",
+        ".mov",
+        ".m4v",
+        ".webm",
+        ".mkv",
+        ".mp3",
+        ".m4a",
+        ".wav",
+        ".aac",
+        ".ogg",
+        ".flac",
+    }
+)
 IVC_SHARED_PREFIX = "ivc:"
 IVC_PUBLIC_OWNER = "dubby:ivc"
 VOICEBOX_CLONE_DESCRIPTION = "dubby:voicebox instant voice clone"
@@ -47,6 +62,19 @@ def is_cloned_voice_row(row: dict) -> bool:
 
 def voice_preview_key(user_id: UUID, voice_row_id: UUID) -> str:
     return f"users/{user_id}/voices/{voice_row_id}/preview.mp3"
+
+
+def is_voice_clone_inbox_key(key: str, user_id: UUID) -> bool:
+    prefix = f"users/{user_id}/voices/inbox/"
+    cleaned = (key or "").replace("\\", "/")
+    return cleaned.startswith(prefix) and ".." not in cleaned
+
+
+def clone_upload_suffix(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in CLONE_ALLOWED_SUFFIXES:
+        raise BadRequestError("지원하는 영상/오디오 파일만 업로드할 수 있습니다.")
+    return suffix
 
 
 async def _run_cmd(cmd: list[str], *, error: str) -> bytes:

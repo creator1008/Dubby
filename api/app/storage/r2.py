@@ -8,6 +8,7 @@ dispatched to a thread from async handlers.
 Key layout:
     users/{user_id}/projects/{project_id}/source/{filename}
     users/{user_id}/projects/{project_id}/outputs/...
+    users/{user_id}/voices/inbox/{uuid}/{filename}
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import posixpath
 import re
 import unicodedata
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -75,6 +76,12 @@ class R2Storage:
 
     def source_key(self, user_id: UUID, project_id: UUID, filename: str) -> str:
         return f"users/{user_id}/projects/{project_id}/source/{sanitize_filename(filename)}"
+
+    def voice_clone_inbox_key(self, user_id: UUID, filename: str) -> str:
+        return (
+            f"users/{user_id}/voices/inbox/{uuid4()}/"
+            f"{sanitize_filename(filename)}"
+        )
 
     def project_meta_key(
         self, user_id: UUID, project_id: UUID, filename: str

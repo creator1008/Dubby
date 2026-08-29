@@ -951,6 +951,9 @@ export const demoApi = {
       clone: async (): Promise<UserVoice> => {
         throw new Error("데모 모드에서는 목소리 복제를 사용할 수 없습니다.");
       },
+      cloneUploads: async () => {
+        throw new Error("데모 모드에서는 목소리 복제를 사용할 수 없습니다.");
+      },
       remove: async () => {
         throw new Error("데모 모드에서는 Voice Box를 수정할 수 없습니다.");
       },

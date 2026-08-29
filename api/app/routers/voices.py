@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Query, status
 
 from ..auth import CurrentUser
 from ..config import get_settings
@@ -14,16 +14,21 @@ from ..db.base import DuplicateVoiceError
 from ..deps import Repo, Storage
 from ..errors import BadRequestError, ConflictError, NotFoundError
 from ..schemas import (
+    MultipartCreateResponse,
     SharedVoiceOut,
     SharedVoicesOut,
     UserVoiceCreate,
     UserVoiceOut,
+    VoiceBoxCloneRequest,
+    VoiceBoxCloneUploadCreate,
     VoiceFilterOptionsOut,
 )
 from ..voice_clone import (
     CLONE_MAX_UPLOAD_BYTES,
+    clone_upload_suffix,
     clone_voice_into_box,
     is_cloned_voice_row,
+    is_voice_clone_inbox_key,
     voice_preview_key,
 )
 from ..voices_elevenlabs import (
@@ -188,60 +193,72 @@ async def add_to_voice_box(
     return await _sign_box_row(storage, row)
 
 
+@router.post("/box/clone/uploads", response_model=MultipartCreateResponse)
+async def create_voice_clone_upload(
+    body: VoiceBoxCloneUploadCreate, user: CurrentUser, storage: Storage
+) -> MultipartCreateResponse:
+    """Presign a direct-to-R2 multipart upload for Instant Voice Clone media."""
+    clone_upload_suffix(body.filename)
+    if body.size_bytes > CLONE_MAX_UPLOAD_BYTES:
+        raise BadRequestError("파일이 너무 큽니다 (최대 500MB).")
+    settings = get_settings()
+    if body.size_bytes > settings.max_upload_bytes:
+        raise BadRequestError(
+            f"File exceeds the {settings.max_upload_bytes} byte upload limit"
+        )
+    key = storage.voice_clone_inbox_key(user.id, body.filename)
+    upload_id = await storage.create_multipart_upload(key, body.content_type)
+    return MultipartCreateResponse(
+        upload_id=upload_id,
+        key=key,
+        part_size_bytes=settings.multipart_part_size_bytes,
+        part_count=storage.part_count_for(body.size_bytes),
+    )
+
+
 @router.post(
     "/box/clone",
     response_model=UserVoiceOut,
     status_code=status.HTTP_201_CREATED,
 )
 async def clone_into_voice_box(
+    body: VoiceBoxCloneRequest,
     user: CurrentUser,
     repo: Repo,
     storage: Storage,
-    nickname: str = Form(...),
-    language: str = Form(...),
-    gender: str = Form(...),
-    file: UploadFile = File(...),
 ) -> UserVoiceOut:
-    """Instant Voice Clone from uploaded/recorded audio/video (≤3 min; longer → first 3)."""
-    settings = get_settings()
-    filename = (file.filename or "sample.bin").strip() or "sample.bin"
-    suffix = Path(filename).suffix.lower() or ".bin"
-    if suffix not in {
-        ".mp4",
-        ".mov",
-        ".m4v",
-        ".webm",
-        ".mkv",
-        ".mp3",
-        ".m4a",
-        ".wav",
-        ".aac",
-        ".ogg",
-        ".flac",
-    }:
-        raise BadRequestError("지원하는 영상/오디오 파일만 업로드할 수 있습니다.")
+    """Instant Voice Clone from an R2 inbox object (≤3 min; longer → first 3)."""
+    if not is_voice_clone_inbox_key(body.source_key, user.id):
+        raise BadRequestError("복제 업로드 경로가 올바르지 않습니다.")
+    suffix = clone_upload_suffix(body.source_key)
 
-    with tempfile.NamedTemporaryFile(prefix="dubby-ivc-up-", suffix=suffix, delete=False) as tmp:
+    head = await storage.head_object(body.source_key)
+    if head is None:
+        raise BadRequestError("업로드된 파일을 찾을 수 없습니다. 다시 업로드해 주세요.")
+    total = int(head.get("ContentLength") or 0)
+    if total <= 0 or total > CLONE_MAX_UPLOAD_BYTES:
+        raise BadRequestError("파일이 너무 큽니다 (최대 500MB).")
+
+    settings = get_settings()
+    with tempfile.NamedTemporaryFile(
+        prefix="dubby-ivc-up-", suffix=suffix, delete=False
+    ) as tmp:
         tmp_path = Path(tmp.name)
-        total = 0
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > CLONE_MAX_UPLOAD_BYTES:
-                tmp_path.unlink(missing_ok=True)
-                raise BadRequestError("파일이 너무 큽니다 (최대 500MB).")
-            tmp.write(chunk)
 
     try:
+        try:
+            await storage.download_file(body.source_key, str(tmp_path))
+        except Exception as exc:
+            raise BadRequestError(
+                "업로드된 파일을 받을 수 없습니다. 다시 업로드해 주세요."
+            ) from exc
         fields = await clone_voice_into_box(
             settings=settings,
             storage=storage,
             owner_id=user.id,
-            nickname=nickname,
-            language=language,
-            gender=gender,
+            nickname=body.nickname,
+            language=body.language,
+            gender=body.gender,
             upload_path=tmp_path,
             upload_size=total,
         )
@@ -249,6 +266,10 @@ async def clone_into_voice_box(
         raise BadRequestError(exc.message or str(exc)) from exc
     finally:
         tmp_path.unlink(missing_ok=True)
+        try:
+            await storage.delete_object(body.source_key)
+        except Exception:
+            pass
 
     try:
         row = await repo.add_user_voice(user.id, fields)

@@ -9,7 +9,9 @@ from app.voice_clone import (
     CLONE_MAX_SECONDS,
     CLONE_NICKNAME_STAR,
     clone_sample_seconds,
+    clone_upload_suffix,
     is_cloned_voice_row,
+    is_voice_clone_inbox_key,
     starred_nickname,
     validate_clone_duration,
     voice_preview_key,
@@ -58,3 +60,20 @@ def test_voice_preview_key() -> None:
         "users/00000000-0000-0000-0000-000000000001/"
         "voices/00000000-0000-0000-0000-000000000002/preview.mp3"
     )
+
+
+def test_is_voice_clone_inbox_key() -> None:
+    uid = UUID("00000000-0000-0000-0000-000000000001")
+    other = UUID("00000000-0000-0000-0000-000000000099")
+    key = f"users/{uid}/voices/inbox/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/real1.mp4"
+    assert is_voice_clone_inbox_key(key, uid)
+    assert not is_voice_clone_inbox_key(key, other)
+    assert not is_voice_clone_inbox_key(
+        f"users/{uid}/projects/{uid}/source/real1.mp4", uid
+    )
+    assert not is_voice_clone_inbox_key(
+        f"users/{uid}/voices/inbox/../projects/x.mp4", uid
+    )
+    assert clone_upload_suffix(key) == ".mp4"
+    with pytest.raises(BadRequestError):
+        clone_upload_suffix("notes.txt")

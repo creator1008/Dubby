@@ -411,14 +411,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const method = (init?.method || "GET").toUpperCase();
   const named = Boolean(namedApiOrigin());
+  const pathOnly = path.split("?")[0];
+  const isVoiceCloneCommit =
+    method === "POST" && pathOnly === "/v1/voices/box/clone";
   // Avoid retrying mutating calls — DELETE/POST can succeed on the server while
   // the browser sees a timeout / Failed to fetch (long R2 purge, tunnel blip).
+  // Voice clone commit must not retry: ElevenLabs would create duplicate voices.
   const retries =
     method === "GET" || method === "HEAD"
       ? named
         ? 6
         : 5
-      : method === "DELETE"
+      : method === "DELETE" || isVoiceCloneCommit
         ? 1
         : named
           ? 3
@@ -428,8 +432,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   for (let attempt = 1; attempt <= retries; attempt += 1) {
     let response: Response;
     const controller = new AbortController();
-    const timeoutMs =
-      method === "DELETE" ? (named ? 90_000 : 60_000) : named ? 60_000 : 45_000;
+    const timeoutMs = isVoiceCloneCommit
+      ? 5 * 60 * 1000
+      : method === "DELETE"
+        ? named
+          ? 90_000
+          : 60_000
+        : named
+          ? 60_000
+          : 45_000;
     const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const isForm =
@@ -674,22 +685,43 @@ const realApi = {
           method: "POST",
           body: JSON.stringify(body),
         }),
-      clone: (body: {
-        nickname: string;
-        language: string;
-        gender: string;
-        file: File;
-      }) => {
-        const form = new FormData();
-        form.set("nickname", body.nickname);
-        form.set("language", body.language);
-        form.set("gender", body.gender);
-        form.set("file", body.file);
+      clone: async (
+        body: {
+          nickname: string;
+          language: string;
+          gender: string;
+          file: File;
+        },
+        onProgress?: (phase: "upload" | "clone", pct: number) => void,
+      ) => {
+        const key = await uploadVoiceCloneFile(body.file, (pct) =>
+          onProgress?.("upload", pct),
+        );
+        onProgress?.("clone", 100);
         return request<UserVoice>("/v1/voices/box/clone", {
           method: "POST",
-          body: form,
+          body: JSON.stringify({
+            nickname: body.nickname,
+            language: body.language,
+            gender: body.gender,
+            source_key: key,
+          }),
         });
       },
+      cloneUploads: (body: {
+        filename: string;
+        content_type: string;
+        size_bytes: number;
+      }) =>
+        request<{
+          upload_id: string;
+          key: string;
+          part_size_bytes: number;
+          part_count: number;
+        }>("/v1/voices/box/clone/uploads", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
       remove: (id: string) =>
         request<void>(`/v1/voices/box/${id}`, { method: "DELETE" }),
     },
@@ -769,17 +801,51 @@ export async function uploadSourceFile(
     content_type: file.type || "application/octet-stream",
     size_bytes: file.size,
   });
+  await putMultipartFile(upload, file, onProgress);
+}
+
+/** Direct-to-R2 upload for Instant Voice Clone (avoids Caddy/Cloudflare body caps). */
+async function uploadVoiceCloneFile(
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<string> {
+  const upload = await realApi.voices.box.cloneUploads({
+    filename: file.name || "sample.webm",
+    content_type: file.type || "application/octet-stream",
+    size_bytes: file.size,
+  });
+  await putMultipartFile(upload, file, onProgress);
+  return upload.key;
+}
+
+async function putMultipartFile(
+  upload: {
+    upload_id: string;
+    key: string;
+    part_size_bytes: number;
+    part_count: number;
+  },
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<void> {
   try {
     const parts: Array<{ part_number: number; etag: string }> = [];
     for (let index = 0; index < upload.part_count; index += 1) {
       const partNumber = index + 1;
-      const { url } = await realApi.uploads.signPart(upload.upload_id, upload.key, partNumber);
+      const { url } = await realApi.uploads.signPart(
+        upload.upload_id,
+        upload.key,
+        partNumber,
+      );
       const start = index * upload.part_size_bytes;
       let response: Response;
       try {
         response = await fetch(url, {
           method: "PUT",
-          body: file.slice(start, Math.min(file.size, start + upload.part_size_bytes)),
+          body: file.slice(
+            start,
+            Math.min(file.size, start + upload.part_size_bytes),
+          ),
         });
       } catch {
         throw new Error(
