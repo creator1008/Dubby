@@ -2,6 +2,7 @@
 
 import type { Segment } from "@/lib/ui-types";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { dubLangDisplayName } from "@/lib/languages";
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -62,7 +63,8 @@ export function TranslationPreviewModal({
                   {formatMs(segment.start_ms)} – {formatMs(segment.end_ms)}
                 </span>
                 <span>
-                  {sourceLang.toUpperCase()} → {targetLang.toUpperCase()}
+                  {dubLangDisplayName(sourceLang, text)} →{" "}
+                  {dubLangDisplayName(targetLang, text)}
                 </span>
               </div>
               <p className="translation-preview-source">{segment.source_text}</p>

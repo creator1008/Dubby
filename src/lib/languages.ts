@@ -56,3 +56,15 @@ export function localizedLangLabel(
   const key = `voiceLang_${code}`;
   return dict[key] || LANG_LABELS[code];
 }
+
+/** Locale-aware name for a stored language code (unknown codes stay uppercase). */
+export function dubLangDisplayName(
+  code: string,
+  dict: Record<string, string>,
+): string {
+  const normalized = code.trim().toLowerCase();
+  if (isDubLangCode(normalized)) {
+    return localizedLangLabel(normalized, dict);
+  }
+  return code.trim().toUpperCase() || code;
+}

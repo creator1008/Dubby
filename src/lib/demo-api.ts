@@ -35,103 +35,123 @@ export function withDownloadAttachment(url: string, filename: string): string {
   return `${url}${separator}download=${encodeURIComponent(filename)}`;
 }
 
-/** Save a Blob without navigating away (no target=_blank / no remote iframe). */
-export async function saveBlobDownload(blob: Blob, filename: string): Promise<void> {
-  const safeName =
-    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
-  const file = new File([blob], safeName, {
-    type: blob.type || "video/mp4",
-  });
+function safeDownloadName(filename: string): string {
+  return (
+    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4"
+  );
+}
 
-  const triggerAnchorDownload = () => {
-    const objectUrl = URL.createObjectURL(file);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = safeName;
-    anchor.rel = "noopener";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-  };
+function savePickerTypes(
+  filename: string,
+): Array<{ description: string; accept: Record<string, string[]> }> {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".json")) {
+    return [{ description: "JSON", accept: { "application/json": [".json"] } }];
+  }
+  if (lower.endsWith(".srt")) {
+    return [{ description: "SubRip", accept: { "text/plain": [".srt"] } }];
+  }
+  if (lower.endsWith(".wav")) {
+    return [{ description: "Audio", accept: { "audio/wav": [".wav"] } }];
+  }
+  if (lower.endsWith(".webm")) {
+    return [{ description: "Video", accept: { "video/webm": [".webm"] } }];
+  }
+  return [{ description: "Video", accept: { "video/mp4": [".mp4"] } }];
+}
 
-  // Prefer File System Access when available (desktop Chromium).
+/**
+ * Open the OS Save dialog while the click gesture is still valid.
+ * Returns ``"cancelled"`` if the user dismissed the picker.
+ */
+export async function pickSaveFileHandle(
+  filename: string,
+): Promise<FileSystemFileHandle | "cancelled" | null> {
+  if (typeof window === "undefined") return null;
   const win = window as Window & {
     showSaveFilePicker?: (options?: {
       suggestedName?: string;
       types?: Array<{ description?: string; accept: Record<string, string[]> }>;
     }) => Promise<FileSystemFileHandle>;
   };
-  const likelyMobile =
-    typeof navigator !== "undefined" &&
-    (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
-      (navigator.maxTouchPoints > 1 && window.innerWidth < 900));
-  if (!likelyMobile && typeof win.showSaveFilePicker === "function") {
-    try {
-      const handle = await win.showSaveFilePicker({
-        suggestedName: safeName,
-        types: [
-          {
-            description: "Video",
-            accept: { "video/mp4": [".mp4"] },
-          },
-        ],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return;
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      // Fall through to share / anchor.
+  if (typeof win.showSaveFilePicker !== "function") return null;
+  const safeName = safeDownloadName(filename);
+  try {
+    return await win.showSaveFilePicker({
+      suggestedName: safeName,
+      types: savePickerTypes(safeName),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return "cancelled";
     }
+    return null;
   }
+}
 
-  const nav = navigator as Navigator & {
-    canShare?: (data?: ShareData) => boolean;
-  };
-  if (typeof nav.share === "function" && nav.canShare?.({ files: [file] })) {
-    try {
-      await nav.share({
-        files: [file],
-        title: "Dubby",
-        text: safeName,
-      });
-      return;
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      // Share can reject for large videos — fall through to <a download>.
-    }
+export async function writeBlobToFileHandle(
+  handle: FileSystemFileHandle,
+  blob: Blob,
+): Promise<void> {
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+/** Hidden ``<a download>`` — never navigates to the media URL (which would play it). */
+export function triggerHiddenBlobDownload(blob: Blob, filename: string): void {
+  const safeName = safeDownloadName(filename);
+  const file = new File([blob], safeName, {
+    type: "application/octet-stream",
+  });
+  const objectUrl = URL.createObjectURL(file);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = safeName;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+export async function persistDownloadedBlob(
+  blob: Blob,
+  filename: string,
+  fileHandle?: FileSystemFileHandle | null,
+): Promise<void> {
+  if (fileHandle) {
+    await writeBlobToFileHandle(fileHandle, blob);
+    return;
   }
+  triggerHiddenBlobDownload(blob, filename);
+}
 
-  triggerAnchorDownload();
+/** Save a Blob without navigating or opening a media player. */
+export async function saveBlobDownload(blob: Blob, filename: string): Promise<void> {
+  const handle = await pickSaveFileHandle(filename);
+  if (handle === "cancelled") return;
+  await persistDownloadedBlob(blob, filename, handle);
 }
 
 /** Force a file save even when the URL redirects cross-origin. */
 export async function forceDownload(url: string, filename: string): Promise<void> {
-  const safeName =
-    filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4";
-  // Prefer fetch→blob so we never navigate / open an external browser.
-  // Signed R2 URLs usually lack CORS; callers should use API /output streaming.
+  const safeName = safeDownloadName(filename);
+  const handle = await pickSaveFileHandle(safeName);
+  if (handle === "cancelled") return;
+
   const downloadUrl = withDownloadAttachment(url, filename);
   let response: Response;
   try {
     response = await fetch(downloadUrl, { redirect: "follow" });
   } catch {
-    // Last resort: same-tab <a download> (no target). May be ignored on iOS.
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = safeName;
-    anchor.rel = "noopener";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    return;
+    throw new Error("다운로드하지 못했습니다.");
   }
   if (!response.ok) {
     throw new Error(`다운로드 실패 (${response.status})`);
   }
-  await saveBlobDownload(await response.blob(), safeName);
+  await persistDownloadedBlob(await response.blob(), safeName, handle);
 }
 
 export const isDemoMode = !(

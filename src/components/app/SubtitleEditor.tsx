@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Segment, ToneStyle } from "@/lib/ui-types";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
+import { dubLangDisplayName } from "@/lib/languages";
 import {
   SPEAK_MAX,
   SPEAK_MIN,
@@ -10,12 +11,6 @@ import {
   clampSpeakSpeed,
   sourceEndMsOf,
 } from "@/lib/speak-rate";
-
-const LANG_NAMES: Record<string, string> = {
-  ko: "한국어",
-  en: "English",
-  vi: "Tiếng Việt",
-};
 
 const TONE_OPTIONS: ToneStyle[] = [
   "sad",
@@ -440,8 +435,8 @@ export function SubtitleEditor({
   onEnsureDubPreview,
 }: Props) {
   const text = useAppDictionary();
-  const sourceLabel = LANG_NAMES[sourceLang] ?? sourceLang.toUpperCase();
-  const targetLabel = LANG_NAMES[targetLang] ?? targetLang.toUpperCase();
+  const sourceLabel = dubLangDisplayName(sourceLang, text);
+  const targetLabel = dubLangDisplayName(targetLang, text);
 
   return (
     <div className="subtitle-editor">
