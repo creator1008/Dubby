@@ -13,6 +13,7 @@ from app.remote_media import (
     classify_media_url,
     is_ytdlp_platform_host,
     normalize_remote_media_url,
+    tiktok_video_id_from_url,
     _is_cookie_auth_error,
     _is_facebook_share_url,
     _is_tiktok_host,
@@ -20,6 +21,7 @@ from app.remote_media import (
     _is_youtube_bot_check,
     _raise_ytdlp_error,
     _strip_ansi,
+    _tiktok_play_urls_from_detail,
     _ytdlp_attempt_cookie_opts,
     _ytdlp_cookie_option_sets,
     _ytdlp_impersonate_attempts,
@@ -217,3 +219,31 @@ def test_unexpected_tiktok_webpage_response_is_retryable() -> None:
             url="https://www.tiktok.com/@user/video/7680337770128133389",
         )
     assert "curl_cffi" not in str(exc_info.value)
+
+
+def test_tiktok_video_id_from_common_urls() -> None:
+    vid = "7680337770128133389"
+    assert tiktok_video_id_from_url(f"https://www.tiktok.com/@mia/video/{vid}") == vid
+    assert tiktok_video_id_from_url(f"https://www.tiktok.com/share/video/{vid}/") == vid
+    assert tiktok_video_id_from_url(f"https://www.tiktok.com/embed/v2/{vid}") == vid
+    assert tiktok_video_id_from_url("https://vm.tiktok.com/ZMabcdef/") is None
+
+
+def test_tiktok_play_urls_from_item_detail_payload() -> None:
+    payload = {
+        "status_code": 0,
+        "itemInfo": {
+            "itemStruct": {
+                "video": {
+                    "playAddr": "https://v16-webapp-prime.tiktok.com/video/a.mp4",
+                    "downloadAddr": "https://v16-webapp-prime.tiktok.com/video/b.mp4",
+                    "PlayAddrStruct": {
+                        "UrlList": ["https://v16-webapp-prime.tiktok.com/video/a.mp4"]
+                    },
+                }
+            }
+        },
+    }
+    urls = _tiktok_play_urls_from_detail(payload)
+    assert urls[0].endswith("/a.mp4")
+    assert "https://v16-webapp-prime.tiktok.com/video/b.mp4" in urls

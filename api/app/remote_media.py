@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import os
 import re
 import shutil
@@ -42,9 +43,20 @@ _COOKIE_DB_HINT_RE = re.compile(
 )
 _TIKTOK_EXTRACT_HINT_RE = re.compile(
     r"universal data for rehydration|webpage video data|"
-    r"unexpected response from webpage|impersonat",
+    r"unexpected response from webpage|challenge data|impersonat",
     re.IGNORECASE,
 )
+_TIKTOK_VIDEO_ID_RE = re.compile(
+    r"(?:/video/|/share/video/|/embed/v2/|/v/)(\d{8,})",
+    re.IGNORECASE,
+)
+_TIKTOK_CRAWLER_HEADERS = {
+    "User-Agent": (
+        "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+    ),
+    "Referer": "https://www.tiktok.com/",
+    "Accept": "*/*",
+}
 _FACEBOOK_SHARE_PATH_RE = re.compile(
     r"^/share/(?:r|v|p)/[^/]+/?",
     re.IGNORECASE,
@@ -131,6 +143,33 @@ def is_ytdlp_platform_host(host: str) -> bool:
 def _is_tiktok_host(host: str) -> bool:
     host = host.strip().lower().rstrip(".")
     return _host_matches_suffix(host, "tiktok.com")
+
+
+def tiktok_video_id_from_url(url: str) -> str | None:
+    match = _TIKTOK_VIDEO_ID_RE.search(url or "")
+    return match.group(1) if match else None
+
+
+def _tiktok_play_urls_from_detail(payload: dict) -> list[str]:
+    video = (
+        ((payload.get("itemInfo") or {}).get("itemStruct") or {}).get("video") or {}
+    )
+    urls: list[str] = []
+
+    def _push(value: object) -> None:
+        if isinstance(value, str) and value.startswith("http"):
+            if value not in urls:
+                urls.append(value)
+        elif isinstance(value, dict):
+            for item in value.get("UrlList") or value.get("url_list") or []:
+                _push(item)
+
+    for key in ("playAddr", "downloadAddr", "PlayAddrStruct"):
+        _push(video.get(key))
+    for info in video.get("bitrateInfo") or []:
+        if isinstance(info, dict):
+            _push(info.get("PlayAddr") or info.get("playAddr"))
+    return urls
 
 
 def _is_facebook_host(host: str) -> bool:
@@ -362,6 +401,175 @@ async def download_direct_media(
                     f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
                 )
         return target
+
+
+def _resolve_tiktok_video_id(url: str) -> str:
+    found = tiktok_video_id_from_url(url)
+    if found:
+        return found
+    current = url
+    timeout = httpx.Timeout(20.0)
+    with httpx.Client(
+        timeout=timeout,
+        follow_redirects=False,
+        headers=_TIKTOK_CRAWLER_HEADERS,
+    ) as client:
+        for _ in range(8):
+            assert_public_http_url(current)
+            response = client.get(current)
+            location = response.headers.get("location")
+            if response.status_code in {301, 302, 303, 307, 308} and location:
+                current = str(httpx.URL(current).join(location))
+                found = tiktok_video_id_from_url(current)
+                if found:
+                    return found
+                continue
+            found = tiktok_video_id_from_url(str(response.url)) or tiktok_video_id_from_url(
+                response.text[:12_000]
+            )
+            if found:
+                return found
+            break
+    raise RemoteMediaError("TikTok 영상 ID를 찾지 못했습니다.")
+
+
+def _download_public_http_file(
+    url: str,
+    dest_dir: Path,
+    *,
+    max_bytes: int,
+    headers: dict[str, str],
+) -> Path:
+    """Download a public http(s) object. Unlike direct-media, TikTok CDNs are allowed."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    timeout = httpx.Timeout(DOWNLOAD_TIMEOUT_SECONDS)
+    with httpx.Client(
+        timeout=timeout, follow_redirects=False, headers=headers
+    ) as client:
+        current = url
+        response: httpx.Response | None = None
+        for _ in range(8):
+            assert_public_http_url(current)
+            request = client.build_request("GET", current)
+            response = client.send(request, stream=True)
+            if response.status_code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("location")
+                response.close()
+                if not location:
+                    raise RemoteMediaError("리다이렉트 대상이 없습니다.")
+                current = str(httpx.URL(current).join(location))
+                continue
+            break
+        else:
+            raise RemoteMediaError("리다이렉트가 너무 많습니다.")
+
+        assert response is not None
+        size = 0
+        target = dest_dir / "source.mp4"
+        try:
+            if response.status_code >= 400:
+                raise RemoteMediaError(
+                    f"미디어를 내려받지 못했습니다 (HTTP {response.status_code})."
+                )
+            content_length = response.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > max_bytes:
+                        raise RemoteMediaError(
+                            f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
+                        )
+                except ValueError:
+                    pass
+            ext = _extension_from_url_or_type(
+                current, response.headers.get("content-type")
+            )
+            if ext not in {".mp4", ".webm", ".mov", ".m4v", ".mkv"}:
+                ext = ".mp4"
+            target = dest_dir / f"source{ext}"
+            size = 0
+            with target.open("wb") as output:
+                for chunk in response.iter_bytes(chunk_size=1024 * 256):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        output.close()
+                        target.unlink(missing_ok=True)
+                        raise RemoteMediaError(
+                            f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
+                        )
+                    output.write(chunk)
+        finally:
+            response.close()
+
+    if size == 0:
+        target.unlink(missing_ok=True)
+        raise RemoteMediaError("빈 파일입니다.")
+    if target.suffix.lower() in {".mp4", ".mov", ".m4v", ".mkv", ".webm"}:
+        target = ensure_browser_compatible_video(target)
+        if target.stat().st_size > max_bytes:
+            target.unlink(missing_ok=True)
+            raise RemoteMediaError(
+                f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
+            )
+    return target
+
+
+def download_tiktok_via_item_detail(
+    url: str,
+    dest_dir: Path,
+    *,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> Path:
+    """Fetch a public TikTok via the embed/crawler item-detail API, not yt-dlp webpage."""
+    video_id = _resolve_tiktok_video_id(url)
+    api = (
+        "https://www.tiktok.com/api/item/detail/"
+        f"?itemId={video_id}&aid=1988&language=en"
+    )
+    assert_public_http_url(api)
+    timeout = httpx.Timeout(30.0)
+    with httpx.Client(timeout=timeout, headers=_TIKTOK_CRAWLER_HEADERS) as client:
+        response = client.get(api)
+    if response.status_code >= 400:
+        raise RemoteMediaError(
+            f"TikTok 영상 정보를 받지 못했습니다 (HTTP {response.status_code})."
+        )
+    try:
+        payload = response.json()
+    except json.JSONDecodeError as exc:
+        raise RemoteMediaError("TikTok 영상 정보를 해석하지 못했습니다.") from exc
+    if not isinstance(payload, dict):
+        raise RemoteMediaError("TikTok 영상 정보를 해석하지 못했습니다.")
+
+    status = payload.get("status_code")
+    if status is None:
+        status = payload.get("statusCode")
+    try:
+        status_i = int(status or 0)
+    except (TypeError, ValueError):
+        status_i = 0
+    if status_i == 10204:
+        raise RemoteMediaError(
+            "TikTok이 이 서버 IP를 차단했습니다. 영상을 저장해 파일로 업로드해 주세요."
+        )
+    if status_i not in {0}:
+        raise RemoteMediaError("이 TikTok 영상을 가져올 수 없습니다.")
+
+    play_urls = _tiktok_play_urls_from_detail(payload)
+    if not play_urls:
+        raise RemoteMediaError("TikTok 재생 URL을 찾지 못했습니다.")
+
+    last_error: RemoteMediaError | None = None
+    for play_url in play_urls[:4]:
+        try:
+            return _download_public_http_file(
+                play_url,
+                dest_dir,
+                max_bytes=max_bytes,
+                headers=_TIKTOK_CRAWLER_HEADERS,
+            )
+        except RemoteMediaError as exc:
+            last_error = exc
+    raise last_error or RemoteMediaError("TikTok 영상을 내려받지 못했습니다.")
 
 
 def _require_yt_dlp():
@@ -783,6 +991,15 @@ def download_with_ytdlp(
     facebook_share = _is_facebook_share_url(url)
     youtube_host = bool(host) and _is_youtube_host(host)
     tiktok_host = bool(host) and _is_tiktok_host(host)
+    if tiktok_host:
+        try:
+            return download_tiktok_via_item_detail(
+                url, dest_dir, max_bytes=max_bytes
+            )
+        except RemoteMediaError:
+            # Datacenter webpage/WAF still fails in yt-dlp; item-detail is
+            # preferred. Fall through only when that path cannot resolve.
+            pass
     impersonate_targets = _ytdlp_impersonate_attempts(
         youtube=youtube_host, facebook=facebook_host, tiktok=tiktok_host
     )
