@@ -35,6 +35,27 @@ export function withDownloadAttachment(url: string, filename: string): string {
   return `${url}${separator}download=${encodeURIComponent(filename)}`;
 }
 
+function isMobileWeb(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/Android|iPhone|iPad|iPod/i.test(ua)) return true;
+  try {
+    return (
+      navigator.maxTouchPoints > 1 &&
+      window.matchMedia("(max-width: 900px)").matches
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isIOSWeb(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+}
+
 function safeDownloadName(filename: string): string {
   return (
     filename.replace(/[^\w.\-()\s\uAC00-\uD7A3]+/g, "_") || "dubby-output.mp4"
@@ -75,6 +96,7 @@ export async function pickSaveFileHandle(
     }) => Promise<FileSystemFileHandle>;
   };
   if (typeof win.showSaveFilePicker !== "function") return null;
+  if (isMobileWeb()) return null;
   const safeName = safeDownloadName(filename);
   try {
     return await win.showSaveFilePicker({
@@ -99,11 +121,13 @@ export async function writeBlobToFileHandle(
 }
 
 /** Hidden ``<a download>`` — never navigates to the media URL (which would play it). */
-export function triggerHiddenBlobDownload(blob: Blob, filename: string): void {
+export function triggerHiddenBlobDownload(
+  blob: Blob,
+  filename: string,
+  mimeType = "application/octet-stream",
+): void {
   const safeName = safeDownloadName(filename);
-  const file = new File([blob], safeName, {
-    type: "application/octet-stream",
-  });
+  const file = new File([blob], safeName, { type: mimeType });
   const objectUrl = URL.createObjectURL(file);
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
@@ -114,6 +138,41 @@ export function triggerHiddenBlobDownload(blob: Blob, filename: string): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+/**
+ * Phone browsers: save into Gallery/Photos instead of a folder picker.
+ * Android downloads a video/mp4 into Downloads (shown in Gallery).
+ * iOS uses the share sheet so the user can Save Video to Photos.
+ */
+export async function saveMobileWebVideo(
+  blob: Blob,
+  filename: string,
+): Promise<void> {
+  const safeName = safeDownloadName(filename);
+  const mime =
+    blob.type && blob.type !== "application/octet-stream"
+      ? blob.type
+      : "video/mp4";
+  const file = new File([blob], safeName, { type: mime });
+
+  if (isIOSWeb()) {
+    const nav = navigator as Navigator & {
+      canShare?: (data?: ShareData) => boolean;
+    };
+    if (typeof nav.share === "function" && nav.canShare?.({ files: [file] })) {
+      try {
+        await nav.share({ files: [file], title: safeName });
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    }
+    triggerHiddenBlobDownload(blob, safeName);
+    return;
+  }
+
+  triggerHiddenBlobDownload(blob, safeName, mime);
 }
 
 export async function persistDownloadedBlob(
@@ -138,6 +197,16 @@ export async function saveBlobDownload(blob: Blob, filename: string): Promise<vo
 /** Force a file save even when the URL redirects cross-origin. */
 export async function forceDownload(url: string, filename: string): Promise<void> {
   const safeName = safeDownloadName(filename);
+  if (isMobileWeb()) {
+    const downloadUrl = withDownloadAttachment(url, filename);
+    const response = await fetch(downloadUrl, { redirect: "follow" });
+    if (!response.ok) {
+      throw new Error(`다운로드 실패 (${response.status})`);
+    }
+    await saveMobileWebVideo(await response.blob(), safeName);
+    return;
+  }
+
   const handle = await pickSaveFileHandle(safeName);
   if (handle === "cancelled") return;
 

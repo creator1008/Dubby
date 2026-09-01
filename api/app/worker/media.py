@@ -472,7 +472,7 @@ def build_selective_voice_removal_cmd(
     ranges_ms: list[tuple[int, int]],
     wav_out: str,
     *,
-    no_vocals_in_mask: float = 0.4,
+    no_vocals_in_mask: float = 0.8,
 ) -> list[str]:
     """Blend to no_vocals only inside ASR-recognized speech ranges.
 

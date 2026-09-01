@@ -14,22 +14,25 @@ export function isNativeApp(): boolean {
   return billingPlatform() === "revenuecat";
 }
 
+export function isMobileBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/Android|iPhone|iPad|iPod/i.test(ua)) return true;
+  try {
+    return (
+      navigator.maxTouchPoints > 1 &&
+      window.matchMedia("(max-width: 900px)").matches
+    );
+  } catch {
+    return false;
+  }
+}
+
 function safeFilename(filename: string): string {
   return filename.replace(/[^\w.\-]+/g, "_").slice(-120) || "dubby-output.mp4";
 }
 
-/** Save a local Blob; keeps the current SPA/PWA screen open. */
-export async function downloadBlobAndShare(
-  blob: Blob,
-  filename: string,
-): Promise<void> {
-  const { saveBlobDownload } = await import("@/lib/demo-api");
-  if (!isNativeApp()) {
-    await saveBlobDownload(blob, filename);
-    return;
-  }
-
-  const safeName = safeFilename(filename);
+async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -37,36 +40,93 @@ export async function downloadBlobAndShare(
   for (let i = 0; i < bytes.length; i += chunk) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
-  const base64 = btoa(binary);
-  const path = `dubby/${safeName}`;
+  return btoa(binary);
+}
+
+async function writeBlobToDirectory(
+  blob: Blob,
+  filename: string,
+  directory: Directory,
+  subdir: string,
+): Promise<string> {
+  const safeName = safeFilename(filename);
+  const path = `${subdir}/${safeName}`;
   await Filesystem.writeFile({
     path,
-    data: base64,
-    directory: Directory.Cache,
+    data: await blobToBase64(blob),
+    directory,
     recursive: true,
   });
-  const { uri } = await Filesystem.getUri({
-    path,
-    directory: Directory.Cache,
-  });
+  const { uri } = await Filesystem.getUri({ path, directory });
+  return uri;
+}
+
+async function shareCachedFile(uri: string): Promise<void> {
   const { value } = await Share.canShare();
-  if (value) {
-    try {
-      await Share.share({
-        title: "Dubby 더빙 결과",
-        text: "Dubby에서 만든 더빙 결과입니다.",
-        files: [uri],
-        dialogTitle: "저장 또는 공유",
-      });
-    } catch {
-      // Cancelled share sheets should leave the app screen open.
-    }
+  if (!value) return;
+  try {
+    await Share.share({
+      title: "Dubby 더빙 결과",
+      text: "Dubby에서 만든 더빙 결과입니다.",
+      files: [uri],
+      dialogTitle: "갤러리에 저장",
+    });
+  } catch {
+    // Cancelled share sheets should leave the app screen open.
   }
 }
 
 /**
- * Download original or dubbed video: pick filename/folder first, then save.
- * Never navigates to the media URL (that would play the video in-browser).
+ * Native apps: write into the public Movies folder so Gallery indexes it.
+ * iOS has no public Movies path — share sheet with Save Video.
+ */
+async function saveNativeVideoToGallery(
+  blob: Blob,
+  filename: string,
+): Promise<void> {
+  if (Capacitor.getPlatform() === "android") {
+    try {
+      await writeBlobToDirectory(
+        blob,
+        filename,
+        Directory.ExternalStorage,
+        "Movies/Dubby",
+      );
+      return;
+    } catch {
+      // Scoped storage can reject ExternalStorage; fall through to share.
+    }
+  }
+
+  const uri = await writeBlobToDirectory(
+    blob,
+    filename,
+    Directory.Cache,
+    "dubby",
+  );
+  await shareCachedFile(uri);
+}
+
+/** Save a local Blob; keeps the current SPA/PWA screen open. */
+export async function downloadBlobAndShare(
+  blob: Blob,
+  filename: string,
+): Promise<void> {
+  const { saveBlobDownload, saveMobileWebVideo } = await import("@/lib/demo-api");
+  if (isNativeApp()) {
+    await saveNativeVideoToGallery(blob, filename);
+    return;
+  }
+  if (isMobileBrowser()) {
+    await saveMobileWebVideo(blob, filename);
+    return;
+  }
+  await saveBlobDownload(blob, filename);
+}
+
+/**
+ * Download original or dubbed video: pick filename/folder first on desktop.
+ * On phones, save into the gallery without opening a player.
  */
 export async function downloadProjectOutput(options: {
   filename: string;
@@ -75,7 +135,7 @@ export async function downloadProjectOutput(options: {
 }): Promise<void> {
   const filename = options.filename.trim() || "dubby-output.mp4";
 
-  if (isNativeApp()) {
+  if (isNativeApp() || isMobileBrowser()) {
     const blob = await options.getBlob();
     await downloadBlobAndShare(blob, filename);
     return;
@@ -98,6 +158,20 @@ export async function downloadAndShare(url: string, filename: string): Promise<v
     return;
   }
 
+  if (Capacitor.getPlatform() === "android") {
+    try {
+      const result = await Filesystem.downloadFile({
+        url,
+        path: `Movies/Dubby/${safeFilename(filename)}`,
+        directory: Directory.ExternalStorage,
+        recursive: true,
+      });
+      if (result.path) return;
+    } catch {
+      // Fall through to cache + share.
+    }
+  }
+
   const result = await Filesystem.downloadFile({
     url,
     path: `dubby/${safeFilename(filename)}`,
@@ -105,18 +179,5 @@ export async function downloadAndShare(url: string, filename: string): Promise<v
     recursive: true,
   });
   if (!result.path) throw new Error("다운로드 파일 경로를 확인하지 못했습니다.");
-
-  const { value } = await Share.canShare();
-  if (value) {
-    try {
-      await Share.share({
-        title: "Dubby 더빙 결과",
-        text: "Dubby에서 만든 더빙 결과입니다.",
-        files: [result.path],
-        dialogTitle: "저장 또는 공유",
-      });
-    } catch {
-      // Cancelled share sheets should leave the app screen open.
-    }
-  }
+  await shareCachedFile(result.path);
 }

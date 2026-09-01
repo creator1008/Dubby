@@ -134,7 +134,7 @@ def test_selective_voice_removal_uses_only_asr_ranges() -> None:
     assert "(t-0.640000)/0.080000" in graph
     assert "lt(t,0.720000)" in graph
     assert "lt(t,4.640000)" in graph or "lt(t,5.240000)" in graph
-    assert "*0.4000" in graph  # Demucs bleed attenuation under dialogue
+    assert "*0.8000" in graph  # Demucs accompaniment under dialogue (80%)
     assert "[original][removed]amix=inputs=2" in graph
     assert cmd[-1] == "speech_removed.wav"
 

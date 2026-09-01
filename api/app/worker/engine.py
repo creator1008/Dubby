@@ -493,7 +493,7 @@ class RealEngine(Engine):
         ranges_ms: list[tuple[int, int]],
         wav_out: str,
         *,
-        no_vocals_in_mask: float = 0.4,
+        no_vocals_in_mask: float = 0.8,
     ) -> None:
         await self._run(
             media.build_selective_voice_removal_cmd(
@@ -775,7 +775,7 @@ class MockEngine(Engine):
         ranges_ms: list[tuple[int, int]],
         wav_out: str,
         *,
-        no_vocals_in_mask: float = 0.4,
+        no_vocals_in_mask: float = 0.8,
     ) -> None:
         del no_vocals_wav, ranges_ms, no_vocals_in_mask
         shutil.copyfile(original_wav, wav_out)
