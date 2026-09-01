@@ -15,12 +15,14 @@ from app.remote_media import (
     normalize_remote_media_url,
     _is_cookie_auth_error,
     _is_facebook_share_url,
+    _is_tiktok_host,
     _base_ytdlp_opts,
     _is_youtube_bot_check,
     _raise_ytdlp_error,
     _strip_ansi,
     _ytdlp_attempt_cookie_opts,
     _ytdlp_cookie_option_sets,
+    _ytdlp_impersonate_attempts,
     _ytdlp_impersonate_targets,
 )
 
@@ -193,3 +195,25 @@ def test_facebook_impersonate_prefers_chrome_99(
     monkeypatch.delenv("YTDLP_IMPERSONATE", raising=False)
     assert _ytdlp_impersonate_targets(facebook=True)[0] == "chrome-99"
     assert _ytdlp_impersonate_targets(facebook=False)[0] == "chrome"
+
+
+def test_tiktok_impersonate_attempts_are_plain_urllib(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YTDLP_IMPERSONATE", "chrome")
+    assert _is_tiktok_host("www.tiktok.com")
+    assert _is_tiktok_host("vt.tiktok.com")
+    assert _ytdlp_impersonate_attempts(tiktok=True) == [None]
+
+
+def test_unexpected_tiktok_webpage_response_is_retryable() -> None:
+    message = (
+        "ERROR: [TikTok] 7680337770128133389: Unexpected response from webpage request; "
+        "please report this issue on https://github.com/yt-dlp/yt-dlp/issues"
+    )
+    with pytest.raises(RemoteMediaError, match="TikTok 영상을 가져오지 못했습니다") as exc_info:
+        _raise_ytdlp_error(
+            Exception(message),
+            url="https://www.tiktok.com/@user/video/7680337770128133389",
+        )
+    assert "curl_cffi" not in str(exc_info.value)

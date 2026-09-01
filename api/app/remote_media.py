@@ -41,7 +41,8 @@ _COOKIE_DB_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 _TIKTOK_EXTRACT_HINT_RE = re.compile(
-    r"universal data for rehydration|webpage video data|impersonat",
+    r"universal data for rehydration|webpage video data|"
+    r"unexpected response from webpage|impersonat",
     re.IGNORECASE,
 )
 _FACEBOOK_SHARE_PATH_RE = re.compile(
@@ -125,6 +126,11 @@ def is_ytdlp_platform_host(host: str) -> bool:
     if not host:
         return False
     return any(_host_matches_suffix(host, suffix) for suffix in _YTDLP_HOST_SUFFIXES)
+
+
+def _is_tiktok_host(host: str) -> bool:
+    host = host.strip().lower().rstrip(".")
+    return _host_matches_suffix(host, "tiktok.com")
 
 
 def _is_facebook_host(host: str) -> bool:
@@ -563,9 +569,7 @@ def _ytdlp_attempt_cookie_opts(url: str) -> list[dict]:
     """
     cookie_sets = _ytdlp_cookie_option_sets()
     host = _hostname(url)
-    is_tiktok = bool(host) and (
-        host == "tiktok.com" or host.endswith(".tiktok.com")
-    )
+    is_tiktok = bool(host) and _is_tiktok_host(host)
     is_facebook = bool(host) and _is_facebook_host(host)
     attempts: list[dict] = [{}]
     for opts in cookie_sets:
@@ -597,6 +601,27 @@ def _ytdlp_impersonate_targets(*, facebook: bool = False) -> list[str]:
     if facebook:
         return ["chrome-99", "chrome", "chrome-110", "safari"]
     return ["chrome", "chrome-110", "safari"]
+
+
+def _ytdlp_impersonate_attempts(
+    *, youtube: bool = False, facebook: bool = False, tiktok: bool = False
+) -> list[str | None]:
+    """Which ``impersonate`` values to try, in order (``None`` = plain urllib).
+
+    TikTok currently serves a JS-challenge HTML page to curl_cffi fingerprints
+    (yt-dlp #17403 / 2026.08.19 extractor). Webpage parse then fails with
+    ``Unexpected response from webpage request``. Do not impersonate TikTok.
+    """
+    if tiktok:
+        return [None]
+    try:
+        import curl_cffi  # noqa: F401
+    except ImportError:
+        return [None]
+    targets: list[str | None] = list(_ytdlp_impersonate_targets(facebook=facebook))
+    if youtube:
+        targets.append(None)
+    return targets
 
 
 def _open_ytdlp(yt_dlp_mod, opts: dict):
@@ -638,10 +663,10 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
         ) from exc
     if _TIKTOK_EXTRACT_HINT_RE.search(message):
         raise RemoteMediaError(
-            "TikTok 페이지 추출에 실패했습니다. "
-            "`pip install -U yt-dlp curl_cffi` 후 서버를 재시작하고, "
-            "TikTok 로그인 상태로 해당 영상을 브라우저에서 연 다음 "
-            "cookies.txt를 YTDLP_COOKIES_FILE로 지정해 보세요."
+            "TikTok 영상을 가져오지 못했습니다. "
+            "공개 영상이면 잠시 후 다시 시도하거나, 앱에서 영상을 저장해 "
+            "파일로 업로드해 주세요. 로그인·연령 제한이면 cookies.txt를 "
+            "YTDLP_COOKIES_FILE로 지정하세요."
         ) from exc
     if "ffmpeg is not installed" in lower or (
         "merging of multiple formats" in lower and "ffmpeg" in lower
@@ -757,18 +782,10 @@ def download_with_ytdlp(
     facebook_host = bool(host) and _is_facebook_host(host)
     facebook_share = _is_facebook_share_url(url)
     youtube_host = bool(host) and _is_youtube_host(host)
-    try:
-        import curl_cffi  # noqa: F401
-
-        impersonate_targets: list[str | None] = list(
-            _ytdlp_impersonate_targets(facebook=facebook_host)
-        )
-        if youtube_host:
-            # Restore the pre-3.0.2 working combo (Chrome TLS + default client),
-            # then a bare request if impersonate itself triggers the bot wall.
-            impersonate_targets = [*impersonate_targets, None]
-    except ImportError:
-        impersonate_targets = [None]
+    tiktok_host = bool(host) and _is_tiktok_host(host)
+    impersonate_targets = _ytdlp_impersonate_attempts(
+        youtube=youtube_host, facebook=facebook_host, tiktok=tiktok_host
+    )
 
     attempt_opts = _ytdlp_attempt_cookie_opts(url)
     client_sets: tuple[tuple[str, ...] | None, ...] = (
