@@ -610,6 +610,77 @@ async def _load_speech_ranges(
 # --- handlers --------------------------------------------------------------------
 
 
+async def _fill_uncovered_asr_tail(
+    ctx: JobContext,
+    engine,
+    *,
+    asr_audio: str,
+    chunks: list[UtteranceChunk],
+    speech_ranges: list[tuple[int, int]],
+    duration_ms: int,
+    source_lang: str,
+    diarize: bool,
+    scratch: Path,
+) -> tuple[list[UtteranceChunk], list[tuple[int, int]], list[str]]:
+    """Second Gemini listen when the first pass stopped before the clip ended.
+
+    Fairy-tale / long VO clips often lose the second half of timestamps, so
+    those minutes keep original audio even though translations exist for the
+    first half.
+    """
+    covered_end = max((chunk.end_ms for chunk in chunks), default=0)
+    if duration_ms < 20_000 or covered_end >= int(duration_ms * 0.85):
+        return chunks, speech_ranges, []
+    tail_start = max(0, covered_end - 800)
+    if duration_ms - tail_start < 4_000:
+        return chunks, speech_ranges, []
+    warnings = [f"asr_tail_uncovered:{covered_end}/{duration_ms}"]
+    tail_mp3 = scratch / "asr_tail.mp3"
+    try:
+        await engine.trim_asr_audio(asr_audio, str(tail_mp3), tail_start, duration_ms)
+        tail_result = await _with_retries(
+            ctx,
+            lambda: engine.transcribe(
+                str(tail_mp3),
+                source_lang,
+                duration_seconds=max(0.5, (duration_ms - tail_start) / 1000.0),
+                diarize=diarize,
+            ),
+            step="asr_tail",
+        )
+    except PipelineError as exc:
+        logger.warning("ASR tail pass skipped: %s", exc)
+        warnings.append("asr_tail_failed")
+        return chunks, speech_ranges, warnings
+
+    offset_drafts: list[SegmentDraft] = []
+    for draft in tail_result.drafts:
+        start_ms = int(draft.start_ms) + tail_start
+        end_ms = int(draft.end_ms) + tail_start
+        if end_ms <= covered_end:
+            continue
+        start_ms = max(start_ms, covered_end)
+        if end_ms <= start_ms:
+            continue
+        offset_drafts.append(
+            SegmentDraft(
+                start_ms=start_ms,
+                end_ms=min(end_ms, duration_ms),
+                text=draft.text,
+                speaker_id=draft.speaker_id,
+            )
+        )
+    tail_chunks = _chunks_from_whisper_drafts(offset_drafts, [])
+    if not tail_chunks:
+        warnings.append("asr_tail_empty")
+        return chunks, speech_ranges, warnings
+    merged = dedupe_boundary_overlaps([*chunks, *tail_chunks])
+    ranges = list(speech_ranges)
+    ranges.extend((c.start_ms, c.end_ms) for c in tail_chunks)
+    warnings.append(f"asr_tail_appended:{len(tail_chunks)}")
+    return merged, ranges, warnings
+
+
 async def run_transcribe(ctx: JobContext) -> None:
     """transcribe: R2 source -> Gemini full STT -> document translate -> segments.
 
@@ -675,6 +746,25 @@ async def run_transcribe(ctx: JobContext) -> None:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
 
         chunks = dedupe_boundary_overlaps(chunks)
+        chunks, speech_ranges, tail_notes = await _fill_uncovered_asr_tail(
+            ctx,
+            engine,
+            asr_audio=str(asr_audio),
+            chunks=chunks,
+            speech_ranges=speech_ranges,
+            duration_ms=max(1, int(round(float(info.duration_seconds) * 1000))),
+            source_lang=source_lang,
+            diarize=bool(project.get("diarization_enabled")),
+            scratch=scratch,
+        )
+        quality_warnings.extend(tail_notes)
+        if any(note.startswith("asr_tail_appended") for note in tail_notes):
+            await _upload_speech_ranges(
+                ctx,
+                str(project["source_key"]),
+                speech_ranges,
+                scratch,
+            )
 
         if bool(project.get("diarization_enabled")):
             provider = create_diarization_provider(ctx.settings)

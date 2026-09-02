@@ -4,7 +4,7 @@ Uses the Google AI Studio REST API (generativelanguage.googleapis.com).
 Call order for Ver 3.0:
 
 1. Listen to the whole audio once → complete source transcript + timed segments.
-2. Translate that document as a whole, then assign spoken lines per timestamp.
+2. Translate each caption independently (full transcript is context only).
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from .locale_rules import (
     translation_pair_rules,
 )
 from .openai_client import SegmentDraft, TranscribeResult, parse_translation_content
+from .translation_align import idxs_needing_retranslate
 
 logger = logging.getLogger("dubby.worker.gemini")
 
@@ -391,16 +392,13 @@ class GeminiClient:
             )
         prompt = (
             f"You are a professional dubbing translator.\n"
-            f"First, translate the COMPLETE {src} transcript into natural spoken {tgt} "
-            "as one document. Preserve meaning, names, tone, and genre terms. "
-            "Use colloquial voice-over language, not stiff subtitle-ese. "
-            "Do not add narrator notes.\n"
-            "Then assign each numbered segment a spoken line taken from that document "
-            "translation:\n"
-            "- keep idx order; never merge, split, drop, or reorder idxs\n"
-            "- do not borrow words from neighboring idxs\n"
-            "- every clause in the full translation must land on some idx "
-            "(no dropped ending)\n"
+            f"Translate EACH numbered segment from {src} into spoken {tgt}.\n"
+            "full_transcript is context only: names, pronouns, and story continuity.\n"
+            "The text for idx N must translate ONLY that row's source_text.\n"
+            "- never put the document opening or a later scene onto the wrong idx\n"
+            "- never merge, split, drop, or reorder idxs\n"
+            "- a short source line must stay a short translation\n"
+            "- do not leave source-language wording in the target line\n"
             "- fit target_seconds / max_chars by tightening wording, not by deleting meaning\n"
             "- spell numbers and abbreviations as they should be spoken\n"
             f"{extra}\n"
@@ -423,6 +421,29 @@ class GeminiClient:
         # parse_translation_content expects {"translations":[...]} which we have.
         parsed = parse_translation_content(json.dumps(payload, ensure_ascii=False), wanted)
         source_by_idx = {idx: text for idx, text, _ in items}
+        bad_idxs = idxs_needing_retranslate(
+            items, parsed, source_lang, target_lang
+        )
+        if bad_idxs:
+            retry_items = [row for row in items if row[0] in set(bad_idxs)]
+            retry_payload = await self._generate_json(
+                (
+                    f"Translate EACH of these {src} captions into spoken {tgt}.\n"
+                    "Translate only that caption's source_text. Do not use lines "
+                    "from other scenes. Keep short captions short.\n"
+                    f"{extra}\n"
+                    "Return JSON with full_translation plus translations[{idx,text}]."
+                    f"\n\n{json.dumps({'segments': [{'idx': i, 'source_text': t, 'target_seconds': round(max(0.35, s), 2)} for i, t, s in retry_items]}, ensure_ascii=False)}"
+                ),
+                schema=_TRANSLATION_SCHEMA,
+                audio_path=None,
+                error_code=errors.TRANSLATION_FAILED,
+            )
+            retried = parse_translation_content(
+                json.dumps(retry_payload, ensure_ascii=False),
+                [i for i, _, _ in retry_items],
+            )
+            parsed.update(retried)
         return {
             idx: apply_translation_postprocess(
                 source_by_idx.get(idx, ""),
