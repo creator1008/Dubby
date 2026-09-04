@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Dubby 시스템 아키텍처 정의서 (DUBBY-SAD-001)</title>
+<style>
+  :root {
+    --navy: #0f284a;
+    --blue: #2b6cb0;
+    --ink: #1a202c;
+    --slate: #4a5568;
+    --rule: #cbd5e1;
+    --box: #f7fafc;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 11pt; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+    line-height: 1.55;
+  }
+  .cover {
+    min-height: 100vh;
+    background: var(--navy);
+    color: #fff;
+    padding: 48px 56px;
+    position: relative;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    background: var(--blue);
+  }
+  .kicker { letter-spacing: .12em; color: #a0b8d2; font-size: 11pt; }
+  .cover h1 { font-size: 22pt; margin: 72px 0 8px; font-weight: 700; }
+  .cover h2 { font-size: 28pt; margin: 0 0 28px; font-weight: 700; }
+  .cover hr { width: 92px; border: 0; border-top: 2px solid #fff; margin: 0 0 28px; }
+  .meta { list-style: none; padding: 0; margin: 0; }
+  .meta li { display: flex; gap: 16px; margin: 8px 0; }
+  .meta span { width: 140px; color: #a0b8d2; }
+  .cover .foot {
+    position: absolute; bottom: 48px; left: 56px; right: 56px;
+    color: #a0b8d2; font-size: 10pt;
+  }
+  main { padding: 28px 36px 48px; max-width: 900px; margin: 0 auto; }
+  h1 {
+    color: var(--navy);
+    font-size: 16pt;
+    border-left: 6px solid var(--navy);
+    padding-left: 10px;
+    page-break-before: always;
+    margin-top: 0;
+  }
+  h2 {
+    color: var(--blue);
+    font-size: 12.5pt;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 4px;
+    margin-top: 22px;
+  }
+  p { margin: 8px 0 12px; }
+  ul { margin: 6px 0 14px; padding-left: 20px; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 9.5pt;
+  }
+  th {
+    background: var(--navy);
+    color: #fff;
+    text-align: left;
+    padding: 7px 8px;
+    font-weight: 700;
+  }
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f1f5f9; }
+  pre {
+    background: var(--box);
+    border: 1px solid var(--rule);
+    padding: 12px 14px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 8.2pt;
+    line-height: 1.35;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .note {
+    background: var(--box);
+    border-left: 4px solid var(--blue);
+    padding: 10px 14px;
+    margin: 12px 0 16px;
+  }
+  .note strong { color: var(--navy); display: block; margin-bottom: 4px; }
+  .docbar {
+    display: flex;
+    justify-content: space-between;
+    color: var(--slate);
+    font-size: 9pt;
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 6px;
+    margin-bottom: 18px;
+  }
+  @page { size: A4; margin: 16mm 14mm 16mm; }
+  @media print {
+    .cover { min-height: 100vh; page-break-after: always; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="kicker">HANDOVER · INTERNAL</div>
+  <h1>Dubby</h1>
+  <h2>시스템 아키텍처 정의서</h2>
+  <hr />
+  <ul class="meta">
+    <li><span>문서번호</span><b>DUBBY-SAD-001</b></li>
+    <li><span>제품 버전</span><b>3.0.12</b></li>
+    <li><span>파이프라인 버전</span><b>3.0</b></li>
+    <li><span>작성일</span><b>2026-09-04</b></li>
+    <li><span>상태</span><b>인수인계용 / 내부</b></li>
+    <li><span>근거</span><b>저장소 코드 기준 (추측 인프라 없음)</b></li>
+  </ul>
+  <p class="foot">이 문서는 Dubby의 런타임·배포·네트워크·저장소·인증 경계를 정의한다. 비즈니스 규칙, DB 스키마 상세, 프롬프트 전문은 후속 문서에서 다룬다.</p>
+</section>
+
+<main>
+<div class="docbar"><span>Dubby 시스템 아키텍처 정의서</span><span>DUBBY-SAD-001</span></div>
+
+<h1>1. 문서 개요</h1>
+<h2>1.1 목적</h2>
+<p>이 문서는 Dubby의 시스템 경계를 한 장의 인수인계 기준으로 고정한다. 누가 어디에 배포되고, 요청이 어떤 경로로 흐르며, 파일이 어디를 지나지 않는지, 인증이 무엇을 신뢰하는지를 코드와 배포 설정에 근거해 기술한다.</p>
+
+<h2>1.2 범위</h2>
+<ul>
+  <li>포함: 프론트엔드·API·워커·리버스 프록시·DNS/도메인·인증·객체 스토리지·외부 SaaS 연동점·운영 헬스체크·환경 변수 이름.</li>
+  <li>제외: 세그먼트 비즈니스 규칙의 세부, 프롬프트 전문, 테이블 DDL과 마이그레이션 이력. 이들은 각각 「비즈니스 로직 및 기능 명세서」, 「AI 에이전트 및 프롬프트 명세서」, 「데이터베이스/파이프라인 설계서」에서 다룬다.</li>
+  <li>사실의 기준: 저장소 현재 코드(제품 버전 3.0.12, PIPELINE_VERSION 3.0). 문서에 없는 클라우드 구성은 가정하지 않는다.</li>
+</ul>
+
+<h2>1.3 대상 독자</h2>
+<ul>
+  <li>인수받는 개발자·운영자: 배포 단위와 재시작 범위를 파악한다.</li>
+  <li>프론트/백엔드 작업자: CORS·업로드 경로·JWT 경계를 오해하지 않는다.</li>
+  <li>모바일 담당: 웹과 네이티브의 결제·파일 저장 경로가 갈라지는 지점을 본다.</li>
+</ul>
+
+<h2>1.4 관련 산출물</h2>
+<table>
+  <thead><tr><th>문서</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>본 문서 (SAD-001)</td><td>런타임·배포·네트워크·저장 경계</td></tr>
+    <tr><td>비즈니스 로직 및 기능 명세서 (후속)</td><td>제품 기능, 크레딧, 더빙/추출 UX</td></tr>
+    <tr><td>데이터베이스/파이프라인 설계서 (후속)</td><td>스키마, 잡 상태, 미디어 처리 단계</td></tr>
+    <tr><td>AI 에이전트 및 프롬프트 명세서 (후속)</td><td>STT·번역·TTS 프롬프트와 모델</td></tr>
+    <tr><td>docs/CUSTOM_DOMAIN.md</td><td>도메인·DNS·터널 운영 메모</td></tr>
+    <tr><td>api/.env.example</td><td>환경 변수 이름(값 없음)</td></tr>
+  </tbody>
+</table>
+
+<h2>1.5 용어</h2>
+<table>
+  <thead><tr><th>용어</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>UI / Pages</td><td>Next.js static export(<code>out/</code>). 서버 런타임 없음.</td></tr>
+    <tr><td>API</td><td>FastAPI(uvicorn). 인증·CRUD·프리사인·잡 enqueue.</td></tr>
+    <tr><td>Worker</td><td>파이프라인 실행 프로세스. <code>jobs</code> 테이블을 폴링한다.</td></tr>
+    <tr><td>Caddy</td><td>Lightsail에서 TLS 종료 및 reverse_proxy.</td></tr>
+    <tr><td>R2</td><td>Cloudflare R2. 브라우저가 직접 multipart PUT.</td></tr>
+    <tr><td>healthz</td><td>프로세스 생존. DB/R2를 건드리지 않음. 버전은 API 이미지.</td></tr>
+    <tr><td>readyz</td><td>DB ping. 실패 시 503.</td></tr>
+  </tbody>
+</table>
+
+<h1>2. 시스템 개요</h1>
+<p>Dubby는 원본 영상을 올리고, 대본을 추출·수정한 뒤, 대상 언어로 더빙해 내려받는 제품이다. 웹은 정적 사이트이고, 무거운 미디어와 AI 작업은 API가 아닌 워커와 외부 공급자가 수행한다. 브라우저와 앱은 100MB급 원본을 API 본문으로 보내지 않는다.</p>
+
+<h2>2.1 한 줄 구조</h2>
+<pre>
+[브라우저 / Capacitor 앱]
+         |  HTTPS (정적 자산)
+         v
+dubbyai.com  (GitHub Pages 또는 Cloudflare Pages, out/)
+         |
+         |  HTTPS + Bearer JWT  (JSON만, 본문 작음)
+         v
+api.dubbyai.com  --Caddy-->  dubby-api:8000 (FastAPI)
+         |                         |
+         |                    jobs enqueue
+         |                         v
+         |                   dubby-worker  (ffmpeg / Demucs / AI)
+         |
+         +--> 브라우저 presigned PUT/GET ---->  Cloudflare R2
+         +--> Supabase Auth JWT 검증, Postgres(또는 PostgREST)
+         +--> Gemini / OpenAI / ElevenLabs / Stripe / RevenueCat
+</pre>
+
+<h2>2.2 설계 원칙</h2>
+<ul>
+  <li>정적 UI: Next.js <code>output: "export"</code>. 서버 컴포넌트 런타임·API Route에 의존하지 않는다.</li>
+  <li>API는 오케스트레이션만: 파일 바이트를 프록시하지 않고 R2 프리사인을 발급한다.</li>
+  <li>워커는 별 이미지: Demucs/torch는 메모리·이미지 크기가 커서 API와 분리한다.</li>
+  <li>사용자 id는 클라이언트를 믿지 않는다. 모든 소유권은 Supabase JWT <code>sub</code>에서 온다.</li>
+  <li>프로덕션은 <code>PIPELINE_MODE=real</code>만 허용한다. mock은 개발·테스트 전용이다.</li>
+</ul>
+
+<h2>2.3 제품·배포 버전</h2>
+<p>프론트 <code>package.json</code>과 API <code>api/app/__init__.py</code>의 <code>__version__</code>은 3.0.12로 맞춘다. 파이프라인 호환 표식 <code>PIPELINE_VERSION</code>은 <code>"3.0"</code>이다. 공개 <code>/healthz</code>의 <code>version</code> 필드는 API 컨테이너에 들어간 그 파일이다. 워커만 재빌드하면 healthz 버전은 바뀌지 않는다.</p>
+
+<h1>3. 시스템 컨텍스트</h1>
+<h2>3.1 행위자</h2>
+<table>
+  <thead><tr><th>행위자</th><th>진입점</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>웹 사용자</td><td>https://dubbyai.com</td><td>Stripe 결제, 데스크톱 저장 피커</td></tr>
+    <tr><td>모바일 웹</td><td>동일 도메인</td><td>저장 피커 생략, 공유/다운로드 경로</td></tr>
+    <tr><td>네이티브 앱</td><td>com.dubby.app</td><td>Capacitor, RevenueCat 결제</td></tr>
+    <tr><td>관리자</td><td>/v1/admin</td><td>JWT role 기반. 크레딧·로그</td></tr>
+    <tr><td>결제 공급자</td><td>웹훅</td><td>Stripe / RevenueCat. 서명·헤더 검증</td></tr>
+  </tbody>
+</table>
+
+<h2>3.2 외부 시스템</h2>
+<table>
+  <thead><tr><th>시스템</th><th>역할</th><th>호출 주체</th></tr></thead>
+  <tbody>
+    <tr><td>Supabase Auth</td><td>가입·세션 JWT 발급</td><td>브라우저 SDK / API 검증</td></tr>
+    <tr><td>Postgres (Supabase)</td><td>프로젝트·세그먼트·잡·크레딧</td><td>API·워커 Repository</td></tr>
+    <tr><td>Cloudflare R2</td><td>원본·산출·보이스 샘플</td><td>브라우저 PUT, 워커 GET/PUT</td></tr>
+    <tr><td>Gemini 3.7 Flash</td><td>기본 STT·번역</td><td>워커</td></tr>
+    <tr><td>OpenAI</td><td>STT/번역 fallback, 화자분리</td><td>워커</td></tr>
+    <tr><td>ElevenLabs</td><td>보이스 클론·TTS</td><td>워커·API(보이스 라이브러리)</td></tr>
+    <tr><td>Stripe</td><td>웹 구독·크레딧 팩</td><td>API</td></tr>
+    <tr><td>RevenueCat</td><td>iOS/Android 인앱결제</td><td>앱 + API 웹훅</td></tr>
+    <tr><td>yt-dlp 대상 사이트</td><td>URL 수집</td><td>API (ffmpeg + Node 22)</td></tr>
+    <tr><td>Sync.so</td><td>선택 립싱크</td><td>워커 (기본 disabled)</td></tr>
+  </tbody>
+</table>
+
+<h2>3.3 신뢰 경계</h2>
+<ul>
+  <li>공개: 정적 UI, <code>/healthz</code>, <code>/readyz</code>, 결제 웹훅(서명 필요).</li>
+  <li>인증 필요: <code>/v1/*</code> (헬스 제외). <code>Authorization: Bearer &lt;Supabase JWT&gt;</code>.</li>
+  <li>브라우저 → R2: 프리사인 URL만. 키 prefix는 서버가 <code>users/{user_id}/...</code> 로 강제한다.</li>
+  <li>워커 → DB: 서비스 측 Repository. 사용자 JWT를 들고 다니지 않는다.</li>
+  <li>Caddy는 CORS 헤더를 넣지 않는다. 중복 ACAO는 브라우저가 거절한다.</li>
+</ul>
+
+<h1>4. 논리 아키텍처</h1>
+<h2>4.1 계층</h2>
+<pre>
+Presentation     Next.js 16 static UI (React 19), i18n ko/en/vi
+                 Capacitor shell (webDir=out), billingPlatform 분기
+-----------------------------------------------------------------
+Edge / TLS       GitHub Pages 또는 CF Pages (UI)
+                 Caddy h1/h2 only  (API, Lightsail)
+                 로컬: Cloudflare named tunnel → localhost:8000
+-----------------------------------------------------------------
+Application      FastAPI create_app()
+                 CORS → AccessLogMiddleware → routers
+                 JwtVerifier, R2Storage, Repository
+-----------------------------------------------------------------
+Pipeline         worker.runner  claim_next_job
+                 PIPELINE_HANDLERS: transcribe | dub | lipsync
+                 Engine (real | mock)
+-----------------------------------------------------------------
+Data             Postgres asyncpg  또는  supabase_rest
+                 R2 objects, Demucs model volume
+</pre>
+
+<h2>4.2 프론트엔드</h2>
+<p><code>next.config.ts</code>는 <code>output: "export"</code>, <code>trailingSlash</code>, 비최적화 이미지를 사용한다. <code>NEXT_PUBLIC_SITE_URL</code> 기본값은 <code>https://dubbyai.com</code> 이다. 사이트 URL에 dubbyai.com이 포함되거나 <code>DUBBY_CUSTOM_DOMAIN=true</code>이면 basePath를 비운다. 커스텀 도메인 없는 GitHub Pages만 <code>/Dubby</code> prefix를 쓴다.</p>
+<p>API 오리진은 <code>NEXT_PUBLIC_API_ORIGIN</code>, 쿼리 <code>?api=</code>, localStorage 순으로 <code>src/lib/api.ts</code>가 해석한다. 오리진이 비어 있으면 <code>src/lib/demo-api.ts</code> 로컬 데모 백엔드로 떨어진다. 세션은 <code>@supabase/supabase-js</code> PKCE, persist session, anon key이다.</p>
+
+<h2>4.3 API</h2>
+<p><code>api/app/main.py</code>의 <code>create_app()</code>이 FastAPI를 만든다. 수명주기에서 Repository·R2Storage·JwtVerifier를 <code>app.state</code>에 올린다. 프로덕션에서는 <code>/docs</code>를 끈다. 라우터는 health, projects, segments, jobs, credits, voices, billing, uploads, admin이다.</p>
+<p>AccessLogMiddleware는 <code>/v1/*</code> 히트를 DB에 남긴다. CORSMiddleware보다 안쪽에 두어 500 응답에서도 ACAO가 떨어지지 않게 한다. Starlette BaseHTTPMiddleware는 이 이유로 쓰지 않는다.</p>
+
+<h2>4.4 워커</h2>
+<p><code>python -m app.worker.runner</code>가 jobs를 폴링한다. 기본 동시성 1(<code>WORKER_CONCURRENCY</code>). 핸들러는 <code>transcribe</code>, <code>dub</code>, <code>lipsync</code>. 하트비트 파일로 컨테이너 HEALTHCHECK를 하고, 오래 멈춘 running 잡은 리퍼가 실패 처리한다. 잡 타임아웃 기본 3600초.</p>
+
+<h2>4.5 설정 모듈</h2>
+<p>모든 배포 값은 <code>api/app/config.py</code> Settings에만 있다. 코드에 자격 증명을 넣지 않는다. <code>APP_ENV=production</code>이면 Supabase, DB, R2, Stripe price id, (Gemini STT/번역 사용 시) <code>GEMINI_API_KEY</code>, <code>PIPELINE_MODE=real</code>을 강제한다.</p>
+
+<h1>5. 물리 배포 아키텍처</h1>
+<h2>5.1 프로덕션 목표 형상 (Lightsail)</h2>
+<p><code>infra/docker-compose.yml</code>은 단일 Lightsail 인스턴스용이다. 서비스 세 개: api, worker, caddy. 네트워크는 bridge, IPv6 비활성. Docker DNS가 짧은 호스트명 <code>api</code>의 AAAA 조회에서 SERVFAIL을 내면 Caddy(Go)가 깨지므로 API의 네트워크 별칭은 <code>dubby-api</code>이다. Caddyfile은 <code>dubby-api:8000</code>만 본다.</p>
+<pre>
+Internet
+   |  :80 / :443
+   v
+[caddy:2-alpine]  TLS(ACME)  protocols h1 h2  (h3 금지)
+   |  reverse_proxy  health_uri /healthz
+   v
+[dubby-api:latest]  uvicorn :8000  workers=1
+   |  DB / R2 / Stripe / JWT
+   |
+[dubby-worker:latest]  memory ~6g  stop_grace 5m
+   |  volume demucs-models, worker-scratch
+   v
+ffmpeg, rubberband, Noto, CPU torch/Demucs
+</pre>
+<table>
+  <thead><tr><th>서비스</th><th>이미지/타깃</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>api</td><td>Dockerfile target api</td><td>uvicorn, ffmpeg, Node 22 (yt-dlp JS)</td></tr>
+    <tr><td>worker</td><td>Dockerfile target worker</td><td>파이프라인, Demucs CPU, Noto 자막</td></tr>
+    <tr><td>caddy</td><td>caddy:2-alpine</td><td>TLS, 본문 10MB, gzip, Alt-Svc 제거</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <strong>운영 주의 — 이미지 경계</strong>
+  파이프라인·프롬프트 수정은 워커 이미지. healthz version·라우터 수정은 API 이미지. 둘 다 같은 <code>api/</code> 컨텍스트로 빌드하지만 target이 다르다. compose up --build 시 필요한 타깃을 함께 올린다.
+</div>
+
+<h2>5.2 UI 배포</h2>
+<ul>
+  <li>빌드: <code>npm run build</code> → <code>out/</code>. <code>wrangler.jsonc</code>의 <code>pages_build_output_dir</code>은 <code>./out</code>.</li>
+  <li>GitHub Actions <code>.github/workflows/deploy-pages.yml</code>: main 푸시 시 GitHub Pages. <code>GITHUB_PAGES=true</code>, <code>DUBBY_CUSTOM_DOMAIN=true</code>, <code>NEXT_PUBLIC_SITE_URL=https://dubbyai.com</code>, 빈 basePath. <code>out/CNAME = dubbyai.com</code>.</li>
+  <li>Cloudflare Pages: <code>wrangler pages deploy out</code>로도 동일 산출물을 올릴 수 있다. 공개 도메인은 dubbyai.com.</li>
+  <li>GitHub secrets: <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, <code>NEXT_PUBLIC_API_ORIGIN</code>. 서비스 롤 키는 UI에 넣지 않는다.</li>
+</ul>
+
+<h2>5.3 로컬·터널 형상</h2>
+<p>개발 PC에서는 API를 :8000 uvicorn으로 띄우고, Cloudflare named tunnel로 api.dubbyai.com에 붙일 수 있다. <code>START_SERVICES.md</code>와 <code>scripts/run-named-tunnel.sh</code>가 이 경로다. UI의 <code>NEXT_PUBLIC_API_ORIGIN</code>은 <code>https://api.dubbyai.com</code>을 가리킨다. 터널은 로컬 작업용이며, Lightsail Caddy 스택과 동시에 같은 DNS를 먹으면 충돌한다.</p>
+
+<h2>5.4 모바일</h2>
+<p><code>capacitor.config.ts</code>: appId <code>com.dubby.app</code>, webDir <code>out</code>. Android scheme https. <code>billingPlatform()</code>은 ios/android면 revenuecat, 그 외 stripe. 네이티브는 웹과 같은 API·R2를 쓰되 결제와 파일 저장만 갈라진다.</p>
+
+<h2>5.5 DNS (공개 도메인)</h2>
+<p><code>docs/CUSTOM_DOMAIN.md</code> 기준 공개 이름은 dubbyai.com(UI), api.dubbyai.com(API)이다. UI apex는 GitHub Pages(<code>creator1008.github.io</code>) CNAME. API는 Lightsail A레코드+Caddy이거나, 로컬 개발 시 터널 CNAME(주황 구름)이다. 현재 운영 중인 쪽이 어느 DNS인지는 대시보드를 기준으로 하고, 문서에 없는 IP를 적지 않는다.</p>
+
+<h1>6. 구성 요소 명세</h1>
+<h2>6.1 정적 UI</h2>
+<table>
+  <thead><tr><th>항목</th><th>값</th></tr></thead>
+  <tbody>
+    <tr><td>기술</td><td>Next.js 16.2.10, React 19, Tailwind 4</td></tr>
+    <tr><td>산출</td><td>out/ (정적 HTML/JS/CSS)</td></tr>
+    <tr><td>상태</td><td>브라우저. Supabase 세션 + API JSON</td></tr>
+    <tr><td>i18n</td><td>ko / en / vi</td></tr>
+    <tr><td>대상 언어 목록</td><td>src/lib/languages.ts (ko, vi, en, zh, ja 등)</td></tr>
+    <tr><td>데모 모드</td><td>API origin 미설정 시 demo-api.ts</td></tr>
+  </tbody>
+</table>
+
+<h2>6.2 FastAPI</h2>
+<table>
+  <thead><tr><th>항목</th><th>값</th></tr></thead>
+  <tbody>
+    <tr><td>엔트리</td><td>uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1</td></tr>
+    <tr><td>헬스</td><td>컨테이너 HEALTHCHECK → /healthz</td></tr>
+    <tr><td>첨부 바이너리</td><td>ffmpeg, Node 22 (yt-dlp 챌린지)</td></tr>
+    <tr><td>업로드 한도(프록시)</td><td>Caddy request_body max_size 10MB — JSON·웹훅용</td></tr>
+    <tr><td>원본 한도(제품)</td><td>최대 30분, 500MB (워커/검증). R2 경유</td></tr>
+  </tbody>
+</table>
+
+<h2>6.3 Worker</h2>
+<table>
+  <thead><tr><th>항목</th><th>값</th></tr></thead>
+  <tbody>
+    <tr><td>엔트리</td><td>python -m app.worker.runner</td></tr>
+    <tr><td>동시성</td><td>기본 1 (Demucs 메모리)</td></tr>
+    <tr><td>메모리 리밋</td><td>WORKER_MEMORY_LIMIT 기본 6g</td></tr>
+    <tr><td>종료</td><td>stop_grace_period 5m (진행 중 잡 drain)</td></tr>
+    <tr><td>모델 캐시</td><td>volume demucs-models → TORCH_HOME</td></tr>
+    <tr><td>헬스</td><td>WORKER_HEARTBEAT_FILE 60초 이내 mtime</td></tr>
+  </tbody>
+</table>
+
+<h2>6.4 Caddy</h2>
+<ul>
+  <li><code>{$DUBBY_API_DOMAIN}</code> 사이트 블록. ACME 메일 <code>{$ACME_EMAIL}</code>.</li>
+  <li><code>servers.protocols: h1 h2</code>. HTTP/3 비활성. <code>header -Alt-Svc</code>.</li>
+  <li>이유: Chrome이 Alt-Svc h3를 오래 캐시하고, Lightsail QUIC/UDP 실패가 net::ERR_FAILED + CORS처럼 보인다.</li>
+  <li><code>reverse_proxy dubby-api:8000</code>, health_uri /healthz, 30초.</li>
+  <li>Access-Control-* 를 Caddy에 두지 말 것.</li>
+</ul>
+
+<h2>6.5 로컬 전용 프로세스</h2>
+<p><code>api/app/local_step12.py</code>는 포트 8002의 로컬 step1/2 실험용이다. <code>npm run dev:step12</code>. 프로덕션 이미지 CMD에 포함되지 않는다. 인수 시 이 프로세스를 Lightsail에 올리지 않는다.</p>
+
+<h1>7. API 표면</h1>
+<p>인증이 없는 엔드포인트는 헬스뿐이다. 나머지는 Bearer JWT. 웹훅은 별도 서명.</p>
+<table>
+  <thead><tr><th>영역</th><th>경로 접두</th><th>책임</th></tr></thead>
+  <tbody>
+    <tr><td>health</td><td>/healthz, /readyz</td><td>생존 / DB 준비</td></tr>
+    <tr><td>projects</td><td>/v1/projects</td><td>CRUD, URL 수집, 다운로드 URL</td></tr>
+    <tr><td>segments</td><td>/v1/projects/.../segments</td><td>자막 조회·수정·재번역</td></tr>
+    <tr><td>jobs</td><td>/v1/projects/{id}/jobs</td><td>transcribe / dub / lipsync enqueue</td></tr>
+    <tr><td>uploads</td><td>/v1/uploads/multipart</td><td>R2 create / sign / complete / abort</td></tr>
+    <tr><td>credits</td><td>/v1/credits</td><td>잔액·원장 조회</td></tr>
+    <tr><td>voices</td><td>/v1/voices</td><td>라이브러리·마이보이스·IVC</td></tr>
+    <tr><td>billing</td><td>/v1/billing</td><td>Stripe Checkout, 웹훅</td></tr>
+    <tr><td>admin</td><td>/v1/admin</td><td>사용자·크레딧 조정·액세스 로그</td></tr>
+  </tbody>
+</table>
+
+<h2>7.1 업로드 프로토콜</h2>
+<ul>
+  <li>POST <code>/v1/uploads/multipart</code> → upload_id, key, 파트 크기(최대 16MiB).</li>
+  <li>POST <code>.../parts</code> → 파트별 프리사인. 브라우저가 R2에 PUT, ETag 수집.</li>
+  <li>POST complete 또는 abort. API는 바이트를 받지 않는다.</li>
+  <li>키는 항상 서버가 <code>users/{user_id}/...</code>로 만들고, 이후 요청마다 prefix를 재검증한다.</li>
+</ul>
+
+<h2>7.2 잡</h2>
+<p>API는 잡 행만 넣는다. 실행은 워커. dub/lipsync는 프로젝트 duration 기준으로 크레딧을 선과금한다. 동일 프로젝트에 활성 잡이 있으면 ActiveJobExistsError → 409.</p>
+
+<h1>8. 데이터와 스토리지</h1>
+<h2>8.1 Repository</h2>
+<p><code>api/app/db/</code>의 Repository 인터페이스만 사용한다. postgres(asyncpg, Lightsail 권장, 풀 1–5) 또는 supabase_rest(PostgREST + service role). 스키마 상세는 후속 DB 설계서. 이 문서는 접근 경로만 고정한다.</p>
+
+<h2>8.2 R2 키 레이아웃</h2>
+<pre>
+users/{user_id}/projects/{project_id}/source/{filename}
+users/{user_id}/projects/{project_id}/outputs/...
+users/{user_id}/projects/{project_id}/meta/...
+users/{user_id}/voices/inbox/{uuid}/{filename}
+
+엔드포인트: https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+서명: S3v4 path-style. 빈 바디 CRC 체크섬을 프리사인에 붙이지 않음
+      (브라우저 PUT 실바이트와 불일치하면 R2가 파트를 거절)
+파트: 최소 5MiB(마지막 제외), 상한 16MiB. 구 env의 64MiB는 config가 잘라 낸다.
+프리사인 만료: 업로드 3600s, 다운로드 60–3600s.
+</pre>
+
+<h2>8.3 워커 로컬 디스크</h2>
+<p>잡마다 scratch 디렉터리. 컨테이너는 worker-scratch 볼륨을 /tmp에 붙인다. Demucs 가중치는 demucs-models 볼륨에 남겨 재생성 비용을 줄인다. 완료·실패 후 scratch는 정리한다.</p>
+
+<h1>9. 인증과 권한</h1>
+<h2>9.1 JWT</h2>
+<p><code>api/app/auth.py</code> JwtVerifier. 헤더 <code>Authorization: Bearer</code>. <code>SUPABASE_JWT_SECRET</code>가 있고 알고리즘이 HS256이면 대칭키 검증. 아니면 프로젝트 JWKS(ES256/RS256). audience 기본값 <code>authenticated</code>. AuthenticatedUser.id는 토큰 sub뿐이며, 바디의 user id는 소유권 근거가 아니다.</p>
+
+<h2>9.2 관리자</h2>
+<p>AdminUser 의존성. JWT role 등으로 <code>/v1/admin</code>을 연다. 일반 사용자 크레딧 원장은 서버만 기록한다.</p>
+
+<h2>9.3 웹훅</h2>
+<ul>
+  <li>Stripe: <code>stripe_webhook_secret</code> 서명 검증.</li>
+  <li>RevenueCat: <code>revenuecat_webhook_auth_header</code>와 Authorization 일치.</li>
+  <li>웹훅은 브라우저 CORS 경로가 아니다. Caddy 10MB면 충분하다.</li>
+</ul>
+
+<h2>9.4 프론트 키</h2>
+<p>UI는 anon key와 Supabase URL만 가진다. service role, R2 시크릿, Stripe secret, Gemini 키는 Lightsail env(또는 로컬 api/.env)에만 둔다. 저장소에 .env를 커밋하지 않는다.</p>
+
+<h1>10. 네트워크와 보안</h1>
+<h2>10.1 CORS</h2>
+<p>credentialed CORS. 와일드카드 Origin/* 헤더는 쓰지 않는다. <code>config.cors_origin_list</code>는 설정값에 더해 dubbyai.com, www, dubby.pages.dev, GitHub Pages, localhost:3000, https://localhost, capacitor://localhost를 항상 포함한다. 정규식은 <code>*.pages.dev</code>와 localhost 포트를 추가로 받는다. 허용 메서드 GET/POST/PUT/PATCH/DELETE/OPTIONS. 헤더 Authorization, Content-Type, Accept, Origin, X-Requested-With, Bypass-Tunnel-Reminder. max_age 86400.</p>
+
+<h2>10.2 본문 크기와 업로드</h2>
+<div class="note">
+  <strong>Caddy 10MB ≠ 원본 업로드 한도</strong>
+  프로젝트 소스와 보이스 클론 미디어는 프리사인 R2로 간다. Caddy 한도를 100MB로 올리는 것은 설계가 아니다. JSON·웹훅만 프록시를 지난다.
+</div>
+
+<h2>10.3 HTTP/3</h2>
+<p>API 사이트는 h3를 켜지 않는다. 이미 Alt-Svc를 받은 Chrome은 오래 QUIC을 시도할 수 있으므로 Caddy가 Alt-Svc를 지운다. UI(정적 호스트)의 HTTP/3는 이 제약과 별개다.</p>
+
+<h2>10.4 컨테이너 네트워크</h2>
+<ul>
+  <li><code>enable_ipv6: false</code>. Caddy에 <code>GODEBUG=netdns=go</code>.</li>
+  <li>API 호스트 별칭 <code>dubby-api</code>. 짧은 이름 <code>api</code>로 프록시하지 말 것.</li>
+  <li>API 포트 8000은 expose만. 공인은 443. 디버그 시에만 8000 매핑.</li>
+</ul>
+
+<h1>11. 주요 요청 흐름</h1>
+<h2>11.1 로그인</h2>
+<pre>
+UI  --PKCE-->  Supabase Auth  --> 세션 JWT (local persist)
+UI  --Authorization: Bearer-->  API JwtVerifier
+실패: 401. 클라이언트 user_id 헤더는 없음.
+</pre>
+
+<h2>11.2 원본 업로드 후 프로젝트</h2>
+<pre>
+1. UI POST /v1/uploads/multipart          (메타만)
+2. UI PUT  part → R2  (16MiB 단위, 반복)
+3. UI POST /v1/uploads/multipart/complete
+4. UI POST /v1/projects  (source_key 등 JSON)
+5. (선택) POST .../source-from-url  → API yt-dlp+ffmpeg → R2
+</pre>
+
+<h2>11.3 추출 (transcribe)</h2>
+<pre>
+UI POST /v1/projects/{id}/jobs  { kind: transcribe }
+API: jobs 행 queued
+Worker: claim → R2 GET source → ffmpeg
+      → STT(Gemini 기본) → 세그먼트 persist → progress report
+UI: 잡 폴링, 세그먼트 에디터
+</pre>
+
+<h2>11.4 더빙 (dub)</h2>
+<pre>
+UI POST jobs { kind: dub }
+API: duration 기반 크레딧 선과금, queued
+Worker: 번역(필요 시) → ElevenLabs TTS → Demucs 음성 제거
+      → mix_no_vocals_in_mask(기본 0.8) 믹스 → mux → R2 outputs
+UI: 프리사인 GET으로 재생/저장 (API가 파일을 스트리밍하지 않음)
+</pre>
+
+<h2>11.5 결제</h2>
+<p>웹: Stripe Checkout. 성공 웹훅이 크레딧 원장에 분. 네이티브: RevenueCat → 웹훅 Authorization 일치 시 분 부여. 가입 시 <code>signup_credit_minutes</code> 기본 30.</p>
+
+<h1>12. 설정 (이름만, 값 없음)</h1>
+<p>값은 이 문서에 적지 않는다. 이름과 용도만 고정한다. 실값은 <code>infra/.env</code> 또는 <code>api/.env</code>.</p>
+
+<h2>12.1 프로덕션 필수</h2>
+<table>
+  <thead><tr><th>변수</th><th>용도</th></tr></thead>
+  <tbody>
+    <tr><td>APP_ENV=production</td><td>부트 시 필수값 검증, /docs 비활성</td></tr>
+    <tr><td>PIPELINE_MODE=real</td><td>production에서 mock 거부</td></tr>
+    <tr><td>SUPABASE_URL</td><td>JWKS·Auth</td></tr>
+    <tr><td>DATABASE_URL</td><td>db_backend=postgres 일 때</td></tr>
+    <tr><td>R2_ACCOUNT_ID / ACCESS / SECRET</td><td>프리사인</td></tr>
+    <tr><td>STRIPE_SECRET_KEY, WEBHOOK, PRICE_ID 둘</td><td>웹 결제</td></tr>
+    <tr><td>GEMINI_API_KEY</td><td>STT/번역 provider=gemini 일 때</td></tr>
+    <tr><td>DUBBY_API_DOMAIN, ACME_EMAIL</td><td>Caddy TLS</td></tr>
+  </tbody>
+</table>
+
+<h2>12.2 UI 빌드 타임</h2>
+<table>
+  <thead><tr><th>변수</th><th>용도</th></tr></thead>
+  <tbody>
+    <tr><td>NEXT_PUBLIC_SITE_URL</td><td>OAuth 리다이렉트. localhost 폴백 금지</td></tr>
+    <tr><td>NEXT_PUBLIC_API_ORIGIN</td><td>브라우저가 호출할 API</td></tr>
+    <tr><td>NEXT_PUBLIC_SUPABASE_URL / ANON_KEY</td><td>클라이언트 Auth</td></tr>
+    <tr><td>DUBBY_CUSTOM_DOMAIN / GITHUB_PAGES</td><td>basePath 결정</td></tr>
+  </tbody>
+</table>
+
+<h2>12.3 자주 조정하는 런타임</h2>
+<ul>
+  <li><code>WORKER_CONCURRENCY</code>, <code>WORKER_MEMORY_LIMIT</code></li>
+  <li><code>DEMUCS_MODEL</code> (기본 htdemucs), <code>DEMUCS_DEVICE</code> (기본 cpu)</li>
+  <li><code>MIX_NO_VOCALS_IN_MASK</code> (기본 0.8)</li>
+  <li><code>STT_PROVIDER</code> / <code>TRANSLATION_PROVIDER</code> (기본 gemini)</li>
+  <li><code>ELEVENLABS_TTS_MODEL</code> (기본 eleven_v3)</li>
+  <li><code>LIPSYNC_PROVIDER</code> (기본 disabled)</li>
+  <li><code>CORS_ORIGINS</code> (추가 Origin. 필수 목록은 코드가 합친다)</li>
+</ul>
+
+<h1>13. 운영과 관측</h1>
+<h2>13.1 헬스</h2>
+<table>
+  <thead><tr><th>엔드포인트</th><th>의미</th><th>실패 시</th></tr></thead>
+  <tbody>
+    <tr><td>/healthz</td><td>프로세스 up + env + version</td><td>컨테이너/Caddy unhealthy</td></tr>
+    <tr><td>/readyz</td><td>repository.ping()</td><td>503 degraded</td></tr>
+    <tr><td>워커 HEALTHCHECK</td><td>heartbeat 파일 60s</td><td>compose restart</td></tr>
+  </tbody>
+</table>
+
+<h2>13.2 로그</h2>
+<p>json-file, 파일당 10m, 3개. AccessLogMiddleware가 인증된 /v1 히트를 DB에 남긴다. 워커는 잡 단위 logger. 파이프라인 단계 메시지는 jobs.progress로 UI 라벨과 연결된다.</p>
+
+<h2>13.3 배포 체크리스트</h2>
+<ul>
+  <li>UI만 바꾸면 Pages 빌드(푸시 main 또는 wrangler). API 재시작 불필요.</li>
+  <li>라우터·버전·CORS면 API 이미지 재빌드. healthz.version으로 확인.</li>
+  <li>STT/번역/믹스/ffmpeg면 워커 이미지 재빌드. 진행 중 잡은 5분 grace.</li>
+  <li>기존 프로젝트의 잘못된 세그먼트는 코드만으로 고쳐지지 않는다. 추출을 다시 돌려야 한다(더빙만 재실행하면 옛 자막을 유지).</li>
+</ul>
+
+<h2>13.4 용량 가드레일</h2>
+<p>원본 최대 30분·500MB. 업로드 안전 상한 4GiB(스토리지). 워커 잡 타임아웃 1시간. 스텝 재시도 기본 2회, 백오프 2초. 하트비트 20초.</p>
+
+<h1>14. 제약과 운영 주의</h1>
+<ul>
+  <li>API workers=1. 수평 확장은 이 compose에 없다. 워커 동시성도 기본 1.</li>
+  <li>Lightsail에 GPU 전제가 없다. Demucs는 CPU 휠.</li>
+  <li>프로덕션 OpenAPI(/docs) 비활성.</li>
+  <li>multipart 파트 16MiB 캡. 브라우저 두 번째 PUT 안정성.</li>
+  <li>Windows 호스트 경로가 .env에 있어도 리눅스 컨테이너는 ffmpeg PATH로 정규화한다.</li>
+  <li>IPv6 Docker DNS와 짧은 호스트명 api 조합을 다시 넣지 말 것.</li>
+  <li>Caddy에 CORS를 중복 설정하지 말 것.</li>
+  <li>로컬 step12(:8002)를 공인 엔드포인트로 쓰지 말 것.</li>
+  <li>시크릿·.env·터널 로그·.wrangler/tmp 는 저장소에 올리지 않는다.</li>
+</ul>
+
+<h2>14.1 명시적으로 다루지 않는 것</h2>
+<p>멀티 리전, GPU 워커 풀, CDN 앞단의 API 캐시, D1/KV 세션. 현재 코드 경로에 없으면 이 아키텍처의 구성 요소가 아니다.</p>
+
+<h1>15. 부록 — 저장소 맵</h1>
+<table>
+  <thead><tr><th>경로</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td>src/</td><td>Next.js UI</td></tr>
+    <tr><td>src/lib/api.ts, supabase.ts, mobile.ts</td><td>오리진·세션·네이티브 분기</td></tr>
+    <tr><td>next.config.ts, wrangler.jsonc</td><td>static export, Pages 산출</td></tr>
+    <tr><td>capacitor.config.ts</td><td>네이티브 셸</td></tr>
+    <tr><td>.github/workflows/deploy-pages.yml</td><td>GitHub Pages CI</td></tr>
+    <tr><td>api/app/main.py</td><td>FastAPI 팩토리</td></tr>
+    <tr><td>api/app/config.py</td><td>환경 변수</td></tr>
+    <tr><td>api/app/auth.py</td><td>JWT</td></tr>
+    <tr><td>api/app/routers/</td><td>HTTP 표면</td></tr>
+    <tr><td>api/app/db/</td><td>Repository</td></tr>
+    <tr><td>api/app/storage/r2.py</td><td>프리사인</td></tr>
+    <tr><td>api/app/worker/</td><td>러너·파이프라인·엔진</td></tr>
+    <tr><td>api/Dockerfile</td><td>api / worker 멀티 타깃</td></tr>
+    <tr><td>infra/docker-compose.yml, Caddyfile</td><td>Lightsail 스택</td></tr>
+    <tr><td>api/app/local_step12.py</td><td>로컬 전용. 비프로덕션</td></tr>
+  </tbody>
+</table>
+
+<h2>15.1 개정</h2>
+<table>
+  <thead><tr><th>버전</th><th>일자</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td>1.0</td><td>2026-09-04</td><td>코드 3.0.12 기준 최초 아키텍처 정의서</td></tr>
+  </tbody>
+</table>
+<p>다음 인수 문서: 「비즈니스 로직 및 기능 명세서」. 본 문서는 그 기능이 어느 프로세스에서 실행되는지만 정의한다.</p>
+</main>
+</body>
+</html>
