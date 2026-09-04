@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Dubby 비즈니스 로직 및 기능 명세서 (DUBBY-FRS-001)</title>
+<style>
+  :root {
+    --navy: #0f284a;
+    --blue: #2b6cb0;
+    --ink: #1a202c;
+    --slate: #4a5568;
+    --rule: #cbd5e1;
+    --box: #f7fafc;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 11pt; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+    line-height: 1.55;
+  }
+  .cover {
+    min-height: 100vh;
+    background: var(--navy);
+    color: #fff;
+    padding: 48px 56px;
+    position: relative;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    background: var(--blue);
+  }
+  .kicker { color: #a0b8d2; font-size: 11pt; }
+  .cover h1 { font-size: 22pt; margin: 72px 0 8px; font-weight: 700; }
+  .cover h2 { font-size: 28pt; margin: 0 0 28px; font-weight: 700; }
+  .cover hr { width: 92px; border: 0; border-top: 2px solid #fff; margin: 0 0 28px; }
+  .meta { list-style: none; padding: 0; margin: 0; }
+  .meta li { display: flex; gap: 16px; margin: 8px 0; }
+  .meta span { width: 140px; color: #a0b8d2; }
+  .cover .foot {
+    position: absolute; bottom: 48px; left: 56px; right: 56px;
+    color: #a0b8d2; font-size: 10pt;
+  }
+  main { padding: 28px 36px 48px; max-width: 900px; margin: 0 auto; }
+  h1 {
+    color: var(--navy);
+    font-size: 16pt;
+    border-left: 6px solid var(--navy);
+    padding-left: 10px;
+    page-break-before: always;
+    margin-top: 0;
+  }
+  h2 {
+    color: var(--blue);
+    font-size: 12.5pt;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 4px;
+    margin-top: 22px;
+  }
+  p { margin: 8px 0 12px; }
+  ul { margin: 6px 0 14px; padding-left: 20px; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 9.5pt;
+  }
+  th {
+    background: var(--navy);
+    color: #fff;
+    text-align: left;
+    padding: 7px 8px;
+    font-weight: 700;
+  }
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f1f5f9; }
+  pre {
+    background: var(--box);
+    border: 1px solid var(--rule);
+    padding: 12px 14px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 8.2pt;
+    line-height: 1.35;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .note {
+    background: var(--box);
+    border-left: 4px solid var(--blue);
+    padding: 10px 14px;
+    margin: 12px 0 16px;
+  }
+  .note strong { color: var(--navy); display: block; margin-bottom: 4px; }
+  .docbar {
+    display: flex;
+    justify-content: space-between;
+    color: var(--slate);
+    font-size: 9pt;
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 6px;
+    margin-bottom: 18px;
+  }
+  @page { size: A4; margin: 16mm 14mm 16mm; }
+  @media print {
+    .cover { min-height: 100vh; page-break-after: always; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="kicker">HANDOVER · INTERNAL</div>
+  <h1>Dubby</h1>
+  <h2>비즈니스 로직 및 기능 명세서</h2>
+  <hr />
+  <ul class="meta">
+    <li><span>문서번호</span><b>DUBBY-FRS-001</b></li>
+    <li><span>제품 버전</span><b>3.0.12</b></li>
+    <li><span>파이프라인 버전</span><b>3.0</b></li>
+    <li><span>작성일</span><b>2026-09-05</b></li>
+    <li><span>상태</span><b>인수인계용 / 내부</b></li>
+    <li><span>근거</span><b>저장소 코드 기준 (추측 기능 없음)</b></li>
+  </ul>
+  <p class="foot">이 문서는 Dubby가 사용자와 운영자에게 제공하는 기능과 비즈니스 규칙을 정의한다. 런타임·배포 경계는 SAD-001, 스키마·파이프라인 단계와 프롬프트 전문은 후속 문서에서 다룬다.</p>
+</section>
+
+<main>
+<div class="docbar"><span>Dubby 비즈니스 로직 및 기능 명세서</span><span>DUBBY-FRS-001</span></div>
+
+<h1>1. 문서 개요</h1>
+<h2>1.1 목적</h2>
+<p>이 문서는 Dubby 3.0.12의 제품 기능과 비즈니스 규칙을 인수인계 기준으로 고정한다. 사용자가 무엇을 할 수 있는지, 크레딧이 언제 차감되는지, 추출·자막·더빙·다운로드가 어떤 전제에서 동작하는지를 코드에 근거해 기술한다.</p>
+
+<h2>1.2 범위</h2>
+<ul>
+  <li>포함: 사용자·운영자 기능, 언어·크레딧·결제 UX, 프로젝트 수명주기, 추출/자막/더빙/립싱크, Voice Box, 다운로드 경로, 관리자 화면, 데모 모드, 화면 라우트, 사용자 대면 오류.</li>
+  <li>제외: 테이블 DDL·마이그레이션 이력, STT/번역/TTS 프롬프트 전문, Caddy/CORS/터널·배포 토폴로지. 이들은 각각 「데이터베이스/파이프라인 설계서」, 「AI 에이전트 및 프롬프트 명세서」, 「시스템 아키텍처 정의서(SAD-001)」에서 다룬다.</li>
+  <li>사실의 기준: 저장소 현재 코드(제품 버전 3.0.12, PIPELINE_VERSION 3.0). 코드에 없는 버튼·요금제·언어는 적지 않는다.</li>
+</ul>
+
+<h2>1.3 대상 독자</h2>
+<ul>
+  <li>인수받는 제품·프론트 작업자: 화면 흐름과 크레딧·다운로드 분기를 오해하지 않는다.</li>
+  <li>백엔드·운영: 잡 종류, 차감 시점, 관리자 조정, 재추출 규칙을 안다.</li>
+  <li>모바일 담당: 웹 Stripe와 네이티브 RevenueCat, 저장 경로가 갈라지는 지점을 본다.</li>
+</ul>
+
+<h2>1.4 관련 산출물</h2>
+<table>
+  <thead><tr><th>문서</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>시스템 아키텍처 정의서 (DUBBY-SAD-001)</td><td>런타임·배포·네트워크·저장 경계</td></tr>
+    <tr><td>본 문서 (DUBBY-FRS-001)</td><td>제품 기능, 크레딧, 더빙/추출 UX</td></tr>
+    <tr><td>데이터베이스/파이프라인 설계서 (후속)</td><td>스키마, 잡 상태, 미디어 처리 단계</td></tr>
+    <tr><td>AI 에이전트 및 프롬프트 명세서 (후속)</td><td>STT·번역·TTS 프롬프트와 모델</td></tr>
+    <tr><td>VERSION.md</td><td>3.0 / 3.0.12 제품 메모</td></tr>
+    <tr><td>src/lib/languages.ts, api/app/config.py</td><td>언어 코드·제품 한도 기본값</td></tr>
+  </tbody>
+</table>
+
+<h2>1.5 용어</h2>
+<table>
+  <thead><tr><th>용어</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>추출 / transcribe</td><td>원본에서 대본·타임스탬프·번역 세그먼트를 만드는 잡. UI 라벨은 「자막 생성」.</td></tr>
+    <tr><td>더빙 / dub</td><td>검수한 번역으로 TTS·믹스·mux를 수행하는 잡. 크레딧을 선차감한다.</td></tr>
+    <tr><td>립싱크 / lipsync</td><td>더빙 완료 후 선택하는 프리미엄 잡. 기본 공급자는 disabled.</td></tr>
+    <tr><td>크레딧</td><td>더빙 시간(분). 잔액은 서버 원장 합계다.</td></tr>
+    <tr><td>Voice Box / My Voice</td><td>사용자가 고른 ElevenLabs 목소리 저장소. 별명 최대 30자.</td></tr>
+    <tr><td>IVC</td><td>Instant Voice Clone. 업로드/녹음으로 목소리를 복제한다.</td></tr>
+    <tr><td>데모 모드</td><td><code>NEXT_PUBLIC_API_ORIGIN</code>이 비어 있을 때 <code>src/lib/demo-api.ts</code>가 SaaS API를 대체한다.</td></tr>
+    <tr><td>정적 라우트</td><td>Next.js <code>output: "export"</code> + <code>trailingSlash</code>. 프로젝트 상세는 <code>?id=</code> 쿼리.</td></tr>
+  </tbody>
+</table>
+
+<h1>2. 제품 개요와 핵심 가치</h1>
+<p>Dubby는 원본 영상을 올리고(또는 URL로 가져오고), 대본을 추출·수정한 뒤, 대상 언어로 더빙해 내려받는 제품이다. 핵심 가치는 「배경음을 유지한 채 말만 바꾸는 것」과 「추출된 자막을 사람이 검수한 뒤 더빙하는 것」이다.</p>
+
+<h2>2.1 사용자 여정</h2>
+<pre>
+[랜딩 /] --로그인--> [/login] --세션--> [/app] 더빙 이력
+                              |
+                              +--> [/app/new] 새 더빙
+                              |       1) 파일 또는 URL + 언어·목소리
+                              |       2) 업로드/수집 → 추출(transcribe)
+                              |       3) 자막 검수 (원본 / 번역)
+                              |       4) 더빙(dub) → Before/After
+                              |       5) 다운로드
+                              +--> [/app/voice-settings] My Voice Box
+                              +--> [/app/billing] 크레딧 충전
+                              +--> [/admin] 관리자(권한 있는 계정만)
+</pre>
+
+<h2>2.2 한 줄 규칙</h2>
+<ul>
+  <li>추출은 자막을 만든다. 더빙은 그 자막을 읽는다. 3.0.12의 잘못된 할당·STT 꼬리 누락은 추출을 다시 돌려야 고쳐진다. 더빙만 재실행하면 옛 자막을 유지한다.</li>
+  <li>크레딧은 더빙·립싱크 잡을 걸 때 서버가 선차감한다. 추출(transcribe)은 차감하지 않는다.</li>
+  <li>소유권은 JWT <code>sub</code>만 믿는다. 클라이언트가 보낸 user id는 쓰지 않는다.</li>
+</ul>
+
+<h2>2.3 제품·파이프라인 버전</h2>
+<p>프론트 <code>package.json</code>과 API <code>api/app/__init__.py</code>의 <code>__version__</code>은 3.0.12다. 프로젝트 생성 시 <code>pipeline_version</code> 기본값은 <code>"3.0"</code>이다. VERSION.md에 따르면 3.0은 Gemini 3.7 Flash 전문서 STT·구어 번역·타임스탬프/화자, ElevenLabs v3 TTS이고, 3.0.12는 잘못 할당된 자막을 재번역하고 덮이지 않은 오디오 꼬리를 다시 듣는다.</p>
+
+<h1>3. 사용자·플랫폼</h1>
+<h2>3.1 클라이언트</h2>
+<table>
+  <thead><tr><th>표면</th><th>동작</th></tr></thead>
+  <tbody>
+    <tr><td>웹 브라우저</td><td>정적 UI(Pages). 결제는 Stripe Checkout URL로 이동.</td></tr>
+    <tr><td>모바일 웹</td><td>같은 SPA. 저장은 Android <code>&lt;a download&gt;</code>, iOS 공유 시트.</td></tr>
+    <tr><td>네이티브 (Capacitor)</td><td>iOS/Android. 결제는 RevenueCat. Android 저장은 Movies/Dubby.</td></tr>
+    <tr><td>PWA</td><td>AppShell에서 「홈 화면에 추가」를 제안할 수 있다.</td></tr>
+  </tbody>
+</table>
+
+<h2>3.2 결제 플랫폼 분기</h2>
+<p><code>src/lib/mobile.ts</code>의 <code>billingPlatform()</code>은 Capacitor 플랫폼이 <code>ios</code> 또는 <code>android</code>이면 <code>revenuecat</code>, 그 외(웹)는 <code>stripe</code>다. 네이티브 앱 판정(<code>isNativeApp</code>)도 이 분기를 따른다.</p>
+
+<h2>3.3 UI 로케일 (i18n)</h2>
+<p>화면 언어는 <code>src/lib/i18n/dictionaries.ts</code>의 <code>ko</code> / <code>en</code> / <code>vi</code> 세 가지다. LanguageSwitcher로 전환한다. 더빙 원어·대상어(18개)와는 별개다. Voice Library 설명은 <code>ui_locale</code>이 영어가 아니면 서버가 번역을 시도한다.</p>
+
+<h2>3.4 인증이 필요한 구간</h2>
+<p><code>/app/*</code>와 <code>/admin</code>은 <code>AuthBoundary</code>로 감싼다. Supabase 세션이 없으면 「로그인이 필요합니다」와 로그인 링크만 보인다. 데모 모드에서 Supabase가 없으면 세션 없이 자식 화면을 연다. 실제 API 모드에서 Supabase env가 없으면 인증 설정 누락 메시지를 띄운다.</p>
+
+<h1>4. 지원 언어</h1>
+<p>더빙 원어/대상어 코드는 <code>src/lib/languages.ts</code>의 <code>LANG_CODES</code>와 API <code>LangCode</code>가 같다. UI는 추측하지 않고 이 목록만 보여 준다. 원어와 더빙 언어가 같으면 추출을 막는다(<code>sameLanguages</code>).</p>
+
+<table>
+  <thead><tr><th>코드</th><th>기본 표시명 (LANG_LABELS)</th><th>한국어 UI (voiceLang_*)</th></tr></thead>
+  <tbody>
+    <tr><td>ko</td><td>한국어</td><td>한국어</td></tr>
+    <tr><td>vi</td><td>Tiếng Việt</td><td>베트남어</td></tr>
+    <tr><td>en</td><td>English</td><td>영어</td></tr>
+    <tr><td>zh</td><td>中文 (普通话)</td><td>중국어</td></tr>
+    <tr><td>ja</td><td>日本語</td><td>일본어</td></tr>
+    <tr><td>es</td><td>Español</td><td>스페인어</td></tr>
+    <tr><td>fr</td><td>Français</td><td>프랑스어</td></tr>
+    <tr><td>pt</td><td>Português</td><td>포르투갈어</td></tr>
+    <tr><td>de</td><td>Deutsch</td><td>독일어</td></tr>
+    <tr><td>ru</td><td>Русский</td><td>러시아어</td></tr>
+    <tr><td>ar</td><td>العربية</td><td>아랍어</td></tr>
+    <tr><td>ur</td><td>اردو</td><td>우르두어</td></tr>
+    <tr><td>id</td><td>Bahasa Indonesia</td><td>인도네시아어</td></tr>
+    <tr><td>ms</td><td>Bahasa Melayu</td><td>말레이어</td></tr>
+    <tr><td>tr</td><td>Türkçe</td><td>터키어</td></tr>
+    <tr><td>ta</td><td>தமிழ்</td><td>타밀어</td></tr>
+    <tr><td>th</td><td>ไทย</td><td>태국어</td></tr>
+    <tr><td>my</td><td>မြန်မာ</td><td>미얀마어</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <strong>DB 제약과 코드</strong>
+  API가 th/my를 보내도 DB check가 구버전이면 <code>projects_source_lang_check</code> 오류가 난다. 마이그레이션 <code>20260823000000_add_th_my_languages.sql</code>이 18개 코드를 허용한다. 랜딩의 언어 띠는 장식용 EN/KO/VI 세 알약만 보여 주며, 실제 선택 목록이 아니다.
+</div>
+
+<h2>4.1 자막 에디터 라벨</h2>
+<p><code>dubLangDisplayName(code, dict)</code>이 로케일 사전(<code>voiceLang_zh</code> 등)을 우선하고, 없으면 <code>LANG_LABELS</code>, 모르는 코드는 대문자로 둔다. 헤더는 <code>원본 (중국어)</code> / <code>번역 (한국어)</code> 형식이다(<code>SubtitleEditor</code>).</p>
+
+<h1>5. 회원가입·로그인·세션</h1>
+<h2>5.1 클라이언트 (Supabase PKCE)</h2>
+<p><code>getSupabase()</code>는 <code>flowType: "pkce"</code>, <code>persistSession</code>, <code>autoRefreshToken</code>을 켠다. <code>detectSessionInUrl</code>은 false다. OAuth·이메일 확인은 <code>/auth/callback/</code>에서 <code>exchangeCodeForSession(code)</code>를 수행한다.</p>
+
+<table>
+  <thead><tr><th>경로</th><th>동작</th></tr></thead>
+  <tbody>
+    <tr><td>이메일 로그인</td><td><code>signInWithPassword</code>. 실패 시 「Email 또는 비밀번호가 올바르지 않습니다」.</td></tr>
+    <tr><td>회원가입</td><td>이름·이메일·비밀번호(8자 이상)·확인. 국가 선택. 확인 메일이 켜져 있으면 받은편지함 안내 후 로그인.</td></tr>
+    <tr><td>Google OAuth</td><td>활성. <code>redirectTo</code>는 공개 사이트 URL + <code>/auth/callback/</code> (localhost로 돌아가지 않음).</td></tr>
+    <tr><td>Facebook / Kakao</td><td>UI에 있으나 <code>disabled: true</code> (준비 중).</td></tr>
+    <tr><td>국가</td><td>KR / US / VN / JP / CN / OTHER. 세션스토리지 <code>dubby-signup-country</code>로 콜백에서 프로필에 반영.</td></tr>
+    <tr><td>로그아웃</td><td><code>signOut</code> 후 랜딩 <code>/</code>로 이동.</td></tr>
+  </tbody>
+</table>
+
+<h2>5.2 서버가 신뢰하는 것</h2>
+<p>API는 <code>Authorization: Bearer &lt;jwt&gt;</code>만 검증한다(<code>api/app/auth.py</code>). HS256(레거시 시크릿) 또는 JWKS(RS256/ES256). 필수 클레임은 <code>exp</code>, <code>sub</code>. 사용자 id는 항상 <code>sub</code>의 UUID다. 관리자 여부는 <code>app_metadata.role == "admin"</code> 또는 <code>app_metadata.roles</code>에 admin이 있을 때다. 비활성 계정은 401 「Account is deactivated」.</p>
+
+<div class="note">
+  <strong>클라이언트를 믿지 않는다</strong>
+  프로젝트·업로드 키·크레딧·Voice Box는 모두 JWT 소유자로 한정한다. R2 키는 <code>users/{user_id}/...</code>이며 서명 전에 prefix를 재검증한다. 본문에 user id를 실어 보내도 서버는 쓰지 않는다.
+</div>
+
+<h2>5.3 가입 시 프로필</h2>
+<p>Supabase <code>handle_new_user</code> 트리거가 <code>profiles</code>를 만들고 크레딧 원장에 <code>signup_grant</code>를 넣는다. 콜백은 표시 이름·provider·국가·<code>last_login_at</code>을 갱신한다. 가입 안내 문구는 「가입 시 무료 크레딧 30분이 지급됩니다」.</p>
+
+<h1>6. 크레딧 비즈니스 규칙</h1>
+<p>크레딧은 더빙 분(minute)이다. 잔액은 <code>credit_ledger</code>의 <code>delta_minutes</code> 합이다. 사용자는 <code>GET /v1/credits</code>로 잔액과 최근 50건만 읽는다. 지급·차감은 서버만 쓴다.</p>
+
+<h2>6.1 원장 reason</h2>
+<table>
+  <thead><tr><th>reason</th><th>부호</th><th>언제</th></tr></thead>
+  <tbody>
+    <tr><td>signup_grant</td><td>+</td><td>신규 유저 트리거. 마이그레이션 값은 30분. 설정 기본 <code>signup_credit_minutes=30</code>.</td></tr>
+    <tr><td>dub_job</td><td>−</td><td>dub 잡 enqueue와 같은 트랜잭션.</td></tr>
+    <tr><td>lipsync_job</td><td>−</td><td>lipsync 잡 enqueue와 같은 트랜잭션.</td></tr>
+    <tr><td>purchase</td><td>+</td><td>Stripe 또는 RevenueCat 웹훅이 매핑한 분.</td></tr>
+    <tr><td>admin_adjust</td><td>±</td><td>관리자 조정. 0 불가, 사유 2–300자.</td></tr>
+    <tr><td>refund</td><td>+</td><td>잡이 failed/cancelled이고 <code>charged_minutes &gt; 0</code>일 때 <code>finish_job_with_refund</code>.</td></tr>
+  </tbody>
+</table>
+
+<h2>6.2 차감 공식</h2>
+<p>dub / lipsync만 차감한다. transcribe는 0분이다.</p>
+<pre>
+duration = project.duration_seconds   # 추출 후 측정값. 없으면 409
+multiplier = dub_cogs_minutes_multiplier      # 기본 1.0
+           | lipsync_cogs_minutes_multiplier  # 기본 2.0
+charge_minutes = ceil(duration / 60 * multiplier)
+</pre>
+<p>길이를 모르면 409 「Project duration unknown; run transcribe first」. 잔액이 부족하면 402 「Need {charge} credit minutes, have {balance}」. 데모 모드도 <code>ceil(duration/60)</code>이며 최소 1분, 메시지 「크레딧이 부족합니다. 필요 N분, 잔액 M분」.</p>
+
+<h2>6.3 Stripe (웹)</h2>
+<table>
+  <thead><tr><th>항목</th><th>코드 기본값</th></tr></thead>
+  <tbody>
+    <tr><td>구독 Checkout</td><td><code>kind=subscription</code>. 월 분 <code>stripe_subscription_minutes</code> 기본 60. invoice.paid에서 구독 price id가 맞을 때 지급.</td></tr>
+    <tr><td>크레딧 팩</td><td><code>kind=credits</code>. <code>stripe_credit_pack_minutes</code> 기본 30. checkout.session.completed + payment + credit_kind=credits.</td></tr>
+    <tr><td>성공/취소 URL</td><td><code>/app/billing/?checkout=success</code> / <code>cancelled</code> (로컬 기본은 localhost:3000).</td></tr>
+    <tr><td>미설정</td><td>시크릿이 없으면 400 「Billing is not configured」.</td></tr>
+  </tbody>
+</table>
+<p>가격표 금액·Price ID는 환경 변수다. 이 문서는 분(minute) 기본값만 적는다. 사용자 id는 Stripe metadata <code>dubby_user_id</code> 또는 customer 매핑으로만 찾는다.</p>
+
+<h2>6.4 RevenueCat (네이티브)</h2>
+<p>웹훅 Authorization은 설정된 헤더와 상수 시간 비교한다. 크레딧을 주는 이벤트는 <code>INITIAL_PURCHASE</code>, <code>RENEWAL</code>, <code>NON_RENEWING_PURCHASE</code>다. <code>REFUND</code>는 상태 revoke. 분은 <code>REVENUECAT_PRODUCT_CREDIT_MINUTES</code>(<code>product_id=분</code>)를 먼저 보고, 없으면 entitlement 매핑의 최댓값을 쓴다. App User ID가 Dubby UUID가 아니면 400. UI의 Starter/30분 팩 문구는 웹 폴백 카피이며, 네이티브는 Offering의 실제 패키지 제목·가격을 그대로 보여 준다.</p>
+
+<h2>6.5 관리자 조정</h2>
+<p><code>POST /v1/admin/users/{id}/credits</code>. <code>delta_minutes</code> −100000..100000, 0 불가. 사유 필수. 응답에 새 잔액과 조정자 id. UI는 「0이 아닌 크레딧과 조정 사유」를 요구한다.</p>
+
+<h2>6.6 UI 표시</h2>
+<p>AppShell 크레딧 알약은 <code>balance.toFixed(1)</code> + 「분」. 더빙/립싱크/취소 후 <code>credits-changed</code> 이벤트로 갱신한다. 이력 화면은 <code>GET /v1/credits</code>의 entries다.</p>
+
+<h1>7. 프로젝트 수명주기</h1>
+<h2>7.1 상태</h2>
+<table>
+  <thead><tr><th>status</th><th>한국어 이력 라벨</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>created</td><td>생성됨</td><td>행만 있음. 원본 없음.</td></tr>
+    <tr><td>uploading</td><td>업로드 중</td><td>multipart 시작 또는 URL ingest 시작.</td></tr>
+    <tr><td>uploaded</td><td>업로드됨</td><td>원본 키 확보. 추출 대기.</td></tr>
+    <tr><td>processing</td><td>처리 중</td><td>워커가 추출 중.</td></tr>
+    <tr><td>ready_for_edit</td><td>자막 검수</td><td>세그먼트 있음. 편집·더빙 가능.</td></tr>
+    <tr><td>dubbing</td><td>더빙 중</td><td>dub 잡 진행.</td></tr>
+    <tr><td>completed</td><td>완료</td><td>출력(또는 립싱크 출력) 있음.</td></tr>
+    <tr><td>failed</td><td>오류</td><td><code>error</code>에 사유. 조건이 맞으면 더빙 재시도 가능.</td></tr>
+  </tbody>
+</table>
+
+<h2>7.2 생성 필드</h2>
+<table>
+  <thead><tr><th>필드</th><th>기본 / 제약</th></tr></thead>
+  <tbody>
+    <tr><td>title</td><td>1–200자. 비우면 파일명 또는 URL 앞 80자.</td></tr>
+    <tr><td>source_lang / target_lang</td><td>18개 LangCode. 기본 ko → en.</td></tr>
+    <tr><td>subtitle_mode</td><td>none / source / target. 출력 번인 자막.</td></tr>
+    <tr><td>tone_style</td><td>sad, angry, whisper, excited, energetic, calm, cheerful. 생성 기본 calm. 레거시 neutral/warm/serious는 API가 받는다.</td></tr>
+    <tr><td>diarization_enabled</td><td>기본 false. 다중 화자면 목소리 슬롯 2개 이상.</td></tr>
+    <tr><td>voice_mode</td><td>voice_box (기본) 또는 auto_clone.</td></tr>
+    <tr><td>dub_voice_ids</td><td>최대 8개(API). 새 더빙 UI는 화자 최대 6.</td></tr>
+    <tr><td>pipeline_version</td><td>기본 "3.0". R2 사이드카 <code>dub_voice_ids.json</code>에도 저장.</td></tr>
+  </tbody>
+</table>
+
+<h2>7.3 생성·수정·삭제</h2>
+<pre>
+POST /v1/projects          → 201. 메타 사이드카는 백그라운드(R2 지연이 생성을 막지 않음)
+GET  /v1/projects          → 내 목록
+GET  /v1/projects/{id}     → 소유자 또는 관리자
+PATCH /v1/projects/{id}    → 제목·언어·자막·톤·화자·voice_mode·목소리
+DELETE /v1/projects/{id}   → 204. DB 먼저 지우고 R2/로컬은 백그라운드 purge
+</pre>
+<p>삭제 확인 문구: Supabase 기록과 R2·로컬 관련 파일이 영구 삭제되며 복구할 수 없다. URL 수집은 <code>POST .../source-from-url</code> 후 클라이언트가 status가 uploaded(또는 failed)가 될 때까지 폴링한다. 터널/모바일에서 긴 동기 다운로드가 끊기는 것을 피하기 위함이다.</p>
+
+<h1>8. 원본 업로드·URL 수집</h1>
+<h2>8.1 한도 (api/app/config.py + UI)</h2>
+<table>
+  <thead><tr><th>한도</th><th>값</th><th>사용자 메시지</th></tr></thead>
+  <tbody>
+    <tr><td>길이</td><td>max_source_duration_seconds = 1800 (30분)</td><td>source_too_long: 최대 30분(1800초)까지 자막 추출</td></tr>
+    <tr><td>원본 바이트</td><td>max_source_bytes = 500 MB</td><td>source_too_large / FileUploader 500MB</td></tr>
+    <tr><td>업로드 안전 상한</td><td>max_upload_bytes = 4 GiB</td><td>스토리지 캡. UI는 500MB에서 먼저 막음</td></tr>
+    <tr><td>컨테이너</td><td>mp4, mov, m4a, 3gp, 3g2, mj2, matroska, webm</td><td>source_unsupported_container: MP4 권장</td></tr>
+    <tr><td>파트 크기</td><td>5–16 MiB (기본 16)</td><td>브라우저 PUT 안정성</td></tr>
+  </tbody>
+</table>
+<p>FileUploader는 video/*, audio/*, 또는 확장자 mp4/mov/m4v/webm/m4a/mp3/wav/aac만 받는다. 힌트: 「갤러리 또는 파일 · MP4 권장 · 최대 30분 · 모바일은 짧은 클립 권장」.</p>
+
+<h2>8.2 파일 업로드 흐름</h2>
+<pre>
+브라우저                API                         R2
+  |-- POST /v1/uploads/multipart ------------------>|
+  |&lt;- upload_id, key, part_size, part_count --------|
+  |  (project.status = uploading, source_key 기록)
+  |-- POST .../parts --&gt; presign --&gt; PUT part ------&gt;|
+  |-- POST .../complete ---------------------------&gt;|
+  |  (project.status = uploaded)
+</pre>
+<p>키는 서버가 <code>users/{uid}/projects/{pid}/source/...</code>로 만든다. 완료 실패 시 abort. ETag가 CORS에 안 보이면 업로드가 실패한다.</p>
+
+<h2>8.3 URL 수집</h2>
+<p>UI 힌트: YouTube · Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM (최대 30분 · 500MB). 서버는 yt-dlp(쿠키 옵션)와 TikTok item-detail 우회를 쓴다. 수집 파일을 R2에 올린 뒤 uploaded. 실패 시 failed + error 500자. 타임아웃(408) 시 「영상 가져오기 시간이 초과되었습니다」. 업로드 실패 시 방금 만든 프로젝트는 삭제한다(데모 제외).</p>
+
+<h2>8.4 추출 전 동의</h2>
+<p>음성 처리 권한 체크박스가 꺼져 있으면 추출/일괄 생성이 비활성이다.</p>
+
+<h1>9. 추출 (transcribe)</h1>
+<h2>9.1 사용자가 보는 것</h2>
+<p>새 더빙(<code>/app/new</code>)에서 「1. 파일 업로드 및 자막 추출」또는 「1. 링크로 가져오기 및 자막 추출」. 성공 후 상태는 ready_for_edit, 세그먼트 목록과 (있으면) 보이스 제거 미리보기 URL이 생긴다. 진행 라벨은 <code>job-labels.ts</code>의 transcribe 단계(오디오 추출, STT, 문맥 보정, 통번역, 자막 구간 저장 등)다.</p>
+
+<h2>9.2 잡</h2>
+<p><code>POST /v1/projects/{id}/jobs</code> body <code>{ "kind": "transcribe" }</code>. 차감 0. 프로젝트당 queued/running 잡은 하나. 취소는 <code>POST /v1/jobs/{id}/cancel</code> → cancelled by user.</p>
+
+<h2>9.3 3.0.12 — 재추출이 필요한 이유</h2>
+<p>3.0.12 워커는 (1) 잘못 할당·미번역으로 보이는 자막 idx를 다시 번역하고(<code>idxs_needing_retranslate</code>), (2) 덮이지 않은 오디오 꼬리를 다시 STT한다(<code>_fill_uncovered_asr_tail</code>). 이미 DB에 들어간 옛 세그먼트는 코드 배포만으로 바뀌지 않는다.</p>
+<ul>
+  <li>기존 프로젝트의 잘못된 자막을 고치려면 추출을 다시 돌린 뒤 더빙한다.</li>
+  <li>더빙만 다시 돌리면 옛 자막을 그대로 TTS한다.</li>
+</ul>
+
+<h2>9.4 일괄 생성</h2>
+<p>「더빙 영상 일괄 생성」은 추출 → 더빙을 한 흐름으로 이어 간다. 검수 없이 끝까지 간다. 데모는 로컬 step12 + 로컬 TTS + 로컬 렌더. 실제 API는 transcribe 완료를 기다린 뒤 dub을 enqueue한다.</p>
+
+<h2>9.5 데모 추출</h2>
+<p>데모는 로컬 step12 서버로 추출하고 <code>applyStep12</code>로 세그먼트를 넣는다. 로컬 run id가 없으면 「파일을 다시 추출해 주세요」.</p>
+
+<h1>10. 자막 편집</h1>
+<h2>10.1 화면</h2>
+<p>세그먼트마다 원본 텍스트와 번역 텍스트, 원본 구간 미리듣기, (더빙 후) 더빙 미리듣기·발화 속도·감정톤. 헤더: <code>원본 ({언어})</code> / <code>번역 ({언어})</code>. 화자 id가 있으면 「화자 N」.</p>
+
+<h2>10.2 저장 (bulk update)</h2>
+<p><code>PUT /v1/projects/{id}/segments</code>. 항목 1–500. 필드: target_text, source_text, end_ms, speak_speed(0.5–1.5), source_end_ms, emotion_tone. 저장 후 전체 목록을 다시 받는다. 번역이 바뀌면 해당 idx의 더빙 미리듣기를 무효화한다. speak_speed는 R2 매니페스트에도 반영한다.</p>
+
+<h2>10.3 다시번역</h2>
+<p>원본을 고친 뒤 「다시번역」. 서버는 수정된 source를 문맥 보정하고 전문서 번역·정렬한 뒤 target을 갈아끼운다. 원본 수정이 없으면 「원본 텍스트 수정내역이 없습니다」. OpenAI 키가 없으면 400. 「번역보기」모달은 원본·번역 쌍을 한눈에 보여 준다.</p>
+
+<h2>10.4 발화 속도</h2>
+<p>에디터 <code>speak_speed</code> 0.5–1.5(0.05 스텝). 원본 구간(<code>source_end_ms</code>)은 속도가 바꾸지 않는다. 번역 슬롯 <code>end_ms</code>가 늘어나거나 줄어든다. 1.2×면 슬롯이 약 20% 짧다. 리셋은 항상 1.0(자연 속도).</p>
+
+<h2>10.5 출력 자막 모드</h2>
+<p>none / 원어 자막 / 더빙어 자막. 새 더빙과 에디터에서 바꿀 수 있다. Before/After 플레이어가 같은 모드로 자막을 겹친다.</p>
+
+<h1>11. 더빙 (dub)</h1>
+<h2>11.1 시작 조건</h2>
+<ul>
+  <li>세그먼트가 있고 상태가 ready_for_edit, completed, 또는 failed(재시도).</li>
+  <li>활성 잡이 없어야 한다.</li>
+  <li>voice_box면 My Voice Box에서 화자 수만큼 목소리를 고른다. 비어 있으면 「목소리 설정에서 추가」.</li>
+  <li>auto_clone이면 영상 화자를 IVC한다. Box 선택은 필요 없다.</li>
+  <li>에디터에서 더빙 시작 전 자막을 저장한다.</li>
+</ul>
+
+<h2>11.2 목소리</h2>
+<table>
+  <thead><tr><th>모드</th><th>동작</th></tr></thead>
+  <tbody>
+    <tr><td>voice_box</td><td>화자 1…N에 ElevenLabs voice id. 단일 화자 1슬롯, 다중은 최소 2.</td></tr>
+    <tr><td>auto_clone</td><td>화자 음성으로 Instant Voice Clone 후 TTS.</td></tr>
+  </tbody>
+</table>
+<p>전역 <code>ELEVENLABS_VOICE_ID</code>가 있으면 IVC를 건너뛰고 그 목소리만 쓴다(운영 설정). 목소리 없으면 voice_missing.</p>
+
+<h2>11.3 믹스·템포 (제품 수준, 프롬프트 아님)</h2>
+<table>
+  <thead><tr><th>설정</th><th>기본</th><th>제품 의미</th></tr></thead>
+  <tbody>
+    <tr><td>mix_no_vocals_in_mask</td><td>0.8</td><td>Demucs 반주 스템을 더빙 말 아래에 선형 게인. 0.15는 BGM이 거의 안 들림. 0.8은 말 아래 음악이 분명히 남음.</td></tr>
+    <tr><td>tts_max_speedup</td><td>1.5</td><td>슬롯에 맞추는 최대 배속.</td></tr>
+    <tr><td>tts_min_tempo</td><td>0.85</td><td>너무 느린 늘리기를 제한. 압축·슬롯 연장을 우선.</td></tr>
+    <tr><td>tts_atempo_max</td><td>1.5</td><td>ffmpeg atempo 고품질 구간. 밖은 Rubber Band 선호.</td></tr>
+    <tr><td>voice_changer_after_tts</td><td>false</td><td>켜면 TTS 후 STS(추가 비용).</td></tr>
+  </tbody>
+</table>
+<p>품질 경고(<code>quality_warnings</code>)는 슬롯 맞춤 참고다. 실패가 아니며 결과 영상은 생성된다. asr_tail_* 경고는 꼬리 STT 재시도 결과다.</p>
+
+<h2>11.4 감정톤</h2>
+<p>프로젝트 기본 톤은 감지 실패 시 폴백. 구간별로 원본 목소리에서 감지하거나 에디터가 덮어쓴다. 허용: sad, angry, whisper, excited, energetic, calm, cheerful.</p>
+
+<h2>11.5 미리보기 재합성</h2>
+<p><code>POST .../segments/refresh-preview</code>가 고친 번역에 대해 TTS 클립만 다시 만든다. 전체 mux가 아니다.</p>
+
+<h1>12. 립싱크</h1>
+<ul>
+  <li>선택 기능. 설정 <code>lipsync_provider</code> 기본 <code>disabled</code>.</li>
+  <li>disabled면 503 feature_unavailable: lip sync is not configured.</li>
+  <li>더빙 출력(<code>output_key</code>)이 있어야 한다. 없으면 409 「Complete dubbing before premium lip sync」.</li>
+  <li>차감은 ceil(duration/60 × lipsync_cogs_minutes_multiplier), 기본 배수 2.0.</li>
+  <li>완료 시 다운로드는 <code>lipsync_output_key</code>를 <code>output_key</code>보다 우선한다.</li>
+  <li>이력 에디터의 「프리미엄 립싱크」는 실제 API·status=completed·활성 잡 없음일 때만 활성. 데모는 비활성(「립싱크는 데모 모드에서 지원하지 않습니다」).</li>
+</ul>
+
+<h1>13. 보이스 박스 · 라이브러리 · My Voice</h1>
+<p>화면: <code>/app/voice-settings</code>. 「목소리를 복제하거나 Voice Library에서 골라 My Voice Box에 저장」.</p>
+
+<h2>13.1 Voice Library</h2>
+<p><code>GET /v1/voices/library</code>. 페이지·언어·억양·카테고리·성별·연령·검색. ElevenLabs 공유 목소리를 가져온다. Category 열은 use_case를 우선한다. 미리듣기 URL이 있으면 재생.</p>
+
+<h2>13.2 My Voice Box에 추가</h2>
+<p>별명 필수, 최대 30자. 공유 목소리를 계정에 복사한 뒤 DB에 넣는다. 중복 별명/이미 추가된 목소리는 409 「Already in Voice Box, or nickname is taken」. 삭제 시 행 제거. IVC 행은 ElevenLabs voice와 R2 미리듣기도 지운다.</p>
+
+<h2>13.3 Instant Voice Clone</h2>
+<table>
+  <thead><tr><th>규칙</th><th>값</th></tr></thead>
+  <tbody>
+    <tr><td>권장 길이</td><td>3분 이내. 초과는 앞 3분만 사용 (CLONE_MAX_SECONDS=180).</td></tr>
+    <tr><td>최소</td><td>1초.</td></tr>
+    <tr><td>파일 상한</td><td>500MB.</td></tr>
+    <tr><td>입력</td><td>파일 선택 또는 마이크 녹음.</td></tr>
+    <tr><td>확장자</td><td>mp4, mov, m4v, webm, mkv, mp3, m4a, wav, aac, ogg, flac.</td></tr>
+    <tr><td>업로드</td><td>R2 inbox multipart. 키 prefix를 사용자로 검증.</td></tr>
+    <tr><td>완료 후</td><td>★ 표시 별명으로 Box 맨 위. 미리듣기 약 6초.</td></tr>
+  </tbody>
+</table>
+<p>데모 모드: Box 저장·복제·삭제 모두 오류(「데모 모드에서는 … 수 없습니다」). 라이브러리는 Demo Voice 한 개만 보여 준다.</p>
+
+<h1>14. 다운로드·저장</h1>
+<p>원칙: 미디어 URL을 <code>window.open</code>하지 않는다. 재생 탭으로 빠지거나 PWA가 비는 것을 막는다.</p>
+
+<table>
+  <thead><tr><th>환경</th><th>동작</th></tr></thead>
+  <tbody>
+    <tr><td>데스크톱 웹</td><td>클릭 제스처 안에서 <code>showSaveFilePicker</code>(다른 이름 저장). 취소(AbortError)면 중단. 미지원이면 hidden <code>&lt;a download&gt;</code> + blob.</td></tr>
+    <tr><td>Android 모바일 웹</td><td>video/mp4 blob을 hidden download. Downloads/갤러리에 쌓이는 경로.</td></tr>
+    <tr><td>iOS 모바일 웹</td><td>가능하면 Web Share(<code>canShare({ files })</code>)로 사진 앱 저장. 실패/취소 시 hidden download.</td></tr>
+    <tr><td>네이티브 Android</td><td><code>Directory.ExternalStorage</code> + <code>Movies/Dubby</code>. 스코프 저장소 거부 시 캐시 + 공유 시트.</td></tr>
+    <tr><td>네이티브 iOS</td><td>공개 Movies 없음. 캐시 후 공유 시트 「갤러리에 저장」.</td></tr>
+    <tr><td>API 스트리밍</td><td><code>GET /v1/projects/{id}/output</code>가 mp4를 인증 fetch로 흘린다. 파일명 <code>{title}-dubbed.mp4</code>.</td></tr>
+    <tr><td>프리사인 GET</td><td>source-url, voice-removed-url, output-url. 만료 <code>download_expires_seconds</code> 60–3600(기본 3600).</td></tr>
+  </tbody>
+</table>
+<p>완료 전 output은 404 「Output not available yet」. 원본/더빙 모두 <code>downloadProjectOutput</code>을 쓴다. 서명된 R2 URL에는 <code>download=</code> 쿼리를 붙이지 않는다(서명 깨짐).</p>
+
+<h1>15. 결제 UX</h1>
+<h2>15.1 웹 (Stripe)</h2>
+<p><code>/app/billing</code>. 잔여 분 표시. 「Starter (구독)」→ checkout subscription → <code>window.location.assign(url)</code>. 「30분 크레딧 팩」→ checkout credits. 데모는 「데모 모드에서는 결제가 비활성화되어 있습니다」.</p>
+
+<h2>15.2 네이티브 (RevenueCat)</h2>
+<p>공개 SDK 키: iOS <code>NEXT_PUBLIC_REVENUECAT_IOS_API_KEY</code>, Android <code>..._ANDROID_...</code>. <code>Purchases.configure</code>의 appUserID는 Supabase user UUID. Offering 패키지를 나열하고 스토어 가격으로 구매. 복원·구독 관리 URL. 완료 메시지: 「크레딧은 스토어 확인 후 반영됩니다」(웹훅 후 원장 반영).</p>
+
+<h2>15.3 가격을 코드에 적지 않는 이유</h2>
+<p>Stripe Price ID와 RevenueCat product=minutes 매핑은 환경 변수다. UI에 고정 원화/달러 금액은 없다. 웹 카피만 「매월 사용할 수 있는 더빙 시간」「30분 크레딧 팩」이다.</p>
+
+<h1>16. 관리자 기능</h1>
+<p>경로 <code>/admin</code>. 세션 <code>app_metadata.role === "admin"</code>이 아니면 권한 없음. 데모에는 admin API가 없어 「실제 API 모드에서만」.</p>
+
+<table>
+  <thead><tr><th>API</th><th>기능</th></tr></thead>
+  <tbody>
+    <tr><td>GET /v1/admin/users</td><td>검색(이름/이메일), limit 1–500 기본 100.</td></tr>
+    <tr><td>GET /v1/admin/users/{id}</td><td>프로필, 프로젝트, 잡, 크레딧, 구매, 구독, 잔액.</td></tr>
+    <tr><td>PATCH .../status</td><td>is_active. 자기 자신 비활성화 400.</td></tr>
+    <tr><td>POST .../credits</td><td>6.5절 조정.</td></tr>
+    <tr><td>GET /v1/admin/access-logs</td><td>최근 접근 로그, limit 1–1000 기본 200.</td></tr>
+  </tbody>
+</table>
+<p>UI 탭: 사용자 관리 / 접근 로그. 사용자 상세: 크레딧·결제·더빙 이력. 더빙 행은 Before/After·다운로드 모달(관리자도 소유 검증된 API를 사용). 관리자는 타인 프로젝트 GET/세그먼트/잡을 볼 수 있다.</p>
+
+<h1>17. 데모 모드</h1>
+<p>조건: 빌드 시 <code>NEXT_PUBLIC_API_ORIGIN</code>이 비어 있으면 <code>isDemoMode === true</code>. <code>src/lib/api.ts</code>가 <code>demoApi</code>로 갈아탄다(admin·실제 multipart·checkout 없음).</p>
+<ul>
+  <li>상태 키 <code>dubby.demo-state.v2</code>. 사용자별 잔액 기본 30분.</li>
+  <li>추출/더빙/렌더는 로컬 step12(:8002 계열, 비프로덕션). SAD-001이 공인 엔드포인트로 쓰지 말라고 한 그 경로.</li>
+  <li>결제·립싱크·Voice Box 저장 불가.</li>
+  <li>런타임 <code>?api=</code> / localStorage로 오리진을 덮어쓸 수는 있으나, 데모 분기는 빌드 타임 env가 비어 있을 때다.</li>
+</ul>
+
+<h1>18. 화면·라우트 맵</h1>
+<p>Next.js는 <code>output: "export"</code>, <code>trailingSlash: true</code>. 커스텀 도메인은 basePath 없음. GitHub Pages 프로젝트 URL은 <code>/Dubby</code>. 동적 프로젝트 id는 정적 셸 <code>/app/projects/_/?id=&lt;uuid&gt;</code>다(<code>generateStaticParams</code>가 <code>_</code>만 생성).</p>
+
+<table>
+  <thead><tr><th>경로</th><th>파일</th><th>기능</th></tr></thead>
+  <tbody>
+    <tr><td>/</td><td>src/app/page.tsx</td><td>랜딩. Hero, 작동 방식, EN/KO/VI 띠. 로그인/새 더빙 CTA.</td></tr>
+    <tr><td>/login/</td><td>src/app/login/page.tsx</td><td>이메일·Google. 회원가입 모달. 세션 있으면 /app/.</td></tr>
+    <tr><td>/auth/callback/</td><td>src/app/auth/callback/page.tsx</td><td>PKCE code 교환, 프로필 갱신, /app/.</td></tr>
+    <tr><td>/app/</td><td>src/app/app/page.tsx</td><td>더빙 이력. 빈 상태 「첫 더빙 시작」. 삭제.</td></tr>
+    <tr><td>/app/new/</td><td>src/app/app/new/page.tsx</td><td>생성·업로드/URL·추출·검수·더빙·일괄·다운로드.</td></tr>
+    <tr><td>/app/projects/_/?id=</td><td>src/app/app/projects/[id]/page.tsx</td><td>이력에서 연 에디터. 저장·다시번역·더빙·립싱크.</td></tr>
+    <tr><td>/app/voice-settings/</td><td>src/app/app/voice-settings/page.tsx</td><td>IVC, Library, My Voice Box.</td></tr>
+    <tr><td>/app/billing/</td><td>src/app/app/billing/page.tsx</td><td>Stripe 또는 RevenueCat.</td></tr>
+    <tr><td>/admin/</td><td>src/app/admin/page.tsx</td><td>관리자. AppShell + AuthBoundary.</td></tr>
+  </tbody>
+</table>
+
+<h2>18.1 앱 셸 내비게이션</h2>
+<p>브랜드 → 랜딩. 크레딧 알약. LanguageSwitcher. (가능 시) 홈 화면 추가. 새 더빙. 더빙 이력. 목소리 설정. 계정 메뉴: 크레딧 충전, (관리자면) 관리자/일반사용자, 로그아웃.</p>
+
+<h1>19. 오류·빈 상태·동시 잡</h1>
+<h2>19.1 HTTP와 사용자 메시지</h2>
+<table>
+  <thead><tr><th>상황</th><th>코드</th><th>사용자에게</th></tr></thead>
+  <tbody>
+    <tr><td>토큰 없음/만료/비활성</td><td>401</td><td>로그인 필요, Token expired, Account is deactivated</td></tr>
+    <tr><td>크레딧 부족</td><td>402</td><td>Need N credit minutes, have M / 데모: 크레딧이 부족합니다</td></tr>
+    <tr><td>활성 잡 있음</td><td>409</td><td>A job is already queued or running for this project</td></tr>
+    <tr><td>길이 없음(더빙)</td><td>409</td><td>Project duration unknown; run transcribe first</td></tr>
+    <tr><td>립싱크 전 더빙 없음</td><td>409</td><td>Complete dubbing before premium lip sync</td></tr>
+    <tr><td>립싱크 미설정</td><td>503</td><td>feature_unavailable: lip sync is not configured</td></tr>
+    <tr><td>네트워크/터널</td><td>0 (ApiError)</td><td>일시 오류로 재시도. 배너에 고정하지 않음</td></tr>
+    <tr><td>파이프라인 코드</td><td>잡 error</td><td>formatPipelineError: 30분, 500MB, MP4, 오디오 없음, 타임아웃, 목소리 없음, DNS</td></tr>
+  </tbody>
+</table>
+
+<h2>19.2 빈 상태</h2>
+<ul>
+  <li>이력 없음: 「아직 더빙 이력이 없습니다」+ 첫 더빙 시작.</li>
+  <li>자막 없음: 「자막이 아직 없습니다」.</li>
+  <li>Voice Box 없음: 추출 시 목소리 선택 오류. 설정 화면은 복제/라이브러리 안내.</li>
+  <li>라이브러리 필터 무결과: 「조건에 맞는 목소리가 없습니다」.</li>
+  <li>네이티브 Offering 비어 있음: RevenueCat Offering에 패키지를 연결하라는 안내.</li>
+  <li>프로젝트 id 없음(정적 셸을 id 없이 연 경우): 「프로젝트 ID가 없습니다」.</li>
+</ul>
+
+<h2>19.3 동시성</h2>
+<p>프로젝트당 queued/running 잡은 하나. 두 번째 enqueue는 409. 워커 동시성은 인스턴스당 기본 1(SAD-001). UI는 2초 폴링. 일괄 생성의 서버 잡 대기는 최대 45분.</p>
+
+<h2>19.4 잡 취소와 환불</h2>
+<p>queued/running을 취소하면 finish_job_with_refund. charged_minutes가 있으면 같은 분을 reason=refund로 되돌린다. 이미 끝난 잡은 그대로 둔다. 하트비트 타임아웃(기본 3600초) 실패도 동일 환불 경로다. 추출(0원) 취소는 원장 변화가 없다.</p>
+
+<h1>20. 명시적 비범위</h1>
+<p>이 문서는 다음을 정의하지 않는다. 필요하면 해당 문서로 간다.</p>
+<ul>
+  <li>스키마 DDL, 트리거 SQL 전문, 마이그레이션 이력 → 데이터베이스/파이프라인 설계서.</li>
+  <li>Gemini/OpenAI/ElevenLabs 프롬프트 전문, 모델 선택 이유 → AI 에이전트 및 프롬프트 명세서.</li>
+  <li>Caddy, CORS, 터널, R2 버킷 토폴로지, healthz/readyz, 컨테이너 이미지 → DUBBY-SAD-001.</li>
+  <li>Stripe/RevenueCat 대시보드의 실제 가격·상품 ID (환경 변수).</li>
+  <li>Facebook/Kakao OAuth 활성화 일정 (코드상 비활성).</li>
+  <li>랜딩 사전의 waitlist 문구. 현재 LandingPage는 Hero·HowItWorks·LangsBand만 렌더한다.</li>
+</ul>
+
+<h2>20.1 개정</h2>
+<table>
+  <thead><tr><th>버전</th><th>일자</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td>1.0</td><td>2026-09-05</td><td>코드 3.0.12 기준 최초 기능 명세서 (DUBBY-FRS-001)</td></tr>
+  </tbody>
+</table>
+<p>다음 인수 문서: 「데이터베이스/파이프라인 설계서」. 본 문서는 그 파이프라인이 사용자에게 어떤 기능으로 보이는지만 정의한다.</p>
+</main>
+</body>
+</html>
