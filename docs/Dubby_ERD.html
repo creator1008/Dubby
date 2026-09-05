@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Dubby ERD (DUBBY-ERD-001)</title>
+<style>
+  :root {
+    --navy: #0f284a;
+    --blue: #2b6cb0;
+    --ink: #1a202c;
+    --slate: #4a5568;
+    --rule: #cbd5e1;
+    --box: #f7fafc;
+    --pk: #0f284a;
+    --fk: #2b6cb0;
+    --gray: #64748b;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 11pt; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+    line-height: 1.55;
+  }
+  .cover {
+    min-height: 100vh;
+    background: var(--navy);
+    color: #fff;
+    padding: 48px 56px;
+    position: relative;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    background: var(--blue);
+  }
+  .kicker { color: #a0b8d2; font-size: 11pt; }
+  .cover h1 { font-size: 22pt; margin: 72px 0 8px; font-weight: 700; }
+  .cover h2 { font-size: 26pt; margin: 0 0 28px; font-weight: 700; }
+  .cover hr { width: 92px; border: 0; border-top: 2px solid #fff; margin: 0 0 28px; }
+  .meta { list-style: none; padding: 0; margin: 0; }
+  .meta li { display: flex; gap: 16px; margin: 8px 0; }
+  .meta span { width: 140px; color: #a0b8d2; }
+  .cover .foot {
+    position: absolute; bottom: 48px; left: 56px; right: 56px;
+    color: #a0b8d2; font-size: 10pt;
+  }
+  main { padding: 24px 28px 40px; max-width: 1100px; margin: 0 auto; }
+  h1 {
+    color: var(--navy);
+    font-size: 16pt;
+    border-left: 6px solid var(--navy);
+    padding-left: 10px;
+    page-break-before: always;
+    margin-top: 0;
+  }
+  h2 {
+    color: var(--blue);
+    font-size: 12.5pt;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 4px;
+    margin-top: 22px;
+  }
+  h3 { color: var(--navy); font-size: 11pt; margin: 16px 0 8px; }
+  p { margin: 8px 0 12px; }
+  ul { margin: 6px 0 14px; padding-left: 20px; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 9.5pt;
+  }
+  th {
+    background: var(--navy);
+    color: #fff;
+    text-align: left;
+    padding: 7px 8px;
+    font-weight: 700;
+  }
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f1f5f9; }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9.5pt;
+  }
+  .note {
+    background: var(--box);
+    border-left: 4px solid var(--blue);
+    padding: 10px 14px;
+    margin: 12px 0 16px;
+  }
+  .note strong { color: var(--navy); display: block; margin-bottom: 4px; }
+  .warn {
+    background: #fff7ed;
+    border-left: 4px solid #c05621;
+    padding: 10px 14px;
+    margin: 12px 0 16px;
+  }
+  .warn strong { color: #9c4221; display: block; margin-bottom: 4px; }
+  .docbar {
+    display: flex;
+    justify-content: space-between;
+    color: var(--slate);
+    font-size: 9pt;
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 6px;
+    margin-bottom: 18px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    margin: 10px 0 16px;
+    font-size: 9.5pt;
+  }
+  .swatch {
+    display: inline-block;
+    width: 12px; height: 12px;
+    margin-right: 6px;
+    vertical-align: -1px;
+    border: 1px solid #94a3b8;
+  }
+  .pk { color: var(--pk); font-weight: 700; font-family: Consolas, "Courier New", monospace; }
+  .fk { color: var(--fk); font-weight: 700; font-family: Consolas, "Courier New", monospace; }
+  .unused { color: var(--gray); }
+  .erd-wrap {
+    border: 1px solid var(--rule);
+    background: #fbfdff;
+    padding: 8px;
+    page-break-inside: avoid;
+  }
+  .erd-wrap svg { display: block; width: 100%; height: auto; }
+  .toc a { color: var(--blue); text-decoration: none; }
+  @page { size: A4 landscape; margin: 12mm 10mm; }
+  @media print {
+    .cover { min-height: 100vh; page-break-after: always; }
+    a { color: inherit; text-decoration: none; }
+    h1 { page-break-before: always; }
+    .erd-page { page-break-before: always; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="kicker">HANDOVER · INTERNAL</div>
+  <h1>Dubby</h1>
+  <h2>엔터티 관계도 (ERD)</h2>
+  <hr />
+  <ul class="meta">
+    <li><span>문서번호</span><b>DUBBY-ERD-001</b></li>
+    <li><span>제품 버전</span><b>3.0.12</b></li>
+    <li><span>파이프라인 버전</span><b>3.0</b></li>
+    <li><span>작성일</span><b>2026-09-05</b></li>
+    <li><span>상태</span><b>인수인계용 / 내부</b></li>
+    <li><span>근거</span><b>supabase/migrations 17파일 · DPD-001 교차검증</b></li>
+  </ul>
+  <p class="foot">이 문서는 Dubby Postgres/Supabase의 논리 ERD와 엔터티 카탈로그다. 스키마·파이프라인 서술은 DPD-001, 런타임 경계는 SAD-001, 제품 기능은 FRS-001, 프롬프트는 AIP-001을 따른다. 마이그레이션에 없는 테이블은 만들지 않았다.</p>
+</section>
+
+<main>
+<div class="docbar"><span>Dubby 엔터티 관계도</span><span>DUBBY-ERD-001</span></div>
+
+<h1>1. 문서 개요</h1>
+<h2>1.1 목적</h2>
+<p>이 문서는 Dubby 3.0.12의 <strong>실제 Postgres 테이블</strong>과 그들 사이의 관계를 한 장의 논리 ERD로 고정한다. 다음 엔지니어가 추측 테이블이나 일반 <code>webhooks</code> 원장을 만들지 않도록, <code>supabase/migrations/</code> 17개 파일과 DPD-001을 교차검증한 결과만 그린다.</p>
+
+<h2>1.2 범위</h2>
+<ul>
+  <li>포함: <code>public</code> 테이블 14개, 외부 엔터티 <code>auth.users</code>, PK/FK/유니크 인덱스가 정의하는 카디널리티, 논리 참조(FK 없음), API 미사용 <code>waitlist</code>.</li>
+  <li>제외: 함수·트리거·RPC 본문, R2 객체 레이아웃, 상태 머신, 프롬프트. 이들은 DPD-001·AIP-001에 있다.</li>
+  <li>제외: Supabase Auth의 다른 시스템 테이블(<code>auth.identities</code>, <code>auth.sessions</code> 등). Dubby 마이그레이션이 FK로 가리키는 Auth 엔터티는 <code>auth.users</code>뿐이다.</li>
+  <li>사실의 기준: 마이그레이션 최종 적용 형상. 코드에만 있는 필드는 사이드카로 명시하고 박스에 넣지 않는다.</li>
+</ul>
+
+<h2>1.3 관련 문서</h2>
+<table>
+  <thead><tr><th>문서</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>시스템 아키텍처 정의서 (DUBBY-SAD-001)</td><td>런타임·배포·네트워크·저장 경계</td></tr>
+    <tr><td>비즈니스 로직 및 기능 명세서 (DUBBY-FRS-001)</td><td>제품 기능, 크레딧 UX</td></tr>
+    <tr><td>데이터베이스/파이프라인 설계서 (DUBBY-DPD-001)</td><td>컬럼·잡·R2 키의 1차 서술. 본 ERD의 원천</td></tr>
+    <tr><td>AI 에이전트 및 프롬프트 명세서 (DUBBY-AIP-001)</td><td>모델·프롬프트 전문</td></tr>
+    <tr><td>본 문서 (DUBBY-ERD-001)</td><td>논리 ERD와 엔터티 카탈로그</td></tr>
+    <tr><td>docs/Dubby_ERD.mmd</td><td>유지보수용 mermaid 원본</td></tr>
+  </tbody>
+</table>
+
+<h2>1.4 표기</h2>
+<div class="legend">
+  <span><i class="swatch" style="background:#0f284a"></i><span class="pk">PK</span> 기본키 (남색)</span>
+  <span><i class="swatch" style="background:#2b6cb0"></i><span class="fk">FK</span> 외래키 (파랑)</span>
+  <span><i class="swatch" style="background:#5b4b8a"></i>UQ 유니크/부분 유니크</span>
+  <span><i class="swatch" style="background:#64748b"></i><span class="unused">미사용·외부</span> 회색 / 점선 테두리</span>
+  <span>실선 = 실제 FK</span>
+  <span>점선 = 논리적 참조, FK 없음</span>
+</div>
+<p>카디널리티는 1:1, 1:N만 사용한다. N:M 조인 테이블은 마이그레이션에 없다. 컬럼이 UUID/text여도 <code>REFERENCES</code>가 없으면 “논리적 참조, FK 없음”으로 표시한다.</p>
+
+<h2>1.5 마이그레이션 파일 (17)</h2>
+<p>2026-09-05 기준 <code>supabase/migrations/</code>는 17개다. DPD-001 3.1절과 동일하다.</p>
+<table>
+  <thead><tr><th>파일</th><th> 테이블 추가 / 변경</th></tr></thead>
+  <tbody>
+    <tr><td>20260717000000_init_dubby_core.sql</td><td>profiles, projects, segments, jobs, credit_ledger, waitlist</td></tr>
+    <tr><td>20260717010000_worker_pipeline_rpc.sql</td><td>테이블 없음 (replace_segments RPC)</td></tr>
+    <tr><td>20260717020000_stripe_credits.sql</td><td>stripe_customers, stripe_subscriptions, stripe_events + ledger/jobs 컬럼</td></tr>
+    <tr><td>20260717030000_phase2_quality.sql</td><td>projects/segments/jobs/ledger 컬럼</td></tr>
+    <tr><td>20260717040000_revenuecat_mobile_billing.sql</td><td>revenuecat_events, revenuecat_customers, revenuecat_subscriptions</td></tr>
+    <tr><td>20260717050000_segment_source_text_edit.sql</td><td>테이블 없음 (RPC)</td></tr>
+    <tr><td>20260718143000_auth_admin.sql</td><td>access_logs + profiles/ledger 컬럼</td></tr>
+    <tr><td>20260719165000_bootstrap_first_admin.sql</td><td>테이블 없음 (auth.users 메타 1건)</td></tr>
+    <tr><td>20260723120000_admin_user_active.sql</td><td>profiles.is_active</td></tr>
+    <tr><td>20260723140000_languages_and_signup_credits.sql</td><td>언어 CHECK, signup 30분</td></tr>
+    <tr><td>20260730000000_credit_ledger_allow_fk_null.sql</td><td>테이블 없음 (불변 트리거 예외)</td></tr>
+    <tr><td>20260806000000_user_voices.sql</td><td>user_voices</td></tr>
+    <tr><td>20260807000000_project_dub_voice_ids.sql</td><td>projects.dub_voice_ids</td></tr>
+    <tr><td>20260808000000_pipeline_v2_voice_mode.sql</td><td>voice_mode, pipeline_version</td></tr>
+    <tr><td>20260818000000_segment_speak_speed.sql</td><td>segments.speak_speed</td></tr>
+    <tr><td>20260823000000_add_th_my_languages.sql</td><td>th, my CHECK</td></tr>
+    <tr><td>20260824000000_tone_style_emotions.sql</td><td>tone_style CHECK/기본값</td></tr>
+  </tbody>
+</table>
+
+<h1 class="erd-page">2. 논리 ERD</h1>
+<p>인쇄 시 JavaScript 없이 보이도록 <strong>인라인 SVG</strong>다. 유지보수는 <code>docs/Dubby_ERD.mmd</code>를 수정한다. 그룹: Identity, Project/media, Jobs, Credits, Voices, Billing events, Ops, Unused.</p>
+<div class="erd-wrap">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1580 980"
+     width="100%" role="img" aria-label="Dubby logical ERD">
+  <rect width="1580" height="980" fill="#fbfdff"/>
+  <rect x="12" y="10" width="268" height="368" rx="8" fill="#e8eef6" stroke="#9bb0c9" stroke-width="1.2"/>
+<text x="22" y="26" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Identity</text>
+<rect x="12" y="388" width="268" height="222" rx="8" fill="#e0e7ff" stroke="#a5b4fc" stroke-width="1.2"/>
+<text x="22" y="404" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Voices</text>
+<rect x="12" y="620" width="268" height="198" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="22" y="636" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Unused</text>
+<rect x="296" y="10" width="292" height="548" rx="8" fill="#e6f4ea" stroke="#8fbf9a" stroke-width="1.2"/>
+<text x="306" y="26" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Project / media</text>
+<rect x="604" y="10" width="272" height="268" rx="8" fill="#fef3c7" stroke="#d4b45a" stroke-width="1.2"/>
+<text x="614" y="26" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Jobs</text>
+<rect x="604" y="288" width="272" height="270" rx="8" fill="#fce7f3" stroke="#d4a0b8" stroke-width="1.2"/>
+<text x="614" y="304" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Credits</text>
+<rect x="892" y="10" width="676" height="548" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.2"/>
+<text x="902" y="26" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Billing events</text>
+<rect x="892" y="568" width="676" height="250" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.2"/>
+<text x="902" y="584" font-size="10" font-weight="700" fill="#4a5568" font-family="Malgun Gothic, sans-serif">Ops</text>
+<rect x="26" y="34" width="240" height="86.5" rx="4" fill="#ffffff" stroke="#4a5568" stroke-width="1.4" stroke-dasharray="4 3"/>
+<rect x="26" y="34" width="240" height="34" rx="4" fill="#3d4f6a"/>
+<rect x="26" y="62" width="240" height="6" fill="#3d4f6a"/>
+<text x="34" y="48" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">auth.users</text>
+<text x="34" y="61" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">Supabase Auth · 외부 스키마</text>
+<text x="34" y="80.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id uuid</tspan></text>
+<text x="34" y="93.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">email text</tspan></text>
+<text x="34" y="107.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">(기타 Auth 컬럼 생략)</tspan></text>
+<rect x="26" y="168" width="240" height="127.0" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="26" y="168" width="240" height="34" rx="4" fill="#0f284a"/>
+<rect x="26" y="196" width="240" height="6" fill="#0f284a"/>
+<text x="34" y="182" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">profiles</text>
+<text x="34" y="195" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">사용자 프로필 · auth.users와 1:1</text>
+<text x="34" y="214.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id → auth.users CASCADE</tspan></text>
+<text x="34" y="227.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">email, display_name</tspan></text>
+<text x="34" y="241.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">country, auth_provider</tspan></text>
+<text x="34" y="254.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">last_login_at</tspan></text>
+<text x="34" y="268.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">is_active, deactivated_at</tspan></text>
+<text x="34" y="281.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">created_at, updated_at</tspan></text>
+<rect x="26" y="412" width="240" height="113.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="26" y="412" width="240" height="34" rx="4" fill="#0f284a"/>
+<rect x="26" y="440" width="240" height="6" fill="#0f284a"/>
+<text x="34" y="426" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">user_voices</text>
+<text x="34" y="439" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">My Voice Box · FK는 profiles가 아님</text>
+<text x="34" y="458.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="34" y="471.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">owner_id → auth.users CASCADE</tspan></text>
+<text x="34" y="485.0" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">(owner_id, shared_voice_id)</tspan></text>
+<text x="34" y="498.5" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">(owner_id, nickname)</tspan></text>
+<text x="34" y="512.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">elevenlabs_voice_id, nickname</tspan></text>
+<rect x="26" y="644" width="240" height="100.0" rx="4" fill="#ffffff" stroke="#64748b" stroke-width="1.4" stroke-dasharray="4 3"/>
+<rect x="26" y="644" width="240" height="34" rx="4" fill="#64748b"/>
+<rect x="26" y="672" width="240" height="6" fill="#64748b"/>
+<text x="34" y="658" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">waitlist</text>
+<text x="34" y="671" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">스키마만 존재 · API 미사용</text>
+<text x="34" y="690.0" font-size="9" fill="#64748b" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="34" y="703.5" font-size="9" fill="#64748b" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">email UNIQUE + 형식 CHECK</tspan></text>
+<text x="34" y="717.0" font-size="9" fill="#64748b" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">locale, source, created_at</tspan></text>
+<text x="34" y="730.5" font-size="9" fill="#64748b" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">관계 없음 (고립)</tspan></text>
+<rect x="310" y="34" width="264" height="154.0" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="310" y="34" width="264" height="34" rx="4" fill="#0f284a"/>
+<rect x="310" y="62" width="264" height="6" fill="#0f284a"/>
+<text x="318" y="48" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">projects</text>
+<text x="318" y="61" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">더빙 프로젝트 · R2 키만 보관</text>
+<text x="318" y="80.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="318" y="93.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">owner_id → profiles CASCADE</tspan></text>
+<text x="318" y="107.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">title, status, langs, tone_style</tspan></text>
+<text x="318" y="120.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">voice_mode, pipeline_version</tspan></text>
+<text x="318" y="134.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">source_key, output_key</tspan></text>
+<text x="318" y="147.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">lipsync_output_key</tspan></text>
+<text x="318" y="161.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">dub_voice_ids jsonb  ※FK 없음</tspan></text>
+<text x="318" y="174.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">quality_warnings, error</tspan></text>
+<rect x="310" y="318" width="264" height="140.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="310" y="318" width="264" height="34" rx="4" fill="#0f284a"/>
+<rect x="310" y="346" width="264" height="6" fill="#0f284a"/>
+<text x="318" y="332" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">segments</text>
+<text x="318" y="345" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">전사/번역 단위</text>
+<text x="318" y="364.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="318" y="377.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">project_id → projects CASCADE</tspan></text>
+<text x="318" y="391.0" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">(project_id, idx)</tspan></text>
+<text x="318" y="404.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">start_ms, end_ms</tspan></text>
+<text x="318" y="418.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">source_text, target_text</tspan></text>
+<text x="318" y="431.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">speaker_id, speaker_overlap</tspan></text>
+<text x="318" y="445.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">speak_speed</tspan></text>
+<rect x="618" y="34" width="244" height="127.0" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="618" y="34" width="244" height="34" rx="4" fill="#0f284a"/>
+<rect x="618" y="62" width="244" height="6" fill="#0f284a"/>
+<text x="626" y="48" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">jobs</text>
+<text x="626" y="61" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">파이프라인 큐</text>
+<text x="626" y="80.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="626" y="93.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">project_id → projects CASCADE</tspan></text>
+<text x="626" y="107.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">kind transcribe|dub|lipsync</tspan></text>
+<text x="626" y="120.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">status queued|running|…</tspan></text>
+<text x="626" y="134.0" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">활성 1건/프로젝트 (partial)</tspan></text>
+<text x="626" y="147.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">charged_minutes, heartbeat_at</tspan></text>
+<rect x="618" y="312" width="244" height="140.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="618" y="312" width="244" height="34" rx="4" fill="#0f284a"/>
+<rect x="618" y="340" width="244" height="6" fill="#0f284a"/>
+<text x="626" y="326" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">credit_ledger</text>
+<text x="626" y="339" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">추가 전용 원장 · 잔액=SUM</text>
+<text x="626" y="358.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="626" y="371.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">user_id → profiles CASCADE</tspan></text>
+<text x="626" y="385.0" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">project_id SET NULL</tspan></text>
+<text x="626" y="398.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">job_id SET NULL</tspan></text>
+<text x="626" y="412.0" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">adjusted_by → profiles SET NULL</tspan></text>
+<text x="626" y="425.5" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">idempotency_key (NOT NULL)</tspan></text>
+<text x="626" y="439.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">delta_minutes, reason</tspan></text>
+<rect x="906" y="34" width="318" height="86.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="906" y="34" width="318" height="34" rx="4" fill="#0f284a"/>
+<rect x="906" y="62" width="318" height="6" fill="#0f284a"/>
+<text x="914" y="48" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">stripe_customers</text>
+<text x="914" y="61" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">Stripe 고객 1:1</text>
+<text x="914" y="80.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">user_id → profiles CASCADE</tspan></text>
+<text x="914" y="93.5" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">stripe_customer_id UNIQUE</tspan></text>
+<text x="914" y="107.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">created_at, updated_at</tspan></text>
+<rect x="906" y="168" width="318" height="100.0" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="906" y="168" width="318" height="34" rx="4" fill="#0f284a"/>
+<rect x="906" y="196" width="318" height="6" fill="#0f284a"/>
+<text x="914" y="182" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">stripe_subscriptions</text>
+<text x="914" y="195" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">Stripe 구독 투영</text>
+<text x="914" y="214.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">stripe_subscription_id</tspan></text>
+<text x="914" y="227.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">user_id → profiles CASCADE</tspan></text>
+<text x="914" y="241.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">stripe_customer_id  ※FK 없음</tspan></text>
+<text x="914" y="254.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">status, price_id, period_end</tspan></text>
+<rect x="906" y="322" width="318" height="86.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="906" y="322" width="318" height="34" rx="4" fill="#0f284a"/>
+<rect x="906" y="350" width="318" height="6" fill="#0f284a"/>
+<text x="914" y="336" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">stripe_events</text>
+<text x="914" y="349" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">웹훅 inbox · 사용자 FK 없음</text>
+<text x="914" y="368.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">stripe_event_id</tspan></text>
+<text x="914" y="381.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">event_type, payload jsonb</tspan></text>
+<text x="914" y="395.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">processed_at, created_at</tspan></text>
+<rect x="1238" y="34" width="314" height="86.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="1238" y="34" width="314" height="34" rx="4" fill="#0f284a"/>
+<rect x="1238" y="62" width="314" height="6" fill="#0f284a"/>
+<text x="1246" y="48" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">revenuecat_customers</text>
+<text x="1246" y="61" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">RC 앱 유저 1:1</text>
+<text x="1246" y="80.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">app_user_id</tspan></text>
+<text x="1246" y="93.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">user_id → profiles CASCADE</tspan></text>
+<text x="1246" y="107.0" font-size="9" fill="#5b4b8a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">UQ</tspan><tspan dx="4">user_id UNIQUE</tspan></text>
+<rect x="1238" y="168" width="314" height="100.0" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="1238" y="168" width="314" height="34" rx="4" fill="#0f284a"/>
+<rect x="1238" y="196" width="314" height="6" fill="#0f284a"/>
+<text x="1246" y="182" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">revenuecat_subscriptions</text>
+<text x="1246" y="195" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">RC entitlement 투영</text>
+<text x="1246" y="214.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">(user_id, entitlement_id)</tspan></text>
+<text x="1246" y="227.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">user_id → profiles CASCADE</tspan></text>
+<text x="1246" y="241.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">product_id, status, expires_at</tspan></text>
+<text x="1246" y="254.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">store, original_transaction_id</tspan></text>
+<rect x="1238" y="322" width="314" height="86.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="1238" y="322" width="314" height="34" rx="4" fill="#0f284a"/>
+<rect x="1238" y="350" width="314" height="6" fill="#0f284a"/>
+<text x="1246" y="336" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">revenuecat_events</text>
+<text x="1246" y="349" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">웹훅 inbox · 사용자 FK 없음</text>
+<text x="1246" y="368.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">revenuecat_event_id</tspan></text>
+<text x="1246" y="381.5" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">event_type, payload jsonb</tspan></text>
+<text x="1246" y="395.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">processed_at, created_at</tspan></text>
+<rect x="906" y="592" width="646" height="86.5" rx="4" fill="#ffffff" stroke="#0f284a" stroke-width="1.4"/>
+<rect x="906" y="592" width="646" height="34" rx="4" fill="#0f284a"/>
+<rect x="906" y="620" width="646" height="6" fill="#0f284a"/>
+<text x="914" y="606" font-size="11" font-weight="700" fill="#ffffff" font-family="Consolas, Courier New, monospace">access_logs</text>
+<text x="914" y="619" font-size="9" fill="#d6e0ee" font-family="Malgun Gothic, sans-serif">관리자 감사 로그 · 서비스 전용</text>
+<text x="914" y="638.0" font-size="9" fill="#0f284a" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">PK</tspan><tspan dx="4">id</tspan></text>
+<text x="914" y="651.5" font-size="9" fill="#2b6cb0" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">FK</tspan><tspan dx="4">user_id → profiles SET NULL</tspan></text>
+<text x="914" y="665.0" font-size="9" fill="#1a202c" font-family="Consolas, Courier New, monospace"><tspan font-weight="700" font-size="7.5">  </tspan><tspan dx="4">method, path, status_code, ip_address inet, user_agent, created_at</tspan></text>
+<path d="M 146.0,120.5 L 146.0,168.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 146.0,120.5 L 146.0,168.0" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="146.0" y="131.5" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="middle">1</text>
+<text x="146.0" y="164" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="middle">1</text>
+<path d="M 26.0,77.2 L 8.0,77.0 L 8.0,468.0 L 26.0,468.8" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 26.0,77.2 L 8.0,77.0 L 8.0,468.0 L 26.0,468.8" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="20" y="72.25" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">1</text>
+<text x="20" y="463.75" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">N</text>
+<path d="M 266.0,231.5 L 288.0,232.0 L 288.0,111.0 L 310.0,111.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,231.5 L 288.0,232.0 L 288.0,111.0 L 310.0,111.0" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="272" y="226.5" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="304" y="106.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">N</text>
+<path d="M 442.0,188.0 L 442.0,318.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 442.0,188.0 L 442.0,318.0" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="442.0" y="199.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="middle">1</text>
+<text x="442.0" y="314" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="middle">N</text>
+<path d="M 574.0,111.0 L 618.0,97.5" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 574.0,111.0 L 618.0,97.5" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="580" y="106.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="612" y="92.5" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">N</text>
+<path d="M 740.0,161.0 L 740.0,312.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 740.0,161.0 L 740.0,312.0" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="740.0" y="172.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="middle">0..1</text>
+<text x="740.0" y="308" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="middle">0..N</text>
+<path d="M 266.0,279.0 L 288.0,348.0 L 618.0,382.2" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,279.0 L 288.0,348.0 L 618.0,382.2" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="272" y="290.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="612" y="377.25" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">N</text>
+<path d="M 574.0,172.0 L 590.0,180.0 L 590.0,440.0 L 618.0,436.5" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 574.0,172.0 L 590.0,180.0 L 590.0,440.0 L 618.0,436.5" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="580" y="183.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">0..1</text>
+<text x="612" y="447.5" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">0..N</text>
+<path d="M 266.0,188.0 L 280.0,48.0 L 880.0,48.0 L 880.0,77.0 L 906.0,77.2" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,188.0 L 280.0,48.0 L 880.0,48.0 L 880.0,77.0 L 906.0,77.2" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="272" y="184" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="900" y="72.25" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">1</text>
+<path d="M 266.0,188.0 L 280.0,48.0 L 880.0,48.0 L 880.0,218.0 L 906.0,218.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,188.0 L 280.0,48.0 L 880.0,48.0 L 880.0,218.0 L 906.0,218.0" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="272" y="184" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="900" y="213.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">N</text>
+<path d="M 266.0,188.0 L 280.0,16.0 L 1226.0,16.0 L 1226.0,77.0 L 1238.0,77.2" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,188.0 L 280.0,16.0 L 1226.0,16.0 L 1226.0,77.0 L 1238.0,77.2" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="272" y="184" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="1232" y="72.25" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">1</text>
+<path d="M 266.0,231.5 L 288.0,250.0 L 1226.0,250.0 L 1226.0,218.0 L 1238.0,218.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,231.5 L 288.0,250.0 L 1226.0,250.0 L 1226.0,218.0 L 1238.0,218.0" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="272" y="226.5" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="start">1</text>
+<text x="1232" y="213.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">N</text>
+<path d="M 26.0,279.0 L 8.0,280.0 L 8.0,900.0 L 880.0,900.0 L 880.0,636.0 L 906.0,635.2" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 26.0,279.0 L 8.0,280.0 L 8.0,900.0 L 880.0,900.0 L 880.0,636.0 L 906.0,635.2" fill="none" stroke="#2b6cb0" stroke-width="1.25" stroke-linejoin="round"/>
+<text x="20" y="290.0" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">0..1</text>
+<text x="900" y="630.25" font-size="8" font-weight="700" fill="#2b6cb0" font-family="Malgun Gothic, sans-serif" text-anchor="end">0..N</text>
+<path d="M 266.0,468.8 L 288.0,500.0 L 288.0,180.0 L 310.0,172.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 266.0,468.8 L 288.0,500.0 L 288.0,180.0 L 310.0,172.0" fill="none" stroke="#64748b" stroke-width="1.25" stroke-linejoin="round" stroke-dasharray="5 3.5"/>
+<text x="272" y="463.75" font-size="8" font-weight="700" fill="#64748b" font-family="Malgun Gothic, sans-serif" text-anchor="start">논리</text>
+<text x="304" y="183.0" font-size="8" font-weight="700" fill="#64748b" font-family="Malgun Gothic, sans-serif" text-anchor="end">dub_voice_ids</text>
+<path d="M 1065.0,120.5 L 1065.0,168.0" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M 1065.0,120.5 L 1065.0,168.0" fill="none" stroke="#64748b" stroke-width="1.25" stroke-linejoin="round" stroke-dasharray="5 3.5"/>
+<text x="1065.0" y="131.5" font-size="8" font-weight="700" fill="#64748b" font-family="Malgun Gothic, sans-serif" text-anchor="middle">논리</text>
+<text x="1065.0" y="164" font-size="8" font-weight="700" fill="#64748b" font-family="Malgun Gothic, sans-serif" text-anchor="middle">customer_id</text>
+<text x="20" y="960" font-size="10" fill="#4a5568" font-family="Malgun Gothic, sans-serif">실선 = Postgres FK · 점선 = 논리적 참조(FK 없음) · PK 남색 · FK 파랑 · auth.users / waitlist 는 점선 테두리 · N:M 조인 테이블 없음 · generic webhooks 테이블 없음</text>
+</svg>
+</div>
+<div class="note">
+  <strong>읽기 순서</strong>
+  <code>auth.users</code> → <code>profiles</code>(1:1)가 허브다. 프로젝트·원장·빌링·로그는 profiles(또는 동일 UUID의 auth.users)로 모인다. <code>user_voices.owner_id</code>만 <code>auth.users</code>를 직접 참조한다. <code>stripe_events</code>·<code>revenuecat_events</code>·<code>waitlist</code>는 사용자 FK가 없다.
+</div>
+
+<h1>3. 관계 목록</h1>
+<p>아래에 없는 선은 그리지 않았다. UUID를 담는 text/jsonb라도 <code>REFERENCES</code>가 없으면 FK로 취급하지 않는다.</p>
+<table>
+  <thead><tr><th>부모</th><th>자식</th><th>카디널리티</th><th>FK 컬럼</th><th>ON DELETE</th></tr></thead>
+  <tbody>
+    <tr><td>auth.users.id</td><td>profiles.id</td><td>1:1</td><td>profiles.id (PK=FK)</td><td>CASCADE</td></tr>
+    <tr><td>auth.users.id</td><td>user_voices.owner_id</td><td>1:N</td><td>owner_id</td><td>CASCADE</td></tr>
+    <tr><td>profiles.id</td><td>projects.owner_id</td><td>1:N</td><td>owner_id</td><td>CASCADE</td></tr>
+    <tr><td>projects.id</td><td>segments.project_id</td><td>1:N</td><td>project_id</td><td>CASCADE</td></tr>
+    <tr><td>projects.id</td><td>jobs.project_id</td><td>1:N</td><td>project_id</td><td>CASCADE</td></tr>
+    <tr><td>profiles.id</td><td>credit_ledger.user_id</td><td>1:N</td><td>user_id</td><td>CASCADE</td></tr>
+    <tr><td>projects.id</td><td>credit_ledger.project_id</td><td>1:N (0..N)</td><td>project_id NULL 허용</td><td>SET NULL</td></tr>
+    <tr><td>jobs.id</td><td>credit_ledger.job_id</td><td>1:N (0..N)</td><td>job_id NULL 허용</td><td>SET NULL</td></tr>
+    <tr><td>profiles.id</td><td>credit_ledger.adjusted_by</td><td>1:N (0..N)</td><td>adjusted_by NULL 허용</td><td>SET NULL</td></tr>
+    <tr><td>profiles.id</td><td>stripe_customers.user_id</td><td>1:1</td><td>user_id (PK)</td><td>CASCADE</td></tr>
+    <tr><td>profiles.id</td><td>stripe_subscriptions.user_id</td><td>1:N</td><td>user_id</td><td>CASCADE</td></tr>
+    <tr><td>profiles.id</td><td>revenuecat_customers.user_id</td><td>1:1</td><td>user_id + UNIQUE(user_id)</td><td>CASCADE</td></tr>
+    <tr><td>profiles.id</td><td>revenuecat_subscriptions.user_id</td><td>1:N</td><td>user_id (복합 PK)</td><td>CASCADE</td></tr>
+    <tr><td>profiles.id</td><td>access_logs.user_id</td><td>1:N (0..N)</td><td>user_id NULL 허용</td><td>SET NULL</td></tr>
+  </tbody>
+</table>
+
+<h2>3.1 논리적 참조 (FK 없음)</h2>
+<table>
+  <thead><tr><th>컬럼</th><th>가리키는 값</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>stripe_subscriptions.stripe_customer_id</td><td>stripe_customers.stripe_customer_id</td><td>text NOT NULL. REFERENCES 없음</td></tr>
+    <tr><td>projects.dub_voice_ids</td><td>user_voices.elevenlabs_voice_id 배열</td><td>jsonb. 슬롯용 ElevenLabs ID. 코드 상한 8</td></tr>
+    <tr><td>credit_ledger.external_reference</td><td>Stripe/RevenueCat 거래 ID</td><td>이벤트 테이블 PK와 FK 없음</td></tr>
+    <tr><td>credit_ledger.idempotency_key</td><td>서버가 만든 문자열</td><td>부분 UNIQUE. 다른 테이블 FK 아님</td></tr>
+  </tbody>
+</table>
+
+<h2>3.2 고립 엔터티</h2>
+<table>
+  <thead><tr><th>테이블</th><th>이유</th></tr></thead>
+  <tbody>
+    <tr><td>stripe_events</td><td>웹훅 inbox. 사용자 FK 없음. 일반 webhooks 테이블이 아님</td></tr>
+    <tr><td>revenuecat_events</td><td>동일. 서비스 전용 RLS(클라이언트 정책 없음)</td></tr>
+    <tr><td>waitlist</td><td>email UNIQUE. anon INSERT 정책만 있음. <strong>현재 API는 읽거나 쓰지 않음</strong></td></tr>
+  </tbody>
+</table>
+
+<h2>3.3 관계를 만드는 유니크 인덱스</h2>
+<table>
+  <thead><tr><th>인덱스</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>segments UNIQUE(project_id, idx)</td><td>프로젝트당 순번 1개</td></tr>
+    <tr><td>jobs_one_active_per_project UNIQUE(project_id) WHERE queued|running</td><td>활성 잡 최대 1</td></tr>
+    <tr><td>credit_ledger_job_debit_idx UNIQUE(job_id) WHERE reason=dub_job</td><td>잡당 debit 1</td></tr>
+    <tr><td>credit_ledger_lipsync_job_debit_idx UNIQUE(job_id) WHERE reason=lipsync_job</td><td>립싱크 debit 1</td></tr>
+    <tr><td>credit_ledger_job_refund_idx UNIQUE(job_id) WHERE reason=refund</td><td>잡당 refund 1</td></tr>
+    <tr><td>credit_ledger_idempotency_key_idx UNIQUE(idempotency_key) WHERE NOT NULL</td><td>중복 지급 방지</td></tr>
+    <tr><td>user_voices UNIQUE(owner_id, shared_voice_id / nickname)</td><td>보이스박스 중복 금지</td></tr>
+    <tr><td>stripe_customers.stripe_customer_id UNIQUE</td><td>Stripe 고객 1:1</td></tr>
+    <tr><td>revenuecat_customers_user_idx UNIQUE(user_id)</td><td>RC 앱유저 1:1</td></tr>
+    <tr><td>waitlist.email UNIQUE</td><td>대기열 이메일 1건</td></tr>
+  </tbody>
+</table>
+
+<h1>4. 엔터티 카탈로그</h1>
+<p>형은 SQL 최종 형상이다. 제약은 CHECK·NULL·기본값을 요약한다. 상세 상태 머신과 RPC는 DPD-001을 본다.</p>
+
+<h2>4.1 auth.users <span style="color:#64748b;font-weight:400">외부 · Identity</span></h2>
+<p>Supabase Auth. <code>handle_new_user</code>가 INSERT 후 profiles + signup_grant를 만든다. Dubby는 이 테이블을 CREATE하지 않는다.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td>앱 전역 사용자 식별자</td></tr>
+    <tr><td>email</td><td>text</td><td>NULL 가능</td><td>profiles.email로 복사</td></tr>
+    <tr><td>raw_app_meta_data / raw_user_meta_data</td><td>jsonb</td><td></td><td>provider, role=admin, display_name 소스. ERD 박스에는 생략</td></tr>
+  </tbody>
+</table>
+
+<h2>4.2 public.profiles <span style="color:#4a5568;font-weight:400">Identity</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK, FK → auth.users CASCADE, NOT NULL</td><td>1:1</td></tr>
+    <tr><td>email</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>display_name</td><td>text</td><td>NULL</td><td>메타 full_name/name/user_name 또는 로컬파트</td></tr>
+    <tr><td>country</td><td>text</td><td>NULL</td><td>NULL 또는 ^[A-Z]{2,8}$</td></tr>
+    <tr><td>auth_provider</td><td>text</td><td>NULL</td><td>app_metadata.provider, 기본 email</td></tr>
+    <tr><td>last_login_at</td><td>timestamptz</td><td>NULL</td><td></td></tr>
+    <tr><td>is_active</td><td>boolean</td><td>NOT NULL 기본 true</td><td>false면 비관리자 API 거부</td></tr>
+    <tr><td>deactivated_at</td><td>timestamptz</td><td>NULL</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>updated_at</td><td>timestamptz</td><td>NOT NULL</td><td>트리거 set_updated_at</td></tr>
+  </tbody>
+</table>
+<p>인덱스: <code>profiles_is_active_idx</code> (is_active=false partial). RLS: 본인 SELECT/UPDATE.</p>
+
+<h2>4.3 public.projects <span style="color:#4a5568;font-weight:400">Project / media</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td>gen_random_uuid()</td></tr>
+    <tr><td>owner_id</td><td>uuid</td><td>FK → profiles CASCADE, NOT NULL</td><td></td></tr>
+    <tr><td>title</td><td>text</td><td>NOT NULL</td><td>길이 1–200</td></tr>
+    <tr><td>status</td><td>text</td><td>NOT NULL 기본 created</td><td>created, uploading, uploaded, processing, ready_for_edit, dubbing, completed, failed</td></tr>
+    <tr><td>source_lang</td><td>text</td><td>NOT NULL 기본 ko</td><td>ko,vi,en,zh,ja,es,fr,pt,de,ru,ar,ur,id,ms,tr,ta,th,my</td></tr>
+    <tr><td>target_lang</td><td>text</td><td>NOT NULL 기본 en</td><td>동일 CHECK</td></tr>
+    <tr><td>subtitle_mode</td><td>text</td><td>NOT NULL 기본 target</td><td>none | source | target. API 생성 기본은 none</td></tr>
+    <tr><td>tone_style</td><td>text</td><td>NOT NULL 기본 calm</td><td>sad,angry,whisper,excited,energetic,calm,cheerful + legacy neutral,warm,serious</td></tr>
+    <tr><td>diarization_enabled</td><td>boolean</td><td>NOT NULL 기본 false</td><td></td></tr>
+    <tr><td>dub_voice_ids</td><td>jsonb</td><td>NOT NULL 기본 []</td><td>논리적 참조, FK 없음</td></tr>
+    <tr><td>voice_mode</td><td>text</td><td>NOT NULL 기본 voice_box</td><td>voice_box | auto_clone</td></tr>
+    <tr><td>pipeline_version</td><td>text</td><td>NOT NULL 기본 2.0</td><td>SQL 기본 2.0. API는 3.0을 응답/사이드카에 씀</td></tr>
+    <tr><td>duration_seconds</td><td>double precision</td><td>NULL</td><td>NULL 또는 &gt;= 0</td></tr>
+    <tr><td>source_key</td><td>text</td><td>NULL</td><td>R2 원본 키</td></tr>
+    <tr><td>output_key</td><td>text</td><td>NULL</td><td>더빙 mp4 키</td></tr>
+    <tr><td>lipsync_output_key</td><td>text</td><td>NULL</td><td>립싱크 mp4 키</td></tr>
+    <tr><td>quality_warnings</td><td>jsonb</td><td>NOT NULL 기본 []</td><td>배열만 허용</td></tr>
+    <tr><td>error</td><td>text</td><td>NULL</td><td>소프트 삭제 센티널 __deleted__</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+<div class="warn">
+  <strong>pipeline_version 기록 불일치 (DPD-001과 동일)</strong>
+  SQL 기본값과 create_project INSERT는 컬럼이 있으면 "2.0"을 넣는다. 라우터는 본문을 3.0으로 응답하고 R2 meta에 저장한다.
+</div>
+
+<h2>4.4 public.segments <span style="color:#4a5568;font-weight:400">Project / media</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td></td></tr>
+    <tr><td>project_id</td><td>uuid</td><td>FK → projects CASCADE, NOT NULL</td><td></td></tr>
+    <tr><td>idx</td><td>integer</td><td>NOT NULL, UNIQUE(project_id, idx)</td><td>&gt;= 0</td></tr>
+    <tr><td>start_ms</td><td>integer</td><td>NOT NULL</td><td>&gt;= 0</td></tr>
+    <tr><td>end_ms</td><td>integer</td><td>NOT NULL</td><td>end_ms &gt; start_ms</td></tr>
+    <tr><td>source_text</td><td>text</td><td>NOT NULL 기본 ''</td><td></td></tr>
+    <tr><td>target_text</td><td>text</td><td>NOT NULL 기본 ''</td><td></td></tr>
+    <tr><td>speaker_id</td><td>text</td><td>NULL</td><td>예: speaker_0</td></tr>
+    <tr><td>speaker_overlap</td><td>boolean</td><td>NOT NULL 기본 false</td><td></td></tr>
+    <tr><td>speak_speed</td><td>double precision</td><td>NULL</td><td>TTS 배율. 1.0=자연</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+<p>세그먼트 status 컬럼은 없다. source_end_ms·emotion·clip_speak_speed·gain_db·audio_key·dubbed_audio_url은 R2 사이드카다 (4.16).</p>
+
+<h2>4.5 public.jobs <span style="color:#4a5568;font-weight:400">Jobs</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td></td></tr>
+    <tr><td>project_id</td><td>uuid</td><td>FK → projects CASCADE, NOT NULL</td><td></td></tr>
+    <tr><td>kind</td><td>text</td><td>NOT NULL</td><td>transcribe | dub | lipsync</td></tr>
+    <tr><td>status</td><td>text</td><td>NOT NULL 기본 queued</td><td>queued | running | completed | failed | cancelled</td></tr>
+    <tr><td>progress</td><td>double precision</td><td>NOT NULL 기본 0</td><td>0–1</td></tr>
+    <tr><td>message</td><td>text</td><td>NULL</td><td>진행 코드</td></tr>
+    <tr><td>error</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>charged_minutes</td><td>numeric(10,2)</td><td>NOT NULL 기본 0</td><td>&gt;= 0</td></tr>
+    <tr><td>started_at</td><td>timestamptz</td><td>NULL</td><td></td></tr>
+    <tr><td>finished_at</td><td>timestamptz</td><td>NULL</td><td></td></tr>
+    <tr><td>heartbeat_at</td><td>timestamptz</td><td>NULL</td><td>실행 중 생존 시각</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>4.6 public.credit_ledger <span style="color:#4a5568;font-weight:400">Credits</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td></td></tr>
+    <tr><td>user_id</td><td>uuid</td><td>FK → profiles CASCADE, NOT NULL</td><td></td></tr>
+    <tr><td>delta_minutes</td><td>numeric(10,2)</td><td>NOT NULL</td><td>&lt;&gt; 0. 잔액 = SUM</td></tr>
+    <tr><td>reason</td><td>text</td><td>NOT NULL</td><td>signup_grant, dub_job, lipsync_job, refund, purchase, admin_adjust</td></tr>
+    <tr><td>project_id</td><td>uuid</td><td>FK → projects SET NULL, NULL 허용</td><td>부모 삭제 시 nulling만 불변 트리거 예외</td></tr>
+    <tr><td>job_id</td><td>uuid</td><td>FK → jobs SET NULL, NULL 허용</td><td></td></tr>
+    <tr><td>external_reference</td><td>text</td><td>NULL</td><td>논리적 참조, FK 없음</td></tr>
+    <tr><td>idempotency_key</td><td>text</td><td>NULL, 부분 UNIQUE</td><td></td></tr>
+    <tr><td>admin_note</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>adjusted_by</td><td>uuid</td><td>FK → profiles SET NULL, NULL 허용</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td>updated_at 없음</td></tr>
+  </tbody>
+</table>
+
+<h2>4.7 public.user_voices <span style="color:#4a5568;font-weight:400">Voices</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td></td></tr>
+    <tr><td>owner_id</td><td>uuid</td><td>FK → auth.users CASCADE, NOT NULL</td><td>profiles가 아님. UUID는 동일</td></tr>
+    <tr><td>nickname</td><td>text</td><td>NOT NULL, UNIQUE(owner_id, nickname)</td><td>trim 1–30</td></tr>
+    <tr><td>elevenlabs_voice_id</td><td>text</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>shared_voice_id</td><td>text</td><td>NOT NULL, UNIQUE(owner_id, shared_voice_id)</td><td></td></tr>
+    <tr><td>public_owner_id</td><td>text</td><td>NOT NULL 기본 ''</td><td></td></tr>
+    <tr><td>name / description / gender / accent / category / language / age</td><td>text</td><td>NOT NULL 기본 ''</td><td></td></tr>
+    <tr><td>preview_url</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td>updated_at 없음</td></tr>
+  </tbody>
+</table>
+
+<h2>4.8 public.stripe_customers <span style="color:#4a5568;font-weight:400">Billing</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>user_id</td><td>uuid</td><td>PK, FK → profiles CASCADE</td><td>1:1</td></tr>
+    <tr><td>stripe_customer_id</td><td>text</td><td>NOT NULL UNIQUE</td><td></td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>4.9 public.stripe_subscriptions <span style="color:#4a5568;font-weight:400">Billing</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>stripe_subscription_id</td><td>text</td><td>PK</td><td></td></tr>
+    <tr><td>user_id</td><td>uuid</td><td>FK → profiles CASCADE, NOT NULL</td><td></td></tr>
+    <tr><td>stripe_customer_id</td><td>text</td><td>NOT NULL</td><td>논리적 참조, FK 없음</td></tr>
+    <tr><td>status</td><td>text</td><td>NOT NULL</td><td>CHECK 없음. 웹훅 문자열</td></tr>
+    <tr><td>price_id</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>current_period_end</td><td>timestamptz</td><td>NULL</td><td></td></tr>
+    <tr><td>cancel_at_period_end</td><td>boolean</td><td>NOT NULL 기본 false</td><td></td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>4.10 public.stripe_events <span style="color:#4a5568;font-weight:400">Billing · 고립</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>stripe_event_id</td><td>text</td><td>PK</td><td></td></tr>
+    <tr><td>event_type</td><td>text</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>payload</td><td>jsonb</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>processed_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+<p>클라이언트 RLS 정책 없음. 일반 <code>webhooks</code> 테이블은 존재하지 않는다.</p>
+
+<h2>4.11 public.revenuecat_customers <span style="color:#4a5568;font-weight:400">Billing</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>app_user_id</td><td>text</td><td>PK</td><td>RevenueCat app user id</td></tr>
+    <tr><td>user_id</td><td>uuid</td><td>FK → profiles CASCADE, NOT NULL, UNIQUE</td><td>1:1</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>4.12 public.revenuecat_subscriptions <span style="color:#4a5568;font-weight:400">Billing</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>user_id</td><td>uuid</td><td>복합 PK, FK → profiles CASCADE</td><td></td></tr>
+    <tr><td>entitlement_id</td><td>text</td><td>복합 PK, NOT NULL</td><td></td></tr>
+    <tr><td>product_id</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>status</td><td>text</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>expires_at</td><td>timestamptz</td><td>NULL</td><td></td></tr>
+    <tr><td>store</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>original_transaction_id</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>4.13 public.revenuecat_events <span style="color:#4a5568;font-weight:400">Billing · 고립</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>revenuecat_event_id</td><td>text</td><td>PK</td><td></td></tr>
+    <tr><td>event_type</td><td>text</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>payload</td><td>jsonb</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>processed_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+
+<h2>4.14 public.access_logs <span style="color:#4a5568;font-weight:400">Ops</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td></td></tr>
+    <tr><td>user_id</td><td>uuid</td><td>FK → profiles SET NULL, NULL 허용</td><td>비로그인 요청 가능</td></tr>
+    <tr><td>method</td><td>text</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>path</td><td>text</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>status_code</td><td>integer</td><td>NOT NULL</td><td></td></tr>
+    <tr><td>ip_address</td><td>inet</td><td>NULL</td><td></td></tr>
+    <tr><td>user_agent</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+<p>클라이언트 정책 없음. 인덱스: created_at DESC, (user_id, created_at DESC).</p>
+
+<h2>4.15 public.waitlist <span class="unused">Unused</span></h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>PK/FK/NULL</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid</td><td>PK</td><td></td></tr>
+    <tr><td>email</td><td>text</td><td>NOT NULL UNIQUE</td><td>형식 CHECK</td></tr>
+    <tr><td>locale</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>source</td><td>text</td><td>NULL</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td>NOT NULL</td><td></td></tr>
+  </tbody>
+</table>
+<p class="unused">FK 없음. RLS: anon/authenticated INSERT만. 현재 FastAPI는 이 테이블을 사용하지 않는다. 삭제하지 말고 미사용으로 유지한다.</p>
+
+<h2>4.16 DB가 아닌 사이드카 (엔터티 아님)</h2>
+<p>DPD-001 3.10과 같다. ERD 박스에 넣지 않는다.</p>
+<table>
+  <thead><tr><th>필드</th><th>위치</th></tr></thead>
+  <tbody>
+    <tr><td>source_end_ms</td><td>R2 dub_voice_manifest.json</td></tr>
+    <tr><td>emotion_tone / emotion_user_set</td><td>동일 매니페스트</td></tr>
+    <tr><td>clip_speak_speed / baseline_speak_speed</td><td>매니페스트 / API 파생</td></tr>
+    <tr><td>dubbed_audio_url</td><td>프리사인 GET. DB에 URL 없음</td></tr>
+    <tr><td>gain_db, source_level_db, tts_level_db</td><td>매니페스트</td></tr>
+    <tr><td>audio_key</td><td>매니페스트 (meta/dub_seg_{idx}.wav 등)</td></tr>
+  </tbody>
+</table>
+
+<h1>5. 생략과 검증</h1>
+<h2>5.1 다이어그램에 올린 엔터티 (15)</h2>
+<ol>
+  <li>auth.users (외부)</li>
+  <li>profiles</li>
+  <li>projects</li>
+  <li>segments</li>
+  <li>jobs</li>
+  <li>credit_ledger</li>
+  <li>user_voices</li>
+  <li>stripe_customers</li>
+  <li>stripe_subscriptions</li>
+  <li>stripe_events</li>
+  <li>revenuecat_customers</li>
+  <li>revenuecat_subscriptions</li>
+  <li>revenuecat_events</li>
+  <li>access_logs</li>
+  <li>waitlist (미사용)</li>
+</ol>
+
+<h2>5.2 마이그레이션에서 생략한 것</h2>
+<ul>
+  <li><strong>public 테이블: 없음.</strong> CREATE TABLE은 위 14개 전부다.</li>
+  <li>auth 스키마의 identities/sessions/refresh_tokens 등: Dubby FK가 없어 생략. auth.users만 외부 엔터티로 표시.</li>
+  <li>함수·트리거·RPC: 엔터티가 아님. DPD-001 3.9.</li>
+  <li>R2 키와 매니페스트 필드: 테이블이 아님. 4.16.</li>
+</ul>
+
+<div class="note">
+  <strong>검증</strong>
+  17개 마이그레이션에서 <code>create table</code>을 다시 세면 public 14 + (참조만) auth.users. 가상 webhooks 테이블, 세그먼트 status, dubbed_audio_url 컬럼은 없다.
+</div>
+</main>
+</body>
+</html>

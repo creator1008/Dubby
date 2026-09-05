@@ -1,0 +1,195 @@
+%% Dubby logical ERD — DUBBY-ERD-001
+%% Source: supabase/migrations/ (17 files, product 3.0.12, 2026-09-05)
+%% Do not invent tables. Dashed notes = 논리적 참조, FK 없음.
+%% Render hint: mermaid erDiagram. HTML print uses the inline SVG in Dubby_ERD.html.
+
+erDiagram
+    AUTH_USERS {
+        uuid id PK
+        text email
+    }
+
+    profiles {
+        uuid id PK_FK
+        text email
+        text display_name
+        text country
+        text auth_provider
+        timestamptz last_login_at
+        boolean is_active
+        timestamptz deactivated_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    projects {
+        uuid id PK
+        uuid owner_id FK
+        text title
+        text status
+        text source_lang
+        text target_lang
+        text subtitle_mode
+        text tone_style
+        boolean diarization_enabled
+        jsonb dub_voice_ids
+        text voice_mode
+        text pipeline_version
+        float8 duration_seconds
+        text source_key
+        text output_key
+        text lipsync_output_key
+        jsonb quality_warnings
+        text error
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    segments {
+        uuid id PK
+        uuid project_id FK
+        int idx
+        int start_ms
+        int end_ms
+        text source_text
+        text target_text
+        text speaker_id
+        boolean speaker_overlap
+        float8 speak_speed
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    jobs {
+        uuid id PK
+        uuid project_id FK
+        text kind
+        text status
+        float8 progress
+        text message
+        text error
+        numeric charged_minutes
+        timestamptz started_at
+        timestamptz finished_at
+        timestamptz heartbeat_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    credit_ledger {
+        uuid id PK
+        uuid user_id FK
+        numeric delta_minutes
+        text reason
+        uuid project_id FK
+        uuid job_id FK
+        text external_reference
+        text idempotency_key
+        text admin_note
+        uuid adjusted_by FK
+        timestamptz created_at
+    }
+
+    user_voices {
+        uuid id PK
+        uuid owner_id FK
+        text nickname
+        text elevenlabs_voice_id
+        text shared_voice_id
+        text preview_url
+        timestamptz created_at
+    }
+
+    stripe_customers {
+        uuid user_id PK_FK
+        text stripe_customer_id
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    stripe_subscriptions {
+        text stripe_subscription_id PK
+        uuid user_id FK
+        text stripe_customer_id
+        text status
+        text price_id
+        timestamptz current_period_end
+        boolean cancel_at_period_end
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    stripe_events {
+        text stripe_event_id PK
+        text event_type
+        jsonb payload
+        timestamptz processed_at
+        timestamptz created_at
+    }
+
+    revenuecat_customers {
+        text app_user_id PK
+        uuid user_id FK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    revenuecat_subscriptions {
+        uuid user_id PK_FK
+        text entitlement_id PK
+        text product_id
+        text status
+        timestamptz expires_at
+        text store
+        text original_transaction_id
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    revenuecat_events {
+        text revenuecat_event_id PK
+        text event_type
+        jsonb payload
+        timestamptz processed_at
+        timestamptz created_at
+    }
+
+    access_logs {
+        uuid id PK
+        uuid user_id FK
+        text method
+        text path
+        int status_code
+        inet ip_address
+        text user_agent
+        timestamptz created_at
+    }
+
+    waitlist {
+        uuid id PK
+        text email
+        text locale
+        text source
+        timestamptz created_at
+    }
+
+    AUTH_USERS ||--|| profiles : "1:1 id CASCADE"
+    AUTH_USERS ||--o{ user_voices : "1:N owner_id CASCADE"
+    profiles ||--o{ projects : "1:N owner_id CASCADE"
+    projects ||--o{ segments : "1:N project_id CASCADE"
+    projects ||--o{ jobs : "1:N project_id CASCADE"
+    profiles ||--o{ credit_ledger : "1:N user_id CASCADE"
+    projects |o--o{ credit_ledger : "0:N project_id SET NULL"
+    jobs |o--o{ credit_ledger : "0:N job_id SET NULL"
+    profiles |o--o{ credit_ledger : "0:N adjusted_by SET NULL"
+    profiles ||--|| stripe_customers : "1:1 user_id CASCADE"
+    profiles ||--o{ stripe_subscriptions : "1:N user_id CASCADE"
+    profiles ||--|| revenuecat_customers : "1:1 user_id UNIQUE"
+    profiles ||--o{ revenuecat_subscriptions : "1:N user_id CASCADE"
+    profiles |o--o{ access_logs : "0:N user_id SET NULL"
+
+    %% Isolated (no user FK): stripe_events, revenuecat_events, waitlist
+    %% Logical only, no FK:
+    %%   stripe_subscriptions.stripe_customer_id ~ stripe_customers.stripe_customer_id
+    %%   projects.dub_voice_ids jsonb ~ user_voices.elevenlabs_voice_id
+    %%   credit_ledger.external_reference ~ Stripe/RevenueCat transaction ids
