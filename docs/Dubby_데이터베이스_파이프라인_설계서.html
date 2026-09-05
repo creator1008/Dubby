@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Dubby 데이터베이스/파이프라인 설계서 (DUBBY-DPD-001)</title>
+<style>
+  :root {
+    --navy: #0f284a;
+    --blue: #2b6cb0;
+    --ink: #1a202c;
+    --slate: #4a5568;
+    --rule: #cbd5e1;
+    --box: #f7fafc;
+  }
+  * { box-sizing: border-box; }
+  html { font-size: 11pt; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+    line-height: 1.55;
+  }
+  .cover {
+    min-height: 100vh;
+    background: var(--navy);
+    color: #fff;
+    padding: 48px 56px;
+    position: relative;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 10px;
+    background: var(--blue);
+  }
+  .kicker { color: #a0b8d2; font-size: 11pt; }
+  .cover h1 { font-size: 22pt; margin: 72px 0 8px; font-weight: 700; }
+  .cover h2 { font-size: 26pt; margin: 0 0 28px; font-weight: 700; }
+  .cover hr { width: 92px; border: 0; border-top: 2px solid #fff; margin: 0 0 28px; }
+  .meta { list-style: none; padding: 0; margin: 0; }
+  .meta li { display: flex; gap: 16px; margin: 8px 0; }
+  .meta span { width: 140px; color: #a0b8d2; }
+  .cover .foot {
+    position: absolute; bottom: 48px; left: 56px; right: 56px;
+    color: #a0b8d2; font-size: 10pt;
+  }
+  main { padding: 28px 36px 48px; max-width: 900px; margin: 0 auto; }
+  h1 {
+    color: var(--navy);
+    font-size: 16pt;
+    border-left: 6px solid var(--navy);
+    padding-left: 10px;
+    page-break-before: always;
+    margin-top: 0;
+  }
+  h2 {
+    color: var(--blue);
+    font-size: 12.5pt;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 4px;
+    margin-top: 22px;
+  }
+  h3 { color: var(--navy); font-size: 11pt; margin: 16px 0 8px; }
+  p { margin: 8px 0 12px; }
+  ul { margin: 6px 0 14px; padding-left: 20px; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px;
+    font-size: 9.5pt;
+  }
+  th {
+    background: var(--navy);
+    color: #fff;
+    text-align: left;
+    padding: 7px 8px;
+    font-weight: 700;
+  }
+  td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f1f5f9; }
+  pre {
+    background: var(--box);
+    border: 1px solid var(--rule);
+    padding: 12px 14px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 8.2pt;
+    line-height: 1.35;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 9.5pt;
+  }
+  .note {
+    background: var(--box);
+    border-left: 4px solid var(--blue);
+    padding: 10px 14px;
+    margin: 12px 0 16px;
+  }
+  .note strong { color: var(--navy); display: block; margin-bottom: 4px; }
+  .warn {
+    background: #fff7ed;
+    border-left: 4px solid #c05621;
+    padding: 10px 14px;
+    margin: 12px 0 16px;
+  }
+  .warn strong { color: #9c4221; display: block; margin-bottom: 4px; }
+  .docbar {
+    display: flex;
+    justify-content: space-between;
+    color: var(--slate);
+    font-size: 9pt;
+    border-bottom: 2px solid var(--navy);
+    padding-bottom: 6px;
+    margin-bottom: 18px;
+  }
+  @page { size: A4; margin: 16mm 14mm 16mm; }
+  @media print {
+    .cover { min-height: 100vh; page-break-after: always; }
+    a { color: inherit; text-decoration: none; }
+    h1 { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="kicker">HANDOVER · INTERNAL</div>
+  <h1>Dubby</h1>
+  <h2>데이터베이스/파이프라인 설계서</h2>
+  <hr />
+  <ul class="meta">
+    <li><span>문서번호</span><b>DUBBY-DPD-001</b></li>
+    <li><span>제품 버전</span><b>3.0.12</b></li>
+    <li><span>파이프라인 버전</span><b>3.0</b></li>
+    <li><span>작성일</span><b>2026-09-05</b></li>
+    <li><span>상태</span><b>인수인계용 / 내부</b></li>
+    <li><span>근거</span><b>저장소 코드·마이그레이션 기준 (추측 테이블 없음)</b></li>
+  </ul>
+  <p class="foot">이 문서는 Dubby의 스키마, 잡 큐, 크레딧 원장, R2 키, 미디어 파이프라인 단계를 정의한다. 런타임 경계는 SAD-001, 제품 기능은 FRS-001, 프롬프트 전문은 후속 문서에서 다룬다.</p>
+</section>
+
+<main>
+<div class="docbar"><span>Dubby 데이터베이스/파이프라인 설계서</span><span>DUBBY-DPD-001</span></div>
+
+<h1>1. 문서 개요</h1>
+<h2>1.1 목적</h2>
+<p>이 문서는 Dubby 3.0.12의 데이터 저장과 워커 파이프라인을 인수인계 기준으로 고정한다. 어떤 테이블이 실제로 존재하는지, 잡이 어떻게 claim·heartbeat·timeout 되는지, transcribe/dub/lipsync가 어떤 단계와 진행 코드를 쓰는지, R2 객체가 DB 어느 컬럼을 가리키는지를 코드와 SQL 마이그레이션에 근거해 기술한다.</p>
+
+<h2>1.2 범위</h2>
+<ul>
+  <li>포함: Repository 백엔드, <code>supabase/migrations/</code> 스키마, 상태 문자열, jobs 큐, 크레딧 원장 행·불변식, R2 키 레이아웃, transcribe/dub/lipsync 단계, 스크래치·재시도·취소, 3.0.12 데이터 함의, 마이그레이션 적용 방법.</li>
+  <li>제외: Caddy/CORS/터널, Stripe Checkout 화면, 크레딧 요금 UX, STT·번역·TTS 프롬프트 전문. 이들은 SAD-001, FRS-001, 후속 「AI 에이전트 및 프롬프트 명세서」에서 다룬다.</li>
+  <li>사실의 기준: 저장소 현재 코드(제품 3.0.12, <code>PIPELINE_VERSION = "3.0"</code>). 마이그레이션에 없는 테이블·컬럼은 만들지 않고, 코드에만 있는 필드는 사이드카로 명시한다.</li>
+</ul>
+
+<h2>1.3 관련 문서</h2>
+<table>
+  <thead><tr><th>문서</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>시스템 아키텍처 정의서 (DUBBY-SAD-001)</td><td>런타임·배포·네트워크·저장 경계</td></tr>
+    <tr><td>비즈니스 로직 및 기능 명세서 (DUBBY-FRS-001)</td><td>제품 기능, 크레딧 UX, 추출/더빙 화면</td></tr>
+    <tr><td>본 문서 (DUBBY-DPD-001)</td><td>스키마, 잡, 미디어 단계, R2 키</td></tr>
+    <tr><td>AI 에이전트 및 프롬프트 명세서 (후속)</td><td>STT·번역·TTS 프롬프트와 모델</td></tr>
+    <tr><td>infra/DEPLOY.md</td><td><code>supabase db push</code> 부트스트랩</td></tr>
+    <tr><td>VERSION.md</td><td>3.0 / 3.0.12 파이프라인 메모</td></tr>
+  </tbody>
+</table>
+
+<h2>1.4 용어</h2>
+<table>
+  <thead><tr><th>용어</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>Repository</td><td><code>api/app/db/</code> 추상화. API·워커는 이 인터페이스만 사용한다.</td></tr>
+    <tr><td>Row</td><td>컬럼명→값 dict. 라우터가 Pydantic으로 검증한다.</td></tr>
+    <tr><td>service role</td><td>API/워커가 쓰는 권한. RLS를 우회하므로 owner 스코프는 쿼리에 넣는다.</td></tr>
+    <tr><td>사이드카</td><td>DB 컬럼이 없거나 미적용일 때 R2 <code>meta/</code> JSON으로 보완하는 값.</td></tr>
+    <tr><td>assign-by-idx</td><td>번역 결과를 세그먼트 <code>idx</code>로만 매핑. 위치 재배정은 서버 파이프라인에서 금지.</td></tr>
+    <tr><td>heartbeat_at</td><td>실행 중 잡의 생존 시각. 진행 갱신마다 now()로 덮어쓴다.</td></tr>
+  </tbody>
+</table>
+
+<h1>2. 데이터 접근 경로</h1>
+<p>API와 워커는 저장소에 직접 SQL을 흩뿌리지 않고 <code>create_repository(settings)</code>가 고른 Repository만 사용한다. 백엔드는 <code>Settings.db_backend</code>로 갈린다. 기본값은 <code>postgres</code>이다.</p>
+
+<pre>
+[FastAPI / worker.runner]
+        |
+        v
+create_repository(settings)
+        |
+        +-- db_backend == "postgres"        --> PostgresRepository (asyncpg)
+        |                                      DATABASE_URL, session-mode pooler
+        |
+        +-- db_backend == "supabase_rest"   --> SupabaseRestRepository (httpx)
+                                               SUPABASE_URL + SERVICE_ROLE_KEY
+                                               PostgREST + SECURITY DEFINER RPC
+</pre>
+
+<h2>2.1 postgres (권장)</h2>
+<p><code>api/app/db/postgres.py</code>. Lightsail에서 Supabase connection pooler URI(session mode)로 붙는다. <code>asyncpg.create_pool</code> 파라미터는 <code>config.py</code>에서 온다.</p>
+<table>
+  <thead><tr><th>설정</th><th>기본값</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td><code>db_backend</code></td><td><code>postgres</code></td><td>백엔드 선택</td></tr>
+    <tr><td><code>database_url</code></td><td>(빈 문자열)</td><td>production + postgres면 필수</td></tr>
+    <tr><td><code>db_pool_min_size</code></td><td>1</td><td>풀 하한</td></tr>
+    <tr><td><code>db_pool_max_size</code></td><td>5</td><td>풀 상한</td></tr>
+    <tr><td>command_timeout</td><td>30초 (코드 상수)</td><td>풀 생성 시 고정</td></tr>
+  </tbody>
+</table>
+<p>기동 시 <code>information_schema.columns</code>로 <code>projects</code> 실존 컬럼을 읽어 SELECT 목록을 줄인다. 아직 적용되지 않은 마이그레이션 컬럼이 있어도 list_projects가 500을 내지 않는다. 빠진 컬럼은 로그 경고만 남긴다.</p>
+
+<h2>2.2 supabase_rest</h2>
+<p><code>api/app/db/supabase_rest.py</code>. 직접 DB 포트가 없을 때 PostgREST + service-role 키로 동일 인터페이스를 구현한다. 원자 작업은 SQL RPC에 맡긴다.</p>
+<table>
+  <thead><tr><th>작업</th><th>RPC / 경로</th></tr></thead>
+  <tbody>
+    <tr><td>잔액</td><td><code>credit_balance(p_user_id)</code></td></tr>
+    <tr><td>enqueue + 차감</td><td><code>enqueue_job_with_credit</code></td></tr>
+    <tr><td>claim</td><td><code>claim_next_job()</code> — FOR UPDATE SKIP LOCKED</td></tr>
+    <tr><td>세그먼트 일괄 교체</td><td><code>replace_segments(p_project_id, jsonb)</code></td></tr>
+    <tr><td>세그먼트 편집</td><td><code>update_segment_texts</code></td></tr>
+    <tr><td>종료+환불</td><td><code>finish_job_with_refund</code></td></tr>
+    <tr><td>stale fail</td><td><code>fail_stale_jobs(p_timeout_seconds)</code></td></tr>
+    <tr><td>Stripe / RevenueCat</td><td><code>process_stripe_event</code> / <code>process_revenuecat_event</code></td></tr>
+  </tbody>
+</table>
+<p>클라이언트 역할(anon, authenticated, PUBLIC)에는 위 RPC EXECUTE가 revoke되어 있다. <code>dub_voice_ids</code> 컬럼이 아직 없으면 REST 백엔드는 R2 사이드카 <code>dub_voice_ids.json</code>으로 보완한다.</p>
+
+<h2>2.3 소유권 규칙</h2>
+<p><code>base.py</code>: 사용자 대면 메서드는 모두 <code>owner_id</code>를 받고 그 범위로 쿼리해야 한다. API는 privileged credential로 붙으므로 RLS만으로 소유권을 맡기지 않는다. 워커 메서드(<code>claim_next_job</code>, <code>get_project_for_worker</code>, <code>replace_segments</code> 등)는 owner 스코프가 없다.</p>
+
+<h1>3. 실제 스키마</h1>
+<p>단일 진실 원천은 <code>supabase/migrations/</code>이다. 초기 파일 <code>20260717000000_init_dubby_core.sql</code> 이후 ALTER가 누적된다. 아래는 <strong>최종 적용 후</strong> 형상이다. 마이그레이션에 없는 필드는 3.10절에 따로 적는다.</p>
+
+<h2>3.1 마이그레이션 이력</h2>
+<table>
+  <thead><tr><th>파일</th><th>요지</th></tr></thead>
+  <tbody>
+    <tr><td>20260717000000_init_dubby_core.sql</td><td>profiles, projects, segments, jobs, credit_ledger, waitlist, RLS, handle_new_user, 초기 RPC</td></tr>
+    <tr><td>20260717010000_worker_pipeline_rpc.sql</td><td><code>replace_segments</code></td></tr>
+    <tr><td>20260717020000_stripe_credits.sql</td><td>jobs.charged_minutes, ledger 불변·idempotency, Stripe 3테이블, enqueue/finish RPC</td></tr>
+    <tr><td>20260717030000_phase2_quality.sql</td><td>tone/diarize/warnings/lipsync, jobs.kind lipsync, lipsync_job</td></tr>
+    <tr><td>20260717040000_revenuecat_mobile_billing.sql</td><td>RevenueCat 이벤트·구독 투영</td></tr>
+    <tr><td>20260717050000_segment_source_text_edit.sql</td><td>update_segment_texts에 source_text</td></tr>
+    <tr><td>20260718143000_auth_admin.sql</td><td>profiles 국가/provider, access_logs, ledger admin 컬럼</td></tr>
+    <tr><td>20260719165000_bootstrap_first_admin.sql</td><td>지정 이메일 1건에 app_metadata.role=admin</td></tr>
+    <tr><td>20260723120000_admin_user_active.sql</td><td>profiles.is_active / deactivated_at</td></tr>
+    <tr><td>20260723140000_languages_and_signup_credits.sql</td><td>언어 확장, signup 30분</td></tr>
+    <tr><td>20260730000000_credit_ledger_allow_fk_null.sql</td><td>프로젝트 삭제 시 FK null만 허용</td></tr>
+    <tr><td>20260806000000_user_voices.sql</td><td>My Voice Box</td></tr>
+    <tr><td>20260807000000_project_dub_voice_ids.sql</td><td>projects.dub_voice_ids jsonb</td></tr>
+    <tr><td>20260808000000_pipeline_v2_voice_mode.sql</td><td>voice_mode, pipeline_version (기본 2.0)</td></tr>
+    <tr><td>20260818000000_segment_speak_speed.sql</td><td>segments.speak_speed, end_ms 편집</td></tr>
+    <tr><td>20260823000000_add_th_my_languages.sql</td><td>th, my CHECK</td></tr>
+    <tr><td>20260824000000_tone_style_emotions.sql</td><td>7감정 + legacy tone CHECK, 기본 calm</td></tr>
+  </tbody>
+</table>
+
+<h2>3.2 public.profiles</h2>
+<p>auth.users와 1:1. <code>handle_new_user</code> 트리거가 INSERT한다.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>제약</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid PK</td><td>auth.users(id) ON DELETE CASCADE</td></tr>
+    <tr><td>email</td><td>text</td><td></td></tr>
+    <tr><td>display_name</td><td>text</td><td>메타 full_name/name/user_name 또는 로컬파트</td></tr>
+    <tr><td>country</td><td>text</td><td>NULL 또는 <code>^[A-Z]{2,8}$</code></td></tr>
+    <tr><td>auth_provider</td><td>text</td><td>app_metadata.provider, 기본 email</td></tr>
+    <tr><td>last_login_at</td><td>timestamptz</td><td></td></tr>
+    <tr><td>is_active</td><td>boolean NOT NULL</td><td>기본 true. false면 비관리자 API 거부</td></tr>
+    <tr><td>deactivated_at</td><td>timestamptz</td><td></td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td>updated_at 트리거</td></tr>
+  </tbody>
+</table>
+<p>RLS: 본인 SELECT/UPDATE. 인덱스: <code>profiles_is_active_idx</code> (is_active=false partial).</p>
+
+<h2>3.3 public.projects</h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>제약 / 비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid PK</td><td>gen_random_uuid()</td></tr>
+    <tr><td>owner_id</td><td>uuid NOT NULL</td><td>profiles(id) ON DELETE CASCADE</td></tr>
+    <tr><td>title</td><td>text NOT NULL</td><td>길이 1–200</td></tr>
+    <tr><td>status</td><td>text NOT NULL</td><td>기본 created. CHECK: created, uploading, uploaded, processing, ready_for_edit, dubbing, completed, failed</td></tr>
+    <tr><td>source_lang / target_lang</td><td>text NOT NULL</td><td>기본 ko / en. CHECK: ko,vi,en,zh,ja,es,fr,pt,de,ru,ar,ur,id,ms,tr,ta,th,my</td></tr>
+    <tr><td>subtitle_mode</td><td>text NOT NULL</td><td>none | source | target (기본 target; API 생성 기본은 none)</td></tr>
+    <tr><td>tone_style</td><td>text NOT NULL</td><td>기본 calm. sad,angry,whisper,excited,energetic,calm,cheerful + legacy neutral,warm,serious</td></tr>
+    <tr><td>diarization_enabled</td><td>boolean NOT NULL</td><td>기본 false</td></tr>
+    <tr><td>dub_voice_ids</td><td>jsonb NOT NULL</td><td>기본 []. 화자 슬롯용 ElevenLabs voice ID 배열(최대 8, 코드)</td></tr>
+    <tr><td>voice_mode</td><td>text NOT NULL</td><td>voice_box | auto_clone. 기본 voice_box</td></tr>
+    <tr><td>pipeline_version</td><td>text NOT NULL</td><td>SQL 기본 <code>2.0</code>. API 응답은 요청/사이드카로 <code>3.0</code>을 덮어씀</td></tr>
+    <tr><td>duration_seconds</td><td>double precision</td><td>NULL 또는 &gt;= 0. transcribe probe 후 기록</td></tr>
+    <tr><td>source_key</td><td>text</td><td>R2 원본 키</td></tr>
+    <tr><td>output_key</td><td>text</td><td>더빙 mp4 키</td></tr>
+    <tr><td>lipsync_output_key</td><td>text</td><td>립싱크 mp4 키</td></tr>
+    <tr><td>quality_warnings</td><td>jsonb NOT NULL</td><td>기본 []. 배열만 허용</td></tr>
+    <tr><td>error</td><td>text</td><td>소프트 삭제 센티널 <code>__deleted__</code>도 여기</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td></td></tr>
+  </tbody>
+</table>
+<p>인덱스: <code>projects_owner_created_idx (owner_id, created_at DESC)</code>. RLS: 본인 CRUD. 목록 쿼리는 <code>coalesce(error,'') &lt;&gt; '__deleted__'</code>로 숨긴다.</p>
+<div class="warn">
+  <strong>pipeline_version 기록 불일치</strong>
+  SQL 기본값과 <code>PostgresRepository.create_project</code> INSERT는 컬럼이 있으면 <code>"2.0"</code>을 넣는다. 라우터는 본문을 <code>3.0</code>으로 응답하고 R2 <code>meta</code>에 저장한다. DB 컬럼만 보면 3.0 프로젝트도 2.0으로 남을 수 있다.
+</div>
+
+<h2>3.4 public.segments</h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>제약 / 비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid PK</td><td></td></tr>
+    <tr><td>project_id</td><td>uuid NOT NULL</td><td>projects(id) ON DELETE CASCADE</td></tr>
+    <tr><td>idx</td><td>integer NOT NULL</td><td>&gt;= 0. UNIQUE(project_id, idx)</td></tr>
+    <tr><td>start_ms</td><td>integer NOT NULL</td><td>&gt;= 0</td></tr>
+    <tr><td>end_ms</td><td>integer NOT NULL</td><td>end_ms &gt; start_ms. 더빙 후 슬롯 연장·speak_speed로 바뀔 수 있음</td></tr>
+    <tr><td>source_text / target_text</td><td>text NOT NULL</td><td>기본 ''</td></tr>
+    <tr><td>speaker_id</td><td>text</td><td>예: speaker_0, speaker_1</td></tr>
+    <tr><td>speaker_overlap</td><td>boolean NOT NULL</td><td>기본 false</td></tr>
+    <tr><td>speak_speed</td><td>double precision</td><td>편집기/파이프라인 TTS 배율. 1.0=자연</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td></td></tr>
+  </tbody>
+</table>
+<p>인덱스: <code>segments_project_idx (project_id, idx)</code>. RLS: 프로젝트 소유자 SELECT/UPDATE. INSERT/DELETE는 파이프라인(service role)만. <code>replace_segments</code>는 해당 프로젝트 행을 전부 지운 뒤 다시 넣는다. 워커 INSERT 컬럼은 idx, start_ms, end_ms, source_text, target_text, speaker_id, speaker_overlap이다. speak_speed는 이후 편집·더빙 persist로 갱신된다.</p>
+
+<h2>3.5 public.jobs</h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>제약 / 비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid PK</td><td></td></tr>
+    <tr><td>project_id</td><td>uuid NOT NULL</td><td>projects(id) ON DELETE CASCADE</td></tr>
+    <tr><td>kind</td><td>text NOT NULL</td><td>transcribe | dub | lipsync</td></tr>
+    <tr><td>status</td><td>text NOT NULL</td><td>queued | running | completed | failed | cancelled. 기본 queued</td></tr>
+    <tr><td>progress</td><td>double precision NOT NULL</td><td>0–1. 기본 0</td></tr>
+    <tr><td>message</td><td>text</td><td>진행 코드. UI는 job-labels.ts로 번역</td></tr>
+    <tr><td>error</td><td>text</td><td>실패 시 <code>code: message</code> 또는 worker timeout</td></tr>
+    <tr><td>charged_minutes</td><td>numeric(10,2) NOT NULL</td><td>&gt;= 0. 기본 0. dub/lipsync 선차감액</td></tr>
+    <tr><td>started_at / finished_at / heartbeat_at</td><td>timestamptz</td><td>claim·진행·종료 시 기록. API JobOut에는 없음</td></tr>
+    <tr><td>created_at / updated_at</td><td>timestamptz</td><td></td></tr>
+  </tbody>
+</table>
+<p>인덱스:</p>
+<ul>
+  <li><code>jobs_project_created_idx (project_id, created_at DESC)</code></li>
+  <li><code>jobs_queue_idx (status, created_at) WHERE status IN ('queued','running')</code></li>
+  <li><code>jobs_one_active_per_project UNIQUE(project_id) WHERE status IN ('queued','running')</code></li>
+</ul>
+<p>RLS: 소유자 SELECT만. 쓰기는 API/워커. API SELECT 화이트리스트는 id, project_id, kind, status, progress, message, error, created_at, updated_at이다.</p>
+
+<h2>3.6 public.credit_ledger</h2>
+<p>추가만 가능한 원장. 잔액 = <code>sum(delta_minutes)</code>.</p>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>제약 / 비고</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid PK</td><td></td></tr>
+    <tr><td>user_id</td><td>uuid NOT NULL</td><td>profiles(id) ON DELETE CASCADE</td></tr>
+    <tr><td>delta_minutes</td><td>numeric(10,2) NOT NULL</td><td>&lt;&gt; 0</td></tr>
+    <tr><td>reason</td><td>text NOT NULL</td><td>signup_grant, dub_job, lipsync_job, refund, purchase, admin_adjust</td></tr>
+    <tr><td>project_id</td><td>uuid</td><td>projects ON DELETE SET NULL</td></tr>
+    <tr><td>job_id</td><td>uuid</td><td>jobs ON DELETE SET NULL</td></tr>
+    <tr><td>external_reference</td><td>text</td><td>Stripe/RevenueCat 거래 참조</td></tr>
+    <tr><td>idempotency_key</td><td>text</td><td>부분 UNIQUE (NOT NULL일 때)</td></tr>
+    <tr><td>admin_note / adjusted_by</td><td>text / uuid</td><td>관리자 조정. adjusted_by → profiles SET NULL</td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+  </tbody>
+</table>
+<p>부분 유니크: job debit(<code>reason='dub_job'</code>), lipsync debit, job refund, idempotency_key. UPDATE/DELETE 트리거 <code>credit_ledger_immutable</code> — 부모 삭제 시 project_id/job_id를 NULL로 만드는 것만 허용. RLS: 본인 SELECT. INSERT 정책 없음(서버만).</p>
+
+<h2>3.7 public.user_voices</h2>
+<table>
+  <thead><tr><th>컬럼</th><th>형</th><th>제약</th></tr></thead>
+  <tbody>
+    <tr><td>id</td><td>uuid PK</td><td></td></tr>
+    <tr><td>owner_id</td><td>uuid NOT NULL</td><td>auth.users(id) ON DELETE CASCADE (profiles가 아님)</td></tr>
+    <tr><td>nickname</td><td>text NOT NULL</td><td>trim 1–30. UNIQUE(owner_id, nickname)</td></tr>
+    <tr><td>elevenlabs_voice_id / shared_voice_id</td><td>text NOT NULL</td><td>UNIQUE(owner_id, shared_voice_id)</td></tr>
+    <tr><td>public_owner_id, name, description, gender, accent, category, language, age</td><td>text</td><td>기본 ''</td></tr>
+    <tr><td>preview_url</td><td>text</td><td></td></tr>
+    <tr><td>created_at</td><td>timestamptz</td><td></td></tr>
+  </tbody>
+</table>
+<p>인덱스: <code>user_voices_owner_created_idx</code>. RLS: 본인 CRUD. 중복 시 코드가 <code>DuplicateVoiceError</code>.</p>
+
+<h2>3.8 Stripe / RevenueCat / access_logs / waitlist</h2>
+<table>
+  <thead><tr><th>테이블</th><th>PK</th><th>요지</th></tr></thead>
+  <tbody>
+    <tr><td>stripe_customers</td><td>user_id → profiles</td><td>stripe_customer_id UNIQUE. 본인 SELECT</td></tr>
+    <tr><td>stripe_subscriptions</td><td>stripe_subscription_id</td><td>status, price_id, period_end, cancel_at_period_end. 본인 SELECT</td></tr>
+    <tr><td>stripe_events</td><td>stripe_event_id</td><td>event_type, payload jsonb. 클라이언트 정책 없음</td></tr>
+    <tr><td>revenuecat_events</td><td>revenuecat_event_id</td><td>웹훅 inbox. 서비스 전용</td></tr>
+    <tr><td>revenuecat_customers</td><td>app_user_id</td><td>user_id UNIQUE. 본인 SELECT</td></tr>
+    <tr><td>revenuecat_subscriptions</td><td>(user_id, entitlement_id)</td><td>product/status/expires/store. 본인 SELECT</td></tr>
+    <tr><td>access_logs</td><td>id</td><td>method, path, status_code, ip inet, user_agent. 클라이언트 정책 없음</td></tr>
+    <tr><td>waitlist</td><td>id</td><td>email UNIQUE + 형식 CHECK. anon INSERT. <strong>현재 API 코드는 이 테이블을 읽거나 쓰지 않는다</strong></td></tr>
+  </tbody>
+</table>
+<p>별도 <code>webhooks</code> 테이블은 없다. 웹훅 원장은 stripe_events와 revenuecat_events이다.</p>
+
+<h2>3.9 함수·트리거</h2>
+<table>
+  <thead><tr><th>이름</th><th>역할</th></tr></thead>
+  <tbody>
+    <tr><td>set_updated_at</td><td>BEFORE UPDATE → updated_at = now()</td></tr>
+    <tr><td>handle_new_user</td><td>auth.users INSERT 후 profile + signup_grant 30분 (on conflict do nothing)</td></tr>
+    <tr><td>prevent_credit_ledger_mutation</td><td>원장 불변. FK nulling만 예외</td></tr>
+    <tr><td>enqueue_job</td><td>초기 RPC. 크레딧 없음. 코드 경로는 enqueue_job_with_credit / 클라이언트 트랜잭션</td></tr>
+    <tr><td>enqueue_job_with_credit</td><td>프로젝트·잔액 FOR UPDATE, active_job_exists, debit</td></tr>
+    <tr><td>claim_next_job</td><td>가장 오래된 queued → running, started_at/heartbeat_at = now()</td></tr>
+    <tr><td>finish_job_with_refund</td><td>failed/cancelled이고 charged_minutes&gt;0이면 refund 행</td></tr>
+    <tr><td>fail_stale_jobs</td><td>heartbeat 초과 running을 finish_job_with_refund(failed, 'worker timeout')</td></tr>
+  </tbody>
+</table>
+
+<h2>3.10 코드에만 있는 필드 (마이그레이션 없음)</h2>
+<p>아래는 <code>CREATE TABLE</code>/<code>ALTER TABLE</code>에 없다. SegmentOut·편집기·워커 Row dict와 R2 매니페스트에만 존재한다.</p>
+<table>
+  <thead><tr><th>필드</th><th>어디에 있는가</th></tr></thead>
+  <tbody>
+    <tr><td>source_end_ms</td><td>R2 <code>dub_voice_manifest.json</code>. 원본 ASR 끝. end_ms와 달라질 수 있음. DB 컬럼 아님</td></tr>
+    <tr><td>emotion_tone / emotion_user_set</td><td>동일 매니페스트. 세그먼트 감정 오버라이드</td></tr>
+    <tr><td>clip_speak_speed</td><td>매니페스트. 실제 TTS에 쓴 배율</td></tr>
+    <tr><td>baseline_speak_speed</td><td>API/프론트 파생. 보통 1. 저장 컬럼 없음</td></tr>
+    <tr><td>dubbed_audio_url</td><td>메타 클립 키의 프리사인 GET. DB에 URL을 저장하지 않음</td></tr>
+    <tr><td>gain_db, source_level_db, tts_level_db</td><td>매니페스트. 미리보기 음량</td></tr>
+    <tr><td>audio_key</td><td>매니페스트. <code>meta/dub_seg_{idx}.wav</code> 등</td></tr>
+  </tbody>
+</table>
+<p><code>list_segments</code> SQL은 id, project_id, idx, start_ms, end_ms, source_text, target_text, speaker_id, speaker_overlap, speak_speed만 읽는다. 나머지는 <code>enrich_segments_with_dub_voice</code>가 붙인다.</p>
+
+<h1>4. 핵심 엔터티 관계</h1>
+<pre>
+auth.users (Supabase Auth)
+    | 1:1  trigger handle_new_user
+    v
+profiles -------------------------------+
+    |                                   |
+    | 1:N                              | 1:N
+    v                                   v
+projects 1:N segments              credit_ledger
+    | 1:N                               |  (project_id, job_id nullable)
+    v                                   |
+  jobs  &lt;-------------------------------+
+    |
+    +-- kind transcribe | dub | lipsync
+
+profiles 1:1 stripe_customers
+profiles 1:N stripe_subscriptions
+profiles 1:N access_logs          (user_id SET NULL)
+auth.users 1:N user_voices        (owner_id → auth.users)
+
+revenuecat_customers.app_user_id → profiles.user_id
+revenuecat_subscriptions (user_id, entitlement_id)
+
+stripe_events / revenuecat_events : 사용자 FK 없음 (이벤트 inbox)
+waitlist : 고립 테이블 (현재 API 미사용)
+</pre>
+<p>사용자는 Supabase Auth UUID이다. 공개 프로필은 profiles. 프로젝트 미디어 바이트는 Postgres에 없고 R2 키만 둔다. 세그먼트 미리보기 오디오도 R2 메타이다.</p>
+
+<h1>5. 프로젝트·세그먼트·잡 상태 머신</h1>
+<p>문자열은 코드·CHECK와 동일하다. 다른 값을 만들지 않는다.</p>
+
+<h2>5.1 프로젝트 status</h2>
+<pre>
+created  --POST /v1/projects (DB default)
+   |
+   |  multipart create 또는 URL ingest 시작
+   v
+uploading  -- source_key 기록
+   |
+   |  multipart complete / ingest 성공
+   v
+uploaded
+   |
+   |  transcribe claim
+   v
+processing ---- fail ----&gt; failed
+   |
+   |  replace_segments 성공
+   v
+ready_for_edit -- 취소 시 여기로 복귀 (dub)
+   |
+   |  dub claim
+   v
+dubbing ---- fail ----&gt; failed
+   |
+   |  output_key 업로드
+   v
+completed   (lipsync는 상태를 바꾸지 않고 lipsync_output_key만 기록)
+
+소프트 삭제: status=failed, error='__deleted__', 키 NULL
+목록에서 제외
+</pre>
+<table>
+  <thead><tr><th>전이</th><th>누가</th></tr></thead>
+  <tbody>
+    <tr><td>created → uploading</td><td>uploads.create_multipart, URL ingest</td></tr>
+    <tr><td>uploading → uploaded</td><td>uploads.complete, ingest 성공</td></tr>
+    <tr><td>* → processing</td><td>run_transcribe 시작. output/lipsync 키 클리어</td></tr>
+    <tr><td>processing → ready_for_edit</td><td>transcribe 성공</td></tr>
+    <tr><td>ready_for_edit → dubbing</td><td>run_dub 시작. lipsync_output_key 클리어</td></tr>
+    <tr><td>dubbing → completed</td><td>run_dub 성공 + output_key</td></tr>
+    <tr><td>processing/dubbing → failed</td><td>PipelineError 또는 INTERNAL</td></tr>
+    <tr><td>transcribe 취소</td><td>processing이 아니면 이전 status, 아니면 uploaded</td></tr>
+    <tr><td>dub 취소</td><td>ready_for_edit</td></tr>
+  </tbody>
+</table>
+
+<h2>5.2 잡 status</h2>
+<pre>
+queued --claim_next_job--&gt; running --finish_job--&gt; completed
+                              |                      failed     (error 설정, 환불 가능)
+                              +-------------------&gt; cancelled  (사용자 또는 이미 비-running)
+</pre>
+<p>사용자 취소: <code>POST /v1/jobs/{id}/cancel</code> → <code>finish_job(..., status="cancelled", error="cancelled by user")</code>. 워커는 다음 checkpoint에서 <code>JobCancelled</code>를 올리고 status를 덮어쓰지 않는다.</p>
+
+<h2>5.3 세그먼트</h2>
+<p>세그먼트 행에 status 컬럼은 없다. 프로젝트 status와 잡이 수명을 나타낸다. transcribe는 전량 교체. 편집은 target_text, source_text, end_ms, speak_speed. source_end_ms·emotion은 R2.</p>
+
+<h1>6. Job 모델</h1>
+<h2>6.1 kind</h2>
+<p>API <code>JobKind</code>와 DB CHECK: <code>transcribe</code> | <code>dub</code> | <code>lipsync</code>. 핸들러 맵 <code>PIPELINE_HANDLERS</code>와 같다. transcribe는 크레딧 0. dub/lipsync는 <code>ceil(duration_seconds/60 * multiplier)</code>를 선차감한다. lipsync는 <code>lipsync_provider != disabled</code>이고 <code>output_key</code>가 있어야 한다.</p>
+
+<h2>6.2 claim / poll</h2>
+<p><code>python -m app.worker.runner</code>. 루프는 세마포어를 잡고 <code>claim_next_job</code>을 호출한다. 없으면 <code>worker_poll_interval_seconds</code>(기본 3.0) 대기. claim SQL:</p>
+<pre>
+UPDATE jobs SET status='running', started_at=now(), heartbeat_at=now()
+ WHERE id = (
+   SELECT id FROM jobs WHERE status='queued'
+   ORDER BY created_at
+   FOR UPDATE SKIP LOCKED
+   LIMIT 1
+ )
+</pre>
+<p><code>worker_concurrency</code> 기본 1, 상한 8. 주석: Demucs 메모리 때문에 소형 Lightsail에서는 1.</p>
+
+<h2>6.3 heartbeat와 stale reaper</h2>
+<table>
+  <thead><tr><th>항목</th><th>값 (코드)</th></tr></thead>
+  <tbody>
+    <tr><td>진행 갱신</td><td><code>UPDATE ... heartbeat_at=now() WHERE status='running'</code></td></tr>
+    <tr><td>장시간 서브프로세스</td><td><code>ctx.heartbeat()</code> — 마지막 progress/message 재기록</td></tr>
+    <tr><td>pipeline_heartbeat_seconds</td><td>20.0 (엔진이 긴 ffmpeg/Demucs 중 호출)</td></tr>
+    <tr><td>worker_job_timeout_seconds</td><td>3600</td></tr>
+    <tr><td>reaper 주기</td><td>60초 (<code>_STALE_REAP_INTERVAL_SECONDS</code>)</td></tr>
+    <tr><td>stale 조건</td><td>status=running AND heartbeat_at &lt; now() - 3600s</td></tr>
+    <tr><td>stale 결과</td><td>failed, error=<code>worker timeout</code>, charged면 refund</td></tr>
+    <tr><td>프로세스 하트비트 파일</td><td>15초마다 touch. 컨테이너 healthcheck용. DB와 별개</td></tr>
+  </tbody>
+</table>
+
+<h2>6.4 ActiveJobExistsError</h2>
+<p>같은 프로젝트에 queued/running이 있으면 enqueue가 거부된다. 애플리케이션 <code>SELECT 1 ... status IN ('queued','running')</code>과 UNIQUE 부분 인덱스가 이중으로 막는다. REST는 RPC 예외 <code>active_job_exists</code>.</p>
+
+<h2>6.5 진행 메시지 (UI가 아는 코드)</h2>
+<p><code>ctx.report(progress, message)</code>의 message가 <code>jobs.message</code>에 들어간다. 프론트 <code>jobMessageLabel</code>이 <code>src/lib/job-labels.ts</code>로 번역한다. 파이프라인이 실제로 넣는 코드:</p>
+<table>
+  <thead><tr><th>잡</th><th>message (코드 순서)</th><th>대략 progress</th></tr></thead>
+  <tbody>
+    <tr><td>transcribe</td><td>measuring_duration, extracting_audio, asr, segment_timing, diarization?, correct_asr?, translate, prepare_segments, refine_timing, done</td><td>0.03 … 1.0</td></tr>
+    <tr><td>dub</td><td>queued, extracting_audio, stem_split, dub_voice_tts, tts (세그먼트 루프), voice_removal, mix_bgm, burn_subtitles?, mux, done</td><td>0.02 … 1.0</td></tr>
+    <tr><td>lipsync</td><td>lipsync_submit, lipsync_upload, done</td><td>0.05 / 0.9 / 1.0</td></tr>
+  </tbody>
+</table>
+<div class="note">
+  <strong>라벨 테이블과 불일치</strong>
+  job-labels에는 align_translations, voice_removed_preview, extract_vocals, inpaint_ambient, voice_clone_tts, voice_changer, prepare_asr가 있다. 현재 <code>pipeline.py</code>는 이 중 다수를 report하지 않는다. 반대로 <code>voice_removal</code>은 워커가 쓰지만 라벨 맵에 없어 UI가 원문을 보여 준다. cancelled 상태 라벨도 맵에 없다.
+</div>
+
+<h2>6.6 오류 코드</h2>
+<p><code>api/app/worker/errors.py</code>. jobs.error는 <code>{code}: {message}</code>. UI <code>formatPipelineError</code>는 콜론 앞 코드를 본다.</p>
+<p>source_missing, source_download_failed, source_too_large, source_too_long, source_unsupported_container, source_no_audio, probe_failed, ffmpeg_failed, demucs_failed, mix_failed, asr_failed, translation_failed, no_segments, voice_clone_failed, voice_missing, tts_failed, lipsync_failed, feature_unavailable, upload_failed, config_missing, internal_error. 재퍼는 <code>worker timeout</code> (코드 형식 아님).</p>
+
+<h1>7. 크레딧 원장 데이터 모델</h1>
+<p>요금 화면·팩 가격은 FRS-001. 여기서는 행과 불변식만 적는다. 쓰기는 서버만.</p>
+
+<h2>7.1 잔액</h2>
+<p><code>COALESCE(sum(delta_minutes), 0)</code>. 캐시 컬럼 없음. 차감 전 <code>profiles</code> 행 FOR UPDATE로 직렬화한다.</p>
+
+<h2>7.2 reason별 행</h2>
+<table>
+  <thead><tr><th>reason</th><th>부호</th><th>생성 지점</th><th>idempotency_key</th></tr></thead>
+  <tbody>
+    <tr><td>signup_grant</td><td>+30</td><td>handle_new_user. config signup_credit_minutes=30과 맞춤. 초기 마이그레이션은 +10이었음</td><td>없음 (on conflict do nothing)</td></tr>
+    <tr><td>dub_job</td><td>음수</td><td>enqueue와 같은 트랜잭션. kind!=lipsync</td><td><code>job:{id}:debit</code></td></tr>
+    <tr><td>lipsync_job</td><td>음수</td><td>동일, kind=lipsync</td><td>동일 debit 키</td></tr>
+    <tr><td>refund</td><td>양수 (차감액)</td><td>finish_job_with_refund (failed/cancelled). RC REFUND는 구매분 회수(음수)</td><td><code>job:{id}:refund</code> 또는 <code>revenuecat-revoke:...</code></td></tr>
+    <tr><td>purchase</td><td>양수</td><td>Stripe/RevenueCat 이벤트 처리</td><td><code>stripe-credit:...</code> / <code>revenuecat-credit:{tx}</code></td></tr>
+    <tr><td>admin_adjust</td><td>±</td><td><code>add_credit_entry</code> + admin_note, adjusted_by</td><td>없음</td></tr>
+  </tbody>
+</table>
+
+<h2>7.3 불변식</h2>
+<ul>
+  <li>delta_minutes ≠ 0.</li>
+  <li>행 UPDATE/DELETE 금지. 프로젝트 삭제 시 project_id/job_id NULL만.</li>
+  <li>잡당 dub_job·lipsync_job·refund 각 1행 (부분 유니크).</li>
+  <li>잔액 부족이면 InsufficientCreditsError / <code>insufficient_credits</code>. 잡 행을 만들지 않음.</li>
+  <li>charge_minutes=0이면 원장 행 없음 (transcribe).</li>
+  <li>이미 끝난 잡에 finish를 다시 호출하면 RPC가 no-op.</li>
+  <li>ledger FK 때문에 하드 삭제가 막히면 프로젝트를 소프트 삭제한다.</li>
+</ul>
+
+<h1>8. R2 객체 키와 DB 참조</h1>
+<p>버킷 기본 이름 <code>dubby</code>. API는 바이트를 프록시하지 않는다. 키는 서버가 <code>users/{user_id}/</code> 아래로만 만든다.</p>
+<pre>
+users/{user_id}/
+  projects/{project_id}/
+    source/{filename}              &lt;- projects.source_key
+    outputs/dub_{target_lang}.mp4  &lt;- projects.output_key
+    outputs/lipsync_{lang}.mp4     &lt;- projects.lipsync_output_key
+    meta/speech_ranges.json        &lt;- 컬럼 없음. source_key에서 유도
+    meta/voice_removed.mp4         &lt;- 선택 미리보기. 현재 transcribe는 생성 생략
+    meta/dub_voice_ids.json        &lt;- 사이드카 (voice_ids, voice_mode, pipeline_version)
+    meta/dub_voice_manifest.json   &lt;- source_end_ms, speak_speed, emotion, audio_key
+    meta/dub_seg_{idx}.wav         &lt;- 편집기 미리보기 클립
+  voices/inbox/{uuid}/{filename}   &lt;- 클론 업로드. 완료 후 삭제. DB 컬럼 없음
+</pre>
+<table>
+  <thead><tr><th>유도 함수</th><th>규칙</th></tr></thead>
+  <tbody>
+    <tr><td>source_key()</td><td><code>users/{uid}/projects/{pid}/source/{sanitize}</code></td></tr>
+    <tr><td>output_key_for_source()</td><td>source_key에서 <code>/source/</code> 앞 prefix + <code>/outputs/{file}</code></td></tr>
+    <tr><td>meta_key_for_source()</td><td>동일 prefix + <code>/meta/{file}</code></td></tr>
+    <tr><td>project_meta_key()</td><td>uid/pid로 meta 직접 구성</td></tr>
+    <tr><td>voice_clone_inbox_key()</td><td>inbox에 새 uuid 디렉터리</td></tr>
+  </tbody>
+</table>
+<p>프리사인 만료: 업로드 3600초, 다운로드 60–3600(기본 3600). 파트 크기 5–16MiB. 워커는 download_file / upload_file / head_object / presign_get을 쓴다.</p>
+
+<h1>9. 파이프라인 단계</h1>
+<p>오케스트레이션은 <code>api/app/worker/pipeline.py</code>. 도구 호출은 <code>engine.py</code> (<code>PIPELINE_MODE=real|mock|auto</code>). production은 real만 허용. 프롬프트 본문은 후속 문서.</p>
+
+<h2>9.1 transcribe</h2>
+<p>프로젝트: 기존 status → processing → ready_for_edit (실패 시 failed).</p>
+<pre>
+R2 source_key
+  |  head + size &lt;= max_source_bytes (500MB)
+  |  download → scratch/source.bin
+  v
+probe + validate_source          message=measuring_duration
+  |  duration &lt;= 1800s, 허용 컨테이너, 오디오 트랙
+  |  projects.duration_seconds 기록
+  v
+extract_asr_audio                message=extracting_audio
+  |  scratch/asr_audio.mp3
+  v
+engine.transcribe (Gemini/Whisper)   message=asr
+  |  drafts, words, speech_ranges, full_transcript
+  |  meta/speech_ranges.json 업로드
+  v
+chunks = drafts 그대로           message=segment_timing
+  |  (3.0: breath regroup / gap refill 없음)
+  |  dedupe_boundary_overlaps
+  v
+_fill_uncovered_asr_tail         (조건 충족 시 2차 청취)
+  |  asr_tail.mp3, step=asr_tail
+  v
+diarization?                     message=diarization
+correct_asr?                     message=correct_asr  (skip_proofread면 생략)
+  v
+translate_batch                  message=translate
+  |  document_context = full_transcript
+  |  결과 dict[idx] → target_text   (assign-by-idx)
+  v
+replace_segments                 message=prepare_segments, refine_timing
+  v
+status=ready_for_edit            message=done
+</pre>
+<p>voice-removed 미리보기(두 번째 Demucs+mux)는 코드 주석상 생략한다. Before는 원본을 쓴다.</p>
+
+<h3>9.1.1 assign-by-idx (3.0.12)</h3>
+<p><code>gemini_client.translate_batch</code>는 각 항목에 idx를 넣고, 모델이 <code>translations[{idx,text}]</code>를 반환해야 한다. <code>parse_translation_content</code>(openai_client)는 기대 idx가 모두 있어야 하며, 없으면 TRANSLATION_FAILED(retryable). 위치 배열로 빈 칸을 메우지 않는다.</p>
+<p>1차 결과를 <code>idxs_needing_retranslate</code>(translation_align.py)가 검사한다. 대상 스크립트 없음, 긴 원문의 짧은 스텁, 짧은 원문의 장문, 슬롯 대비 과장문이면 그 idx만 재번역한다. 서버 워커 경로는 이 재시도 후 postprocess한다.</p>
+<p>로컬 스텝(<code>local_step12.py</code>)은 파서가 더 관대하다. 전부 어긋난 1-based/상대 인덱스일 때만 위치 재매핑한다. 부분 매칭 구멍에 이웃 문장을 넣지 않는다. 주석: 그렇게 하면 source/target 쌍이 섞인다.</p>
+
+<h3>9.1.2 꼬리 재청취</h3>
+<p><code>_fill_uncovered_asr_tail</code>: 첫 STT가 클립 끝 전에 멈추면 후반 타임스탬프가 비고, 번역이 있어도 더빙 때 원음이 남는다.</p>
+<ul>
+  <li>duration_ms &lt; 20000 또는 covered_end ≥ 85%이면 skip.</li>
+  <li>tail_start = max(0, covered_end − 800). 남은 길이가 4초 미만이면 skip.</li>
+  <li>trim → transcribe(asr_tail) → 오프셋 보정 → 기존 청크와 dedupe.</li>
+  <li>quality_warnings: <code>asr_tail_uncovered:{end}/{dur}</code>, asr_tail_failed, asr_tail_empty, <code>asr_tail_appended:{n}</code>.</li>
+</ul>
+
+<h2>9.2 dub</h2>
+<p>프로젝트: ready_for_edit → dubbing → completed. 믹스 베드는 원본에서 소스 언어 발화 구간을 깎고, 그 자리에 TTS를 올린다. 다른 언어 구간은 passthrough.</p>
+<pre>
+list_segments_for_worker + R2 manifest 병합
+  |  speak_speed, emotion_user_set, source_end_ms 복원
+  |  target_text 있는 행만. source_lang passthrough 제외 → speakable
+  v
+download + probe                 message=queued 후 extracting_audio
+extract_audio → audio.wav
+  v
+split_stems (Demucs htdemucs)    message=stem_split
+  |  vocals / no_vocals
+  |  loudness는 vocals + speech_ranges (세그먼트 전체 구간 사용 안 함)
+  v
+resolve voices                   message=dub_voice_tts
+  |  Voice Box ID 또는 auto_clone IVC (vocals 샘플)
+  v
+병렬 TTS (tts_concurrency 기본 4)    message=tts
+  |  ElevenLabs v3, speak_speed 클램프 0.7–1.2
+  |  선택 voice_changer_after_tts
+  |  안 맞으면 compress → slot extend → speak_speed_fit
+  |  source_end_ms는 연장하지 않음
+  v
+fit_clip (atempo / rubberband) + 음량 매칭
+persist_dub_voice_assets
+  v
+remove_recognized_speech         message=voice_removal
+  |  no_vocals_in_mask = 0.8  (config.mix_no_vocals_in_mask)
+  v
+mix(selective_bed, placed_clips) message=mix_bgm
+build_ass + mux                  message=burn_subtitles? / mux
+upload outputs/dub_{lang}.mp4    output_key
+status=completed                 message=done
+</pre>
+<p>타이밍 재작성 문장은 자막 테이블의 target_text를 바꾸지 않는다(편집기 번역 유지). end_ms와 speak_speed는 persist한다. 실패 시 클론 보이스는 <code>cleanup_voice</code>로 정리(Voice Box ID는 보호).</p>
+
+<h2>9.3 lipsync</h2>
+<p>코딩되어 있다. 기본 <code>lipsync_provider=disabled</code>. 더빙 <code>output_key</code> 필수. 원본 비디오 URL + 더빙 오디오 URL을 provider.render에 넘기고, 결과를 <code>outputs/lipsync_{lang}.mp4</code>에 올린 뒤 <code>lipsync_output_key</code>만 갱신한다. 프로젝트 status는 completed를 유지한다. mock은 더빙 파일을 file://로 넣는다. timeout/poll: sync_timeout_seconds 900, sync_poll_interval_seconds 5.</p>
+
+<h2>9.4 엔진 한도 (config)</h2>
+<table>
+  <thead><tr><th>키</th><th>기본</th></tr></thead>
+  <tbody>
+    <tr><td>max_source_duration_seconds</td><td>1800</td></tr>
+    <tr><td>max_source_bytes</td><td>500 MiB</td></tr>
+    <tr><td>allowed_source_containers</td><td>mp4,mov,m4a,3gp,3g2,mj2,matroska,webm</td></tr>
+    <tr><td>demucs_model / device / jobs</td><td>htdemucs / cpu / 2</td></tr>
+    <tr><td>mix_no_vocals_in_mask</td><td>0.8</td></tr>
+    <tr><td>translation_batch_size</td><td>12</td></tr>
+    <tr><td>translation_timing_tolerance</td><td>0.22</td></tr>
+    <tr><td>tts_concurrency</td><td>4</td></tr>
+    <tr><td>tts_max_speedup / tts_min_tempo / tts_atempo_max</td><td>1.5 / 0.85 / 1.5</td></tr>
+  </tbody>
+</table>
+
+<h1>10. 스크래치·정리·재시도·취소</h1>
+<h2>10.1 스크래치</h2>
+<p><code>_make_scratch</code>: 부모는 <code>scratch_dir</code> 또는 시스템 temp. 디렉터리명 <code>dubby-job-{job_id}-</code>. 파일 예: source.bin, asr_audio.mp3, asr_tail.mp3, audio.wav, stems/, clips/seg_{idx}.*, speech_removed_bed.wav, mixed.wav, subtitles.ass, output.mp4, lipsync.mp4.</p>
+<p><code>_cleanup_scratch</code>: rmtree를 최대 2회(0.5초 간격). Windows 잠금 대비. 그래도 남으면 warning. 모든 핸들러 finally에서 호출.</p>
+
+<h2>10.2 재시도</h2>
+<p><code>_with_retries</code>: <code>pipeline_step_retries + 1</code>회(기본 3). <code>PipelineError.retryable</code>만. 백오프 <code>pipeline_retry_backoff_seconds * attempt</code>(2s, 4s, …). 재시도 사이 <code>check_cancelled</code>. 네트워크/R2/일부 AI 단계가 retryable. 검증 오류(너무 김, 컨테이너, no_segments 등)는 한 번만.</p>
+
+<h2>10.3 취소 체크포인트</h2>
+<p><code>ctx.report</code>와 <code>ctx.heartbeat</code>가 <code>get_job_status</code>를 본다. running이 아니면 <code>JobCancelled</code>. 러너는 이 예외에서 finish_job을 호출하지 않는다. SIGTERM/SIGINT는 신규 claim을 멈추고 진행 중 잡은 끝낸다.</p>
+
+<h1>11. 3.0.12 데이터 함의 — 재추출이 필요한 이유</h1>
+<p>VERSION.md: 3.0.12는 잘못 할당된 캡션을 재번역하고, 덮이지 않은 오디오 꼬리를 다시 들어 긴 클립이 원어로 남는 것을 줄인다. 이는 UX 문구가 아니라 <strong>이미 저장된 행</strong> 문제다.</p>
+
+<h2>11.1 잘못된 세그먼트 할당</h2>
+<p>세그먼트 진실은 <code>segments.target_text</code>의 idx 대응이다. 구버전은 모델이 문서 앞부분이나 다른 장면을 한 idx에 넣거나, 짧은 줄에 장문을 붙일 수 있었다. 그 행은 편집기에 그대로 남고, 더빙은 그 텍스트를 읽는다.</p>
+<p>3.0.12 워커는 <em>새 transcribe 잡</em>에서만 재번역 휴리스틱을 돌린다. 기존 행을 훑는 마이그레이션 잡이나 UPDATE 패치는 없다. 고치는 방법은 transcribe를 다시 돌려 <code>replace_segments</code>(DELETE+INSERT)하는 것이다. 편집기에서 한 줄씩 고칠 수는 있으나, 후반부 통째 어긋남은 수작업으로 복구하기 어렵다.</p>
+
+<h2>11.2 후반 타임스탬프 부재</h2>
+<p>첫 Gemini 패스가 covered_end에서 멈추면 그 이후 청크가 DB에 없다. 번역 문자열이 문서 컨텍스트에 있어도 세그먼트 행이 없으면 더빙 speakable 구간이 없고, 후반은 원음/뮤트 베드가 된다. speech_ranges.json도 같은 패스에서 잘리면 음량·voice removal이 후반을 놓친다.</p>
+<p>꼬리 재청취는 실행 중 transcribe에만 적용된다. 이미 ready_for_edit인 프로젝트의 segments·R2 메타는 자동 수리되지 않는다. 재추출이 필요한 이유:</p>
+<ul>
+  <li>세그먼트는 전량 교체 모델이다. 부분 append API가 없다.</li>
+  <li>source_end_ms는 DB에 없어 매니페스트가 비면 ASR 끝을 복원할 수 없다.</li>
+  <li>dub은 있는 행의 start_ms/end_ms만 본다. 없는 분을 만들어 주지 않는다.</li>
+</ul>
+
+<h1>12. 마이그레이션 / 부트스트랩</h1>
+<p><code>infra/DEPLOY.md</code>:</p>
+<pre>
+supabase link --project-ref &lt;PROJECT_REF&gt;
+supabase db push
+</pre>
+<p>또는 SQL editor에 마이그레이션을 시간순으로 붙여 넣는다. 초기 파일만 넣으면 Stripe·언어·Voice Box·th/my·감정 톤 CHECK가 빠진다. API는 빠진 projects 컬럼을 SELECT에서 생략하지만, th/my 생성은 CHECK 위반으로 400이 난다(라우터 안내: 해당 마이그레이션 적용).</p>
+<p>Lightsail은 스키마를 적용하지 않는다. Docker API/워커는 <code>DATABASE_URL</code>(postgres) 또는 service role(REST)로 이미 있는 DB에 붙는다. production은 SUPABASE_URL과 백엔드에 맞는 URL/키가 없으면 기동 실패.</p>
+<p>첫 관리자: <code>20260719165000_bootstrap_first_admin.sql</code>이 이메일 1건을 요구하고 <code>raw_app_meta_data.role=admin</code>을 넣는다. 건수가 1이 아니면 예외.</p>
+<p>신규 사용자: Auth INSERT → profiles + credit_ledger signup_grant 30. 트리거와 config가 어긋나면(과거 +10) 실제 지급은 트리거 값이 이긴다.</p>
+
+<h1>13. 명시적 비범위</h1>
+<ul>
+  <li>Caddy, CORS, Cloudflare Tunnel, GitHub Pages 토폴로지 — SAD-001.</li>
+  <li>Stripe Checkout·빌링 화면, 크레딧 팩 UX, 언어 피커 — FRS-001.</li>
+  <li>Gemini/OpenAI/ElevenLabs 프롬프트 전문, 스키마 JSON, 모델 선택 이유 — 후속 프롬프트 명세서.</li>
+  <li>존재하지 않는 테이블(예: generic webhooks, segment_status, credit_balances)은 설계에 넣지 않았다.</li>
+</ul>
+
+<h1>14. 개정 이력</h1>
+<table>
+  <thead><tr><th>버전</th><th>날짜</th><th>내용</th></tr></thead>
+  <tbody>
+    <tr><td>1.0</td><td>2026-09-05</td><td>코드 3.0.12 / 파이프라인 3.0 기준 최초 DPD</td></tr>
+  </tbody>
+</table>
+</main>
+</body>
+</html>
