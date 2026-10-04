@@ -396,6 +396,31 @@ def merge_speech_ranges(
     return merged
 
 
+def asr_timeline_gaps(
+    covered: list[tuple[int, int]],
+    duration_ms: int,
+    *,
+    min_ms: int = 2000,
+) -> list[tuple[int, int]]:
+    """Holes in the ASR timeline, including the middle of the clip.
+
+    Tail-only refill misses Gemini/Whisper dropping a mid-clip sentence while
+    still covering the ending. Those holes keep original speech under the dub.
+    """
+    blocked = merge_speech_ranges(covered)
+    gaps: list[tuple[int, int]] = []
+    cursor = 0
+    limit = max(0, int(duration_ms))
+    floor = max(800, int(min_ms))
+    for start, end in blocked:
+        if start - cursor >= floor:
+            gaps.append((cursor, start))
+        cursor = max(cursor, end)
+    if limit - cursor >= floor:
+        gaps.append((cursor, limit))
+    return gaps
+
+
 def uncovered_voiced_ranges(
     voiced: list[tuple[int, int]],
     covered: list[tuple[int, int]],

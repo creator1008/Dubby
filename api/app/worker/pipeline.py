@@ -57,6 +57,7 @@ from .dub_voice_assets import load_dub_voice_manifest, persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
 from .lipsync import create_lipsync_provider
 from .media import (
+    asr_timeline_gaps,
     ffmpeg_has_rubberband,
     merge_speech_ranges,
     validate_source,
@@ -622,62 +623,76 @@ async def _fill_uncovered_asr_tail(
     diarize: bool,
     scratch: Path,
 ) -> tuple[list[UtteranceChunk], list[tuple[int, int]], list[str]]:
-    """Second Gemini listen when the first pass stopped before the clip ended.
+    """Re-listen ASR holes in the tail *and* the middle of the clip.
 
-    Fairy-tale / long VO clips often lose the second half of timestamps, so
-    those minutes keep original audio even though translations exist for the
-    first half.
+    Gemini often keeps the last caption but drops a mid-clip sentence. The
+    old covered-end < 85% gate skipped those holes, so original speech stayed
+    in the mix. Short clips (<20s) were skipped entirely.
     """
-    covered_end = max((chunk.end_ms for chunk in chunks), default=0)
-    if duration_ms < 20_000 or covered_end >= int(duration_ms * 0.85):
+    if duration_ms < 8_000 or not chunks:
         return chunks, speech_ranges, []
-    tail_start = max(0, covered_end - 800)
-    if duration_ms - tail_start < 4_000:
+    gaps = asr_timeline_gaps(
+        [(chunk.start_ms, chunk.end_ms) for chunk in chunks],
+        duration_ms,
+        min_ms=2000,
+    )
+    if not gaps:
         return chunks, speech_ranges, []
-    warnings = [f"asr_tail_uncovered:{covered_end}/{duration_ms}"]
-    tail_mp3 = scratch / "asr_tail.mp3"
-    try:
-        await engine.trim_asr_audio(asr_audio, str(tail_mp3), tail_start, duration_ms)
-        tail_result = await _with_retries(
-            ctx,
-            lambda: engine.transcribe(
-                str(tail_mp3),
-                source_lang,
-                duration_seconds=max(0.5, (duration_ms - tail_start) / 1000.0),
-                diarize=diarize,
-            ),
-            step="asr_tail",
-        )
-    except PipelineError as exc:
-        logger.warning("ASR tail pass skipped: %s", exc)
-        warnings.append("asr_tail_failed")
-        return chunks, speech_ranges, warnings
 
-    offset_drafts: list[SegmentDraft] = []
-    for draft in tail_result.drafts:
-        start_ms = int(draft.start_ms) + tail_start
-        end_ms = int(draft.end_ms) + tail_start
-        if end_ms <= covered_end:
-            continue
-        start_ms = max(start_ms, covered_end)
-        if end_ms <= start_ms:
-            continue
-        offset_drafts.append(
-            SegmentDraft(
-                start_ms=start_ms,
-                end_ms=min(end_ms, duration_ms),
-                text=draft.text,
-                speaker_id=draft.speaker_id,
-            )
-        )
-    tail_chunks = _chunks_from_whisper_drafts(offset_drafts, [])
-    if not tail_chunks:
-        warnings.append("asr_tail_empty")
-        return chunks, speech_ranges, warnings
-    merged = dedupe_boundary_overlaps([*chunks, *tail_chunks])
+    merged = list(chunks)
     ranges = list(speech_ranges)
-    ranges.extend((c.start_ms, c.end_ms) for c in tail_chunks)
-    warnings.append(f"asr_tail_appended:{len(tail_chunks)}")
+    warnings: list[str] = []
+    appended = 0
+    for index, (gap_start, gap_end) in enumerate(gaps[:4]):
+        pad_start = max(0, gap_start - 800)
+        if gap_end - pad_start < 2_000:
+            continue
+        warnings.append(f"asr_gap_uncovered:{gap_start}-{gap_end}/{duration_ms}")
+        gap_mp3 = scratch / f"asr_gap_{index}.mp3"
+        try:
+            await engine.trim_asr_audio(asr_audio, str(gap_mp3), pad_start, gap_end)
+            gap_result = await _with_retries(
+                ctx,
+                lambda path=str(gap_mp3), start=pad_start, end=gap_end: engine.transcribe(
+                    path,
+                    source_lang,
+                    duration_seconds=max(0.5, (end - start) / 1000.0),
+                    diarize=diarize,
+                ),
+                step="asr_gap",
+            )
+        except PipelineError as exc:
+            logger.warning("ASR gap pass skipped %s-%s: %s", gap_start, gap_end, exc)
+            warnings.append(f"asr_gap_failed:{gap_start}-{gap_end}")
+            continue
+
+        offset_drafts: list[SegmentDraft] = []
+        for draft in gap_result.drafts:
+            start_ms = int(draft.start_ms) + pad_start
+            end_ms = int(draft.end_ms) + pad_start
+            start_ms = max(start_ms, gap_start)
+            end_ms = min(end_ms, gap_end, duration_ms)
+            if end_ms <= start_ms:
+                continue
+            offset_drafts.append(
+                SegmentDraft(
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    text=draft.text,
+                    speaker_id=draft.speaker_id,
+                )
+            )
+        gap_chunks = _chunks_from_whisper_drafts(offset_drafts, [])
+        if not gap_chunks:
+            warnings.append(f"asr_gap_empty:{gap_start}-{gap_end}")
+            continue
+        merged = dedupe_boundary_overlaps([*merged, *gap_chunks])
+        ranges.extend((c.start_ms, c.end_ms) for c in gap_chunks)
+        appended += len(gap_chunks)
+    if appended:
+        warnings.append(f"asr_gap_appended:{appended}")
+        if any(gap_end >= int(duration_ms * 0.85) for _, gap_end in gaps):
+            warnings.append(f"asr_tail_appended:{appended}")
     return merged, ranges, warnings
 
 
@@ -758,7 +773,10 @@ async def run_transcribe(ctx: JobContext) -> None:
             scratch=scratch,
         )
         quality_warnings.extend(tail_notes)
-        if any(note.startswith("asr_tail_appended") for note in tail_notes):
+        if any(
+            note.startswith("asr_gap_appended") or note.startswith("asr_tail_appended")
+            for note in tail_notes
+        ):
             await _upload_speech_ranges(
                 ctx,
                 str(project["source_key"]),

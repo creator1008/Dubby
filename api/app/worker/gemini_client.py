@@ -320,7 +320,7 @@ class GeminiClient:
             f"Listen to the ENTIRE audio. The spoken language is {lang}.\n"
             "Transcribe ALL speech verbatim with correct spelling and diacritics. "
             "Keep greetings, closings, and speech under background music. "
-            "Do not invent words. Do not omit the second half of the clip.\n"
+            "Do not invent words. Do not omit the middle or the second half of the clip.\n"
             f"{speaker_rule}\n"
             "Return JSON with:\n"
             "- full_transcript: the complete source transcript as one coherent document "

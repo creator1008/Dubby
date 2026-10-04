@@ -212,6 +212,61 @@ def split_text_by_weights(text: str, weights: list[int]) -> list[str]:
     return pieces
 
 
+def _merged_span_ms(rows: list[tuple[int, int, str, str]]) -> list[tuple[int, int]]:
+    spans = sorted((int(start), int(end)) for start, end, _, _ in rows if end > start)
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _uncovered_ms(
+    start: int, end: int, rows: list[tuple[int, int, str, str]]
+) -> int:
+    cursor = start
+    missing = 0
+    for span_start, span_end in _merged_span_ms(rows):
+        clipped_start = max(start, span_start)
+        clipped_end = min(end, span_end)
+        if clipped_end <= clipped_start:
+            continue
+        if clipped_start > cursor:
+            missing += clipped_start - cursor
+        cursor = max(cursor, clipped_end)
+    if end > cursor:
+        missing += end - cursor
+    return missing
+
+
+def _close_split_holes(
+    start: int,
+    end: int,
+    rows: list[tuple[int, int, str, str]],
+) -> list[tuple[int, int, str, str]]:
+    """Stretch neighboring split rows so small diarize holes stay scrubbed."""
+    ordered = sorted(rows, key=lambda row: (row[0], row[1]))
+    if not ordered:
+        return rows
+    first = ordered[0]
+    if first[0] > start:
+        ordered[0] = (start, first[1], first[2], first[3])
+    last = ordered[-1]
+    if last[1] < end:
+        ordered[-1] = (last[0], end, last[2], last[3])
+    closed: list[tuple[int, int, str, str]] = [ordered[0]]
+    for row in ordered[1:]:
+        prev = closed[-1]
+        if row[0] > prev[1]:
+            mid = (prev[1] + row[0]) // 2
+            closed[-1] = (prev[0], max(prev[1], mid), prev[2], prev[3])
+            row = (min(row[0], mid), row[1], row[2], row[3])
+        closed.append(row)
+    return closed
+
+
 def split_timed_texts_on_turns(
     segments: list[tuple[int, int, str, str]],
     turns: list[SpeakerTurn],
@@ -245,7 +300,7 @@ def split_timed_texts_on_turns(
             for turn in overlapping
         ]
         pieces = split_text_by_weights(text, weights)
-        emitted = 0
+        emitted_rows: list[tuple[int, int, str, str]] = []
         for turn, piece in zip(overlapping, pieces):
             piece_start = max(start, turn.start_ms)
             piece_end = min(end, turn.end_ms)
@@ -254,10 +309,26 @@ def split_timed_texts_on_turns(
             spoken = (piece or turn.text or "").strip()
             if not spoken:
                 continue
-            out.append((piece_start, piece_end, spoken, turn.speaker_id or speaker))
-            emitted += 1
-        if emitted == 0:
+            emitted_rows.append(
+                (piece_start, piece_end, spoken, turn.speaker_id or speaker)
+            )
+        if not emitted_rows:
             out.append((start, end, text, speaker))
+            continue
+        # Diarize often skips a mid-caption turn. Splitting then drops that
+        # time range, so the mix keeps original speech in the hole.
+        if _uncovered_ms(start, end, emitted_rows) >= max(
+            min_overlap_ms, int((end - start) * 0.15)
+        ):
+            majority = max(
+                overlapping,
+                key=lambda t: max(
+                    0, min(end, t.end_ms) - max(start, t.start_ms)
+                ),
+            )
+            out.append((start, end, text, majority.speaker_id or speaker))
+            continue
+        out.extend(_close_split_holes(start, end, emitted_rows))
     out.sort(key=lambda row: (row[0], row[1]))
     return out
 
@@ -266,13 +337,16 @@ def collapse_minor_speakers(
     assignments: list[tuple[str | None, bool]],
     segments: list[tuple[int, int]],
     *,
-    min_total_ms: int = 3000,
+    min_total_ms: int | None = None,
     min_share: float = 0.08,
 ) -> list[tuple[str | None, bool]]:
     """Fold tiny / spurious diarization labels into neighboring major speakers.
 
     OpenAI diarize often invents a third label for 1–2 short fragments. Those
     steal a Voice Box slot and scramble 화자 1/2 mapping.
+
+    Absolute 3s floors wipe a real second speaker on short clips (a 2.5s
+    reply in a 15s video). Scale the floor to the clip span.
     """
     if not assignments or not segments or len(assignments) != len(segments):
         return assignments
@@ -285,11 +359,20 @@ def collapse_minor_speakers(
     if not totals:
         return assignments
 
+    span = max((int(end) for _, end in segments), default=0) - min(
+        (int(start) for start, _ in segments), default=0
+    )
+    floor = (
+        int(min_total_ms)
+        if min_total_ms is not None
+        else min(3000, max(800, int(max(0, span) * 0.12)))
+    )
+
     grand = max(1, sum(totals.values()))
     majors = {
         sid
         for sid, dur in totals.items()
-        if dur >= min_total_ms and (dur / grand) >= min_share
+        if dur >= floor and (dur / grand) >= min_share
     }
     if not majors:
         majors = {max(totals.items(), key=lambda item: item[1])[0]}

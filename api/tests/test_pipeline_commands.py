@@ -62,6 +62,15 @@ def test_asr_trim_cmd_uses_start_and_duration() -> None:
     assert cmd[-1] == "gap.mp3"
 
 
+def test_asr_timeline_gaps_finds_middle_hole() -> None:
+    gaps = media.asr_timeline_gaps(
+        [(0, 3200), (9800, 15000)],
+        15000,
+        min_ms=2000,
+    )
+    assert gaps == [(3200, 9800)]
+
+
 def test_uncovered_voiced_ranges_finds_intro_hole() -> None:
     gaps = media.uncovered_voiced_ranges(
         [(0, 14000), (14000, 30000)],

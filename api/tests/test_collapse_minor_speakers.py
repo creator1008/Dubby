@@ -59,6 +59,20 @@ def test_split_text_by_weights_keeps_all_tokens() -> None:
     assert len(pieces) == 3
 
 
+def test_collapse_keeps_brief_second_speaker_on_short_clip() -> None:
+    turns = normalize_speaker_ids(
+        [
+            SpeakerTurn(0, 9000, "A"),
+            SpeakerTurn(9000, 11500, "B"),
+            SpeakerTurn(11500, 15000, "A"),
+        ]
+    )
+    segments = [(t.start_ms, t.end_ms) for t in turns]
+    assigned = assign_speakers(segments, turns)
+    collapsed = collapse_minor_speakers(assigned, segments)
+    assert set(sid for sid, _ in collapsed) == {"speaker_1", "speaker_2"}
+
+
 def test_split_timed_texts_cuts_merged_couple_caption() -> None:
     from app.worker.diarization import SpeakerTurn, split_timed_texts_on_turns
 
@@ -84,3 +98,20 @@ def test_split_timed_texts_cuts_merged_couple_caption() -> None:
     assert "speaker_1" in speakers and "speaker_2" in speakers
     assert split[0][0] == 600
     assert any(row[0] >= 10000 for row in split)
+
+
+def test_split_timed_texts_keeps_caption_when_turns_have_a_hole() -> None:
+    from app.worker.diarization import SpeakerTurn, split_timed_texts_on_turns
+
+    segments = [
+        (0, 10000, "cau chuyen dai o giua bi bo", "speaker_1"),
+    ]
+    turns = [
+        SpeakerTurn(0, 2500, "speaker_1"),
+        SpeakerTurn(7500, 10000, "speaker_2"),
+    ]
+    split = split_timed_texts_on_turns(segments, turns)
+    assert len(split) == 1
+    assert split[0][0] == 0
+    assert split[0][1] == 10000
+    assert split[0][2] == "cau chuyen dai o giua bi bo"
