@@ -46,7 +46,7 @@ from .worker.dub_quality import (
     voice_removal_ranges as _voice_removal_ranges,
 )
 from .languages import LANGUAGE_ALIASES, LANG_QUERY_PATTERN, LANGUAGE_NAMES, SUPPORTED_LANGUAGES
-from .worker.elevenlabs_client import tts_model_for_language
+from .worker.elevenlabs_client import build_tts_body, tts_model_for_language
 from .worker.media import merge_speech_ranges as _merge_speech_ranges, vocal_energy_ranges as _vocal_energy_ranges
 from .worker.timing import (
     ELEVENLABS_SPEAK_SPEED_MAX,
@@ -2085,15 +2085,15 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
         voices = voices_future.result()
         source_levels = levels_future.result()
     from .emotion import (
+        detect_segment_emotion,
         normalize_emotion_tone,
-        voice_settings_for_emotion,
     )
 
     project_tone = normalize_emotion_tone(request.tone_style)
     base = os.getenv("ELEVENLABS_BASE_URL", "https://api.elevenlabs.io").rstrip("/")
     target_language = str(manifest.get("target_language") or "")
     model = tts_model_for_language(
-        os.getenv("ELEVENLABS_TTS_MODEL", "eleven_v3"),
+        os.getenv("ELEVENLABS_TTS_MODEL", "eleven_v4"),
         target_language,
     )
     output_dir = work_dir / "dubbed_speech"
@@ -2124,9 +2124,16 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
             emotion_tone = normalize_emotion_tone(
                 segment.emotion_tone, fallback=project_tone
             )
+        elif vocals_path.is_file() and end_ms > start_ms:
+            emotion_tone = detect_segment_emotion(
+                str(vocals_path),
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source_text=source_text,
+                fallback=project_tone,
+            )
         else:
             emotion_tone = project_tone
-        settings = voice_settings_for_emotion(emotion_tone)
         slot_seconds = max(
             0.001,
             (end_ms - start_ms) / 1000,
@@ -2147,21 +2154,16 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
                 min_speed=speak_min,
                 max_speed=speak_max,
             )
-        tts_body: dict[str, object] = {
-            "text": segment.target_text,
-            "model_id": model,
-            "voice_settings": {
-                **settings,
-                "use_speaker_boost": True,
-                "speed": min(
-                    max(speak_speed, ELEVENLABS_SPEAK_SPEED_MIN),
-                    ELEVENLABS_SPEAK_SPEED_MAX,
-                ),
-            },
-            "apply_text_normalization": "on",
-        }
-        if target_language and model != "eleven_multilingual_v2":
-            tts_body["language_code"] = target_language.lower().split("-", 1)[0]
+        tts_body: dict[str, object] = build_tts_body(
+            segment.target_text,
+            model=model,
+            tone_style=emotion_tone,
+            language=target_language,
+            speed=min(
+                max(speak_speed, ELEVENLABS_SPEAK_SPEED_MIN),
+                ELEVENLABS_SPEAK_SPEED_MAX,
+            ),
+        )
         if position > 0:
             tts_body["previous_text"] = request.segments[position - 1].target_text
         if position + 1 < len(request.segments):
@@ -2187,14 +2189,20 @@ def _generate_dub_voice(request: DubVoiceRequest) -> dict:
                 max_speed=speak_max,
             )
             if abs(measured_speed - speak_speed) >= 0.12 and measured_speed > 1.03:
-                tts_body["voice_settings"] = {
-                    **settings,
-                    "use_speaker_boost": True,
-                    "speed": min(
+                tts_body = build_tts_body(
+                    segment.target_text,
+                    model=model,
+                    tone_style=emotion_tone,
+                    language=target_language,
+                    speed=min(
                         max(measured_speed, ELEVENLABS_SPEAK_SPEED_MIN),
                         ELEVENLABS_SPEAK_SPEED_MAX,
                     ),
-                }
+                )
+                if position > 0:
+                    tts_body["previous_text"] = request.segments[position - 1].target_text
+                if position + 1 < len(request.segments):
+                    tts_body["next_text"] = request.segments[position + 1].target_text
                 response = _eleven_request(
                     "POST",
                     f"{base}/v1/text-to-speech/{voice_id}",

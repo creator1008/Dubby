@@ -3,7 +3,8 @@
 Uses the Google AI Studio REST API (generativelanguage.googleapis.com).
 Call order for Ver 3.0:
 
-1. Listen to the whole audio once → complete source transcript + timed segments.
+1. Listen to the whole audio once → complete source transcript + timed
+   segments + per-segment emotion (same generateContent call; no Whisper+GPT-4o).
 2. Translate each caption independently (full transcript is context only).
 """
 
@@ -28,6 +29,7 @@ from .locale_rules import (
     spoken_char_budget,
     translation_pair_rules,
 )
+from .emotion import EMOTION_TONES, normalize_emotion_tone
 from .openai_client import SegmentDraft, TranscribeResult, parse_translation_content
 from .translation_align import idxs_needing_retranslate
 
@@ -50,6 +52,10 @@ _TRANSCRIPT_SCHEMA: dict[str, Any] = {
                     "end_sec": {"type": "number"},
                     "speaker": {"type": "string"},
                     "text": {"type": "string"},
+                    "emotion": {
+                        "type": "string",
+                        "enum": list(EMOTION_TONES),
+                    },
                 },
                 "required": ["start_sec", "end_sec", "speaker", "text"],
             },
@@ -190,12 +196,17 @@ def normalize_transcript_segments(
         speaker_raw = str(item.get("speaker") or "A").strip() or "A"
         if speaker_raw not in speaker_map:
             speaker_map[speaker_raw] = f"speaker_{len(speaker_map) + 1}"
+        emotion_raw = item.get("emotion", item.get("emotion_tone"))
+        emotion = None
+        if emotion_raw:
+            emotion = normalize_emotion_tone(str(emotion_raw))
         drafts.append(
             SegmentDraft(
                 start_ms=start_ms,
                 end_ms=end_ms,
                 text=text,
                 speaker_id=speaker_map[speaker_raw],
+                emotion_tone=emotion,
             )
         )
 
@@ -212,6 +223,7 @@ def normalize_transcript_segments(
                     end_ms=mid,
                     text=prev.text,
                     speaker_id=prev.speaker_id,
+                    emotion_tone=prev.emotion_tone,
                 )
                 start_ms = max(draft.start_ms, mid)
             else:
@@ -223,6 +235,7 @@ def normalize_transcript_segments(
                 end_ms=draft.end_ms,
                 text=draft.text,
                 speaker_id=draft.speaker_id,
+                emotion_tone=draft.emotion_tone,
             )
         cleaned.append(draft)
 
@@ -331,6 +344,10 @@ class GeminiClient:
             "(00:03.920 → 3.92). Include millisecond decimals. Anchor every "
             "segment to audible speech; do not invent equal-length slices.\n"
             "  text is exactly what was spoken in that range.\n"
+            "  emotion is that segment's vocal delivery from ITS audio span plus "
+            "the spoken text. Use exactly one of: sad, angry, whisper, excited, "
+            "energetic, calm, cheerful. Emotion is metadata only — never change "
+            "timestamps, speaker, or wording because of it.\n"
             "The concatenation of segment texts must cover the same words as "
             "full_transcript. Sort segments by start_sec. start_sec < end_sec."
         )

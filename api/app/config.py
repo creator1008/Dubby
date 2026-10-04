@@ -153,8 +153,8 @@ class Settings(BaseSettings):
     # --- ElevenLabs (voice clone + TTS) ----------------------------------------
     elevenlabs_api_key: str = ""
     elevenlabs_base_url: str = "https://api.elevenlabs.io"
-    # Ver 3.0 default: Eleven v3 (70+ languages including Vietnamese).
-    elevenlabs_tts_model: str = "eleven_v3"
+    # Official ElevenLabs id is eleven_v4 (not eleven_4). 90+ languages.
+    elevenlabs_tts_model: str = "eleven_v4"
     # When set, skip Instant Voice Clone and always use this voice.
     elevenlabs_voice_id: str = ""
     # Parallel TTS requests per dub job (cost unchanged; wall-clock drops).

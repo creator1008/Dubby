@@ -177,6 +177,10 @@ async def refresh_preview(
         meta = manifest.get(idx) or {}
         if meta.get("emotion_tone") and not row.get("emotion_tone"):
             row["emotion_tone"] = str(meta["emotion_tone"])
+        if meta.get("detected_emotion_tone"):
+            row["detected_emotion_tone"] = str(meta["detected_emotion_tone"])
+            if not row.get("emotion_tone"):
+                row["emotion_tone"] = str(meta["detected_emotion_tone"])
         if meta.get("speak_speed") is not None and row.get("speak_speed") is None:
             try:
                 row["speak_speed"] = float(meta["speak_speed"])

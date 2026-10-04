@@ -128,6 +128,11 @@ async def refresh_preview_clips(
                 str(meta.get("emotion_tone") or row.get("emotion_tone") or ""),
                 project_tone=project_tone,
                 user_set=bool(meta.get("emotion_user_set")),
+                detected=str(
+                    meta.get("detected_emotion_tone")
+                    or row.get("detected_emotion_tone")
+                    or ""
+                ),
             )
             try:
                 speak_speed = float(
@@ -160,6 +165,11 @@ async def refresh_preview_clips(
             if meta.get("emotion_user_set"):
                 meta_row["emotion_tone"] = emotion
                 meta_row["emotion_user_set"] = True
+            detected = meta.get("detected_emotion_tone") or row.get(
+                "detected_emotion_tone"
+            )
+            if detected:
+                meta_row["detected_emotion_tone"] = str(detected)
             for key in ("source_end_ms", "gain_db", "source_level_db", "tts_level_db"):
                 if meta.get(key) is not None:
                     meta_row[key] = meta[key]

@@ -701,7 +701,7 @@ def test_default_translation_model_is_openai() -> None:
     assert fields["stt_provider"].default == "gemini"
     assert fields["translation_provider"].default == "gemini"
     assert fields["gemini_model"].default == "gemini-3.7-flash"
-    assert fields["elevenlabs_tts_model"].default == "eleven_v3"
+    assert fields["elevenlabs_tts_model"].default == "eleven_v4"
     assert fields["translation_model"].default == "gpt-4o-mini"
 
 

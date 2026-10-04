@@ -92,7 +92,7 @@ Notes:
   `ELEVENLABS_API_KEY` (voice clone + TTS) in `infra/.env`.
   Optional: `OPENAI_API_KEY` for Whisper fallback (`STT_PROVIDER=openai`) and
   OpenAI diarize when Gemini speakers are not used.
-  Set `ELEVENLABS_TTS_MODEL=eleven_v3` (default) for high-quality TTS.
+  Set `ELEVENLABS_TTS_MODEL=eleven_v4` (default; official id, not `eleven_4`) for high-quality TTS.
   Set `ELEVENLABS_VOICE_ID` to skip per-project Instant Voice
   Clone and dub with one fixed voice. All pipeline knobs (limits, models,
   Demucs device, retry counts) are listed in `api/.env.example`.

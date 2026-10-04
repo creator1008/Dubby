@@ -209,7 +209,7 @@
     <tr><td>Grok reasoning</td><td>translation_reasoning_effort</td><td>TRANSLATION_REASONING_EFFORT</td><td>low</td></tr>
     <tr><td>화자분리</td><td>diarization_provider</td><td>DIARIZATION_PROVIDER</td><td>openai</td></tr>
     <tr><td>화자분리 모델</td><td>diarization_model</td><td>DIARIZATION_MODEL</td><td>gpt-4o-transcribe-diarize</td></tr>
-    <tr><td>TTS</td><td>elevenlabs_tts_model</td><td>ELEVENLABS_TTS_MODEL</td><td>eleven_v3</td></tr>
+    <tr><td>TTS</td><td>elevenlabs_tts_model</td><td>ELEVENLABS_TTS_MODEL</td><td>eleven_v4 (공식 id. eleven_4 아님)</td></tr>
     <tr><td>립싱크</td><td>lipsync_provider</td><td>LIPSYNC_PROVIDER</td><td>disabled</td></tr>
   </tbody>
 </table>
@@ -316,7 +316,8 @@ thinkingConfig.thinkingLevel: LOW
           "start_sec": {"type": "number"},
           "end_sec": {"type": "number"},
           "speaker": {"type": "string"},
-          "text": {"type": "string"}
+          "text": {"type": "string"},
+          "emotion": {"type": "string", "enum": ["sad","angry","whisper","excited","energetic","calm","cheerful"]}
         },
         "required": ["start_sec", "end_sec", "speaker", "text"]
       }
@@ -348,6 +349,7 @@ Return JSON with:
 - segments: utterance captions covering every spoken word, typically 2–12 seconds, split on sentence or speaker change.
   start_sec / end_sec are seconds from the start of this audio file (00:03.920 → 3.92). Include millisecond decimals. Anchor every segment to audible speech; do not invent equal-length slices.
   text is exactly what was spoken in that range.
+  emotion is that segment's vocal delivery from ITS audio span plus the spoken text. Use exactly one of: sad, angry, whisper, excited, energetic, calm, cheerful. Emotion is metadata only — never change timestamps, speaker, or wording because of it.
 The concatenation of segment texts must cover the same words as full_transcript. Sort segments by start_sec. start_sec &lt; end_sec.
 </pre>
 
@@ -591,21 +593,21 @@ You align a complete {tgt} dubbing translation onto numbered {src} source segmen
 
 <h2>11.2 합성</h2>
 <p><code>POST /v1/text-to-speech/{voice_id}?output_format=mp3_44100_128</code>. 동시성 <code>TTS_CONCURRENCY</code> 기본 4. 자체 재시도 <code>pipeline_step_retries+1</code>.</p>
-<p>vi/ur/th는 multilingual_v1/v2를 쓰면 강제 <code>eleven_v3</code>.</p>
-<p>v3 바디:</p>
+<p>vi/ur/th는 multilingual_v1/v2를 쓰면 강제 <code>eleven_v4</code>. 명시적 <code>eleven_v3</code>는 유지.</p>
+<p>v4/v3 바디. 감정은 별도 JSON 필드가 아니라 공식 인라인 오디오 태그(<code>[excited]</code> 등). SSML 없음:</p>
 <pre>
 {
   "text": "{optional emotion tag}{line}",
-  "model_id": "eleven_v3",
+  "model_id": "eleven_v4",
   "voice_settings": {
-    "stability": {v3 map},
+    "stability": {v3/v4 map},
     "similarity_boost": {emotion map, default 0.75}
   },
   "language_code": "{target_lang}"   // 있으면
 }
 </pre>
-<p>v3 stability: sad/whisper=1.0, calm/cheerful=0.5, angry/excited/energetic=0.0. v3는 <code>speed</code>를 보내지 않는다(0.7–1.2 클램프는 비-v3 <code>voice_settings.speed</code>).</p>
-<p>v3 텍스트 접두(이미 <code>[</code>로 시작하면 생략):</p>
+<p>v4/v3 stability: sad/whisper=1.0, calm/cheerful=0.5, angry/excited/energetic=0.0. v4/v3는 <code>speed</code>를 보내지 않는다(0.7–1.2 클램프는 비-태그 모델 <code>voice_settings.speed</code>).</p>
+<p>텍스트 접두(이미 <code>[</code>로 시작하면 생략):</p>
 <table>
   <thead><tr><th>emotion_tone</th><th>접두</th></tr></thead>
   <tbody>
@@ -622,10 +624,10 @@ You align a complete {tgt} dubbing translation onto numbered {src} source segmen
 <h2>11.3 Voice Changer (선택)</h2>
 <p><code>VOICE_CHANGER_AFTER_TTS</code> 기본 false. <code>POST /v1/speech-to-speech/{voice_id}</code>, model <code>eleven_multilingual_sts_v2</code>, <code>remove_background_noise=true</code>. 프롬프트 없음.</p>
 
-<h1>12. 감정·스타일 — LLM 아님</h1>
-<p><code>api/app/worker/emotion.py</code>. PCM 크기·다이내믹·ZCR·F0로 분류한다. 분류용 프롬프트 없음.</p>
+<h1>12. 감정·스타일</h1>
+<p>기본 경로: Gemini Flash 오디오 STT와 <strong>같은</strong> generateContent 호출이 세그먼트마다 <code>emotion</code>을 낸다. Whisper+GPT-4o를 쓰지 않는다 — STT/번역이 이미 Gemini이고, 세그먼트마다 세 번째 벤더 왕복을 만들지 않기 위해서다. <code>STT_PROVIDER=openai</code>이거나 Gemini가 emotion을 빼면 <code>emotion.py</code> PCM 휴리스틱(크기·다이내믹·ZCR·F0 + 가벼운 텍스트 단서)이 fallback이다. 분류 전용 OpenAI 호출은 없다.</p>
 <p>택소노미: sad, angry, whisper, excited, energetic, calm, cheerful. 레거시 neutral/serious→calm, warm→cheerful.</p>
-<p>프로젝트 <code>tone_style</code>이 기본. 편집기가 세그먼트 오버라이드를 저장한 경우만 그 값을 쓴다. 분류가 쓰는 비-v3 voice_settings:</p>
+<p>우선순위: 편집기 오버라이드(<code>emotion_user_set</code>) → 세그먼트 검출(<code>detected_emotion_tone</code>, R2 매니페스트) → 프로젝트 <code>tone_style</code>. 분류가 쓰는 비-v4 voice_settings:</p>
 <table>
   <thead><tr><th>tone</th><th>stability</th><th>similarity_boost</th><th>style</th></tr></thead>
   <tbody>
@@ -650,7 +652,7 @@ You align a complete {tgt} dubbing translation onto numbered {src} source segmen
     <tr><td>yt-dlp</td><td>URL 수집 (API). 본 파이프라인 STT/번역 아님</td></tr>
     <tr><td>Sync.so lipsync</td><td>기본 disabled. 비디오+오디오 URL만. 프롬프트 없음</td></tr>
     <tr><td>pyannote</td><td>로컬 화자분리 모델</td></tr>
-    <tr><td>emotion.py</td><td>음향 휴리스틱</td></tr>
+    <tr><td>emotion.py PCM</td><td>음향 휴리스틱. Gemini STT emotion이 없을 때만</td></tr>
     <tr><td>translation_align.py</td><td>길이/스크립트 휴리스틱</td></tr>
     <tr><td>vi→ko postprocess</td><td>정규식 지명·통화 교정</td></tr>
   </tbody>

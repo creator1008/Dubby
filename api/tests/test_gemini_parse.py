@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.worker.elevenlabs_client import v3_tagged_text
+from app.worker.elevenlabs_client import build_tts_body, tagged_text, v3_tagged_text
 from app.worker.gemini_client import (
     build_generation_config,
     extract_gemini_text,
@@ -73,7 +73,50 @@ def test_spoken_char_budget_korean_slot() -> None:
 
 def test_v3_emotion_tag_prefixes_once() -> None:
     assert v3_tagged_text("안녕하세요", "excited").startswith("[excited]")
-    assert v3_tagged_text("[whispers] 안녕", "whisper") == "[whispers] 안녕"
+    assert tagged_text("[whispers] 안녕", "whisper") == "[whispers] 안녕"
+
+
+def test_v4_tts_body_includes_model_id_and_emotion_tag() -> None:
+    body = build_tts_body(
+        "안녕하세요",
+        model="eleven_v4",
+        tone_style="excited",
+        language="ko",
+        speed=1.1,
+    )
+    assert body["model_id"] == "eleven_v4"
+    assert body["text"].startswith("[excited]")
+    assert "안녕하세요" in body["text"]
+    assert body["language_code"] == "ko"
+    assert "speed" not in body["voice_settings"]
+    assert set(body["voice_settings"]) == {"stability", "similarity_boost"}
+
+
+def test_normalize_keeps_optional_emotion_without_breaking_idx_fields() -> None:
+    payload = {
+        "full_transcript": "Hello. Bye.",
+        "segments": [
+            {
+                "start_sec": 0,
+                "end_sec": 1,
+                "speaker": "A",
+                "text": "Hello.",
+                "emotion": "excited",
+            },
+            {
+                "start_sec": 1,
+                "end_sec": 2,
+                "speaker": "A",
+                "text": "Bye.",
+            },
+        ],
+    }
+    full, drafts = normalize_transcript_segments(payload, duration_ms=5000)
+    assert full.startswith("Hello")
+    assert drafts[0].emotion_tone == "excited"
+    assert drafts[1].emotion_tone is None
+    assert drafts[0].start_ms == 0
+    assert drafts[1].end_ms == 2000
 
 
 def test_extract_gemini_text_strips_fence() -> None:

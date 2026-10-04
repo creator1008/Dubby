@@ -426,6 +426,7 @@ create_repository(settings)
   <tbody>
     <tr><td>source_end_ms</td><td>R2 <code>dub_voice_manifest.json</code>. 원본 ASR 끝. end_ms와 달라질 수 있음. DB 컬럼 아님</td></tr>
     <tr><td>emotion_tone / emotion_user_set</td><td>동일 매니페스트. 세그먼트 감정 오버라이드</td></tr>
+    <tr><td>detected_emotion_tone</td><td>동일 매니페스트. Gemini STT(또는 PCM fallback) 세그먼트 감정. DB 컬럼 아님</td></tr>
     <tr><td>clip_speak_speed</td><td>매니페스트. 실제 TTS에 쓴 배율</td></tr>
     <tr><td>baseline_speak_speed</td><td>API/프론트 파생. 보통 1. 저장 컬럼 없음</td></tr>
     <tr><td>dubbed_audio_url</td><td>메타 클립 키의 프리사인 GET. DB에 URL을 저장하지 않음</td></tr>
@@ -694,7 +695,7 @@ status=ready_for_edit            message=done
 <p>프로젝트: ready_for_edit → dubbing → completed. 믹스 베드는 원본에서 소스 언어 발화 구간을 깎고, 그 자리에 TTS를 올린다. 다른 언어 구간은 passthrough.</p>
 <pre>
 list_segments_for_worker + R2 manifest 병합
-  |  speak_speed, emotion_user_set, source_end_ms 복원
+  |  speak_speed, emotion_user_set, detected_emotion_tone, source_end_ms 복원
   |  target_text 있는 행만. source_lang passthrough 제외 → speakable
   v
 download + probe                 message=queued 후 extracting_audio

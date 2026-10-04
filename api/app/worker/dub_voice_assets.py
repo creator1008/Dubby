@@ -123,6 +123,11 @@ async def persist_dub_voice_assets(
         if user_set and emotion:
             meta_row["emotion_tone"] = str(emotion)
             meta_row["emotion_user_set"] = True
+        detected = item.get("detected_emotion_tone") or seg.get(
+            "detected_emotion_tone"
+        )
+        if detected:
+            meta_row["detected_emotion_tone"] = str(detected).strip()
         for key in ("gain_db", "source_level_db", "tts_level_db"):
             try:
                 value = float(item[key]) if item.get(key) is not None else None
@@ -342,6 +347,50 @@ async def update_manifest_speak_speeds(
         logger.warning("dub voice manifest speed update failed: %s", exc)
 
 
+async def update_manifest_detected_emotions(
+    storage: R2Storage,
+    *,
+    source_key: str | None,
+    emotion_by_idx: dict[int, str],
+) -> None:
+    """Persist per-idx Gemini/PCM detections without marking editor overrides."""
+    if not source_key or not emotion_by_idx:
+        return
+    from .emotion import normalize_emotion_tone
+
+    by_idx = await load_dub_voice_manifest(storage, source_key)
+    changed = False
+    for idx, tone in emotion_by_idx.items():
+        cleaned = normalize_emotion_tone(str(tone or "").strip() or None)
+        row = by_idx.get(idx)
+        if not row:
+            by_idx[idx] = {
+                "idx": idx,
+                "speak_speed": 1.0,
+                "detected_emotion_tone": cleaned,
+                "audio_key": "",
+            }
+            changed = True
+            continue
+        prior = str(row.get("detected_emotion_tone") or "").strip()
+        if prior != cleaned:
+            row["detected_emotion_tone"] = cleaned
+            changed = True
+    if not changed:
+        return
+    manifest = {
+        "segments": [by_idx[idx] for idx in sorted(by_idx.keys())],
+    }
+    try:
+        await storage.upload_bytes(
+            json.dumps(manifest, ensure_ascii=False).encode("utf-8"),
+            dub_manifest_key(storage, source_key),
+            "application/json",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("dub voice manifest emotion update failed: %s", exc)
+
+
 async def enrich_segments_with_dub_voice(
     storage: R2Storage,
     rows: list[dict[str, Any]],
@@ -403,10 +452,20 @@ async def enrich_segments_with_dub_voice(
         if source_end_i is not None and source_end_i > 0:
             copied["source_end_ms"] = source_end_i
         emotion = meta.get("emotion_tone", copied.get("emotion_tone"))
+        detected = meta.get("detected_emotion_tone") or copied.get(
+            "detected_emotion_tone"
+        )
         if meta.get("emotion_user_set") and emotion:
             copied["emotion_tone"] = str(emotion)
+            copied["emotion_user_set"] = True
+        elif detected:
+            copied["emotion_tone"] = str(detected)
+            copied.pop("emotion_user_set", None)
         else:
             copied.pop("emotion_tone", None)
+            copied.pop("emotion_user_set", None)
+        if detected:
+            copied["detected_emotion_tone"] = str(detected)
         audio_key = str(meta.get("audio_key") or "").strip()
         meta_text = str(meta.get("target_text") or "").strip()
         current_text = str(copied.get("target_text") or "").strip()

@@ -22,6 +22,24 @@ def test_resolve_segment_emotion_uses_project_tone_unless_editor_override() -> N
     assert resolve_segment_emotion("sad", project_tone="calm", user_set=False) == "calm"
     assert resolve_segment_emotion("sad", project_tone="calm", user_set=True) == "sad"
     assert resolve_segment_emotion("", project_tone="cheerful", user_set=True) == "cheerful"
+    assert (
+        resolve_segment_emotion(
+            "sad",
+            project_tone="calm",
+            user_set=False,
+            detected="excited",
+        )
+        == "excited"
+    )
+    assert (
+        resolve_segment_emotion(
+            "sad",
+            project_tone="calm",
+            user_set=True,
+            detected="excited",
+        )
+        == "sad"
+    )
 
 
 def test_voice_settings_cover_all_tones() -> None:

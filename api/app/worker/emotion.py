@@ -1,11 +1,13 @@
-"""Per-segment emotion tone from source vocals → ElevenLabs voice settings.
+"""Per-segment emotion tone from source vocals → ElevenLabs audio tags.
 
 Taxonomy (product):
   sad, angry, whisper, excited, energetic, calm, cheerful
 
-Detection uses lightweight PCM features (loudness, dynamics, ZCR, F0) so the
-worker needs no extra ML dependency. Project ``tone_style`` is the fallback
-when a clip is too short/silent to classify.
+Primary path (Gemini STT, same generateContent call): each caption already
+hears its audio span + text, so we persist ``detected_emotion_tone`` instead
+of adding Whisper+GPT-4o or a third vendor hop. OpenAI STT fallback and
+missing Gemini labels use this PCM heuristic (loudness, dynamics, ZCR, F0).
+Project ``tone_style`` is last resort when a clip is too short/silent.
 """
 
 from __future__ import annotations
@@ -73,11 +75,14 @@ def resolve_segment_emotion(
     *,
     project_tone: str | None,
     user_set: bool = False,
+    detected: str | None = None,
 ) -> EmotionTone:
-    """Project tone for every line unless the editor saved a per-segment override."""
+    """Editor override, then per-segment detection, then project tone."""
     fallback = normalize_emotion_tone(project_tone)
     if user_set and (saved or "").strip():
         return normalize_emotion_tone(saved, fallback=fallback)
+    if (detected or "").strip():
+        return normalize_emotion_tone(detected, fallback=fallback)
     return fallback
 
 

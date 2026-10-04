@@ -787,7 +787,7 @@ def build() -> None:
             "DEMUCS_MODEL (기본 htdemucs), DEMUCS_DEVICE (기본 cpu)",
             "MIX_NO_VOCALS_IN_MASK (기본 0.8)",
             "STT_PROVIDER / TRANSLATION_PROVIDER (기본 gemini)",
-            "ELEVENLABS_TTS_MODEL (기본 eleven_v3)",
+            "ELEVENLABS_TTS_MODEL (기본 eleven_v4)",
             "LIPSYNC_PROVIDER (기본 disabled)",
             "CORS_ORIGINS (추가 Origin. 필수 목록은 코드가 합친다)",
         ]

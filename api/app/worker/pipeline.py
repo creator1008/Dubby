@@ -478,6 +478,7 @@ def _apply_corrected_texts(
                 text=text,
                 speaker_id=chunk.speaker_id,
                 words=chunk.words,
+                emotion_tone=chunk.emotion_tone,
             )
         )
     return out
@@ -559,6 +560,7 @@ def _chunks_from_whisper_drafts(
                 text=text,
                 speaker_id=draft.speaker_id or "speaker_0",
                 words=overlapping,
+                emotion_tone=draft.emotion_tone,
             )
         )
     return chunks
@@ -580,6 +582,13 @@ def _chunks_from_split_rows(
             for word in all_words
             if word.start_ms < end_ms and word.end_ms > start_ms
         )
+        inherited = None
+        best_overlap = 0
+        for original in originals:
+            overlap = min(original.end_ms, end_ms) - max(original.start_ms, start_ms)
+            if overlap > best_overlap and original.emotion_tone:
+                best_overlap = overlap
+                inherited = original.emotion_tone
         out.append(
             UtteranceChunk(
                 start_ms=start_ms,
@@ -587,6 +596,7 @@ def _chunks_from_split_rows(
                 text=spoken,
                 speaker_id=speaker_id or "speaker_1",
                 words=overlapping,
+                emotion_tone=inherited,
             )
         )
     return out or originals
@@ -680,6 +690,7 @@ async def _fill_uncovered_asr_tail(
                     end_ms=end_ms,
                     text=draft.text,
                     speaker_id=draft.speaker_id,
+                    emotion_tone=draft.emotion_tone,
                 )
             )
         gap_chunks = _chunks_from_whisper_drafts(offset_drafts, [])
@@ -909,7 +920,12 @@ async def run_transcribe(ctx: JobContext) -> None:
         )
 
         drafts = [
-            SegmentDraft(start_ms=c.start_ms, end_ms=c.end_ms, text=c.text)
+            SegmentDraft(
+                start_ms=c.start_ms,
+                end_ms=c.end_ms,
+                text=c.text,
+                emotion_tone=c.emotion_tone,
+            )
             for c in chunks
         ]
 
@@ -935,6 +951,19 @@ async def run_transcribe(ctx: JobContext) -> None:
         ]
         await ctx.report(0.95, "refine_timing")
         await ctx.repo.replace_segments(ctx.project_id, rows)
+        detected_by_idx = {
+            i: str(d.emotion_tone)
+            for i, d in enumerate(drafts)
+            if d.emotion_tone
+        }
+        if detected_by_idx:
+            from .dub_voice_assets import update_manifest_detected_emotions
+
+            await update_manifest_detected_emotions(
+                ctx.storage,
+                source_key=str(project.get("source_key") or "") or None,
+                emotion_by_idx=detected_by_idx,
+            )
         await _set_project(
             ctx,
             status="ready_for_edit",
@@ -994,10 +1023,13 @@ async def run_dub(ctx: JobContext) -> None:
                     if speed_f is not None and speed_f > 0:
                         row["speak_speed"] = speed_f
 
-                # Per-segment tone only when the subtitle editor saved an override.
+                # Per-segment tone: editor override, else Gemini/PCM detection.
                 if meta.get("emotion_user_set") and meta.get("emotion_tone"):
                     row["emotion_tone"] = str(meta.get("emotion_tone")).strip()
                     row["emotion_user_set"] = True
+                detected = str(meta.get("detected_emotion_tone") or "").strip()
+                if detected:
+                    row["detected_emotion_tone"] = detected
 
                 # Freeze original ASR end; never overwrite with a rate-adjusted end_ms.
                 source_end = row.get("source_end_ms")
@@ -1140,18 +1172,49 @@ async def run_dub(ctx: JobContext) -> None:
             ),
         )
 
-        from .emotion import resolve_segment_emotion
+        from .emotion import detect_emotions_for_segments, resolve_segment_emotion
 
         project_tone = resolve_segment_emotion(
             None, project_tone=str(project.get("tone_style") or "calm")
         )
+        pcm_needed = [
+            segment
+            for segment in speakable
+            if not segment.get("emotion_user_set")
+            and not str(segment.get("detected_emotion_tone") or "").strip()
+        ]
+        pcm_tones = (
+            detect_emotions_for_segments(
+                vocals, pcm_needed, fallback=project_tone
+            )
+            if pcm_needed
+            else {}
+        )
+        if pcm_tones:
+            from .dub_voice_assets import update_manifest_detected_emotions
+
+            await update_manifest_detected_emotions(
+                ctx.storage,
+                source_key=str(project.get("source_key") or "") or None,
+                emotion_by_idx={idx: str(tone) for idx, tone in pcm_tones.items()},
+            )
         for segment in speakable:
             user_set = bool(segment.get("emotion_user_set"))
             saved = str(segment.get("emotion_tone") or "").strip()
+            try:
+                idx = int(segment["idx"])
+            except (KeyError, TypeError, ValueError):
+                idx = -1
+            detected = str(
+                segment.get("detected_emotion_tone") or pcm_tones.get(idx) or ""
+            ).strip()
+            if detected:
+                segment["detected_emotion_tone"] = detected
             segment["_tts_emotion"] = resolve_segment_emotion(
                 saved,
                 project_tone=project_tone,
                 user_set=user_set,
+                detected=detected,
             )
             if user_set and saved:
                 segment["emotion_tone"] = segment["_tts_emotion"]
@@ -1268,6 +1331,7 @@ async def run_dub(ctx: JobContext) -> None:
                     "tts_speak_speed": speak_speed,
                     "speak_speed_locked": speak_speed_locked,
                     "emotion_tone": segment_tone,
+                    "detected_emotion_tone": seg.get("detected_emotion_tone"),
                     "source_end_ms": int(
                         seg.get("source_end_ms")
                         or end_ms

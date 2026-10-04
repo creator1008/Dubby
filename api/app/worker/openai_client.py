@@ -57,6 +57,7 @@ class SegmentDraft:
     end_ms: int
     text: str
     speaker_id: str = "speaker_0"
+    emotion_tone: str | None = None
 
 
 @dataclass(frozen=True)

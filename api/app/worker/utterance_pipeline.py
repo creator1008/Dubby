@@ -51,6 +51,7 @@ class UtteranceChunk:
     text: str
     speaker_id: str
     words: tuple[TimedToken, ...]
+    emotion_tone: str | None = None
 
 
 @dataclass(frozen=True)
