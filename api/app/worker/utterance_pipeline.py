@@ -55,6 +55,7 @@ class TimedToken:
     start_ms: int
     end_ms: int
     text: str
+    speaker_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class UtteranceChunk:
     speaker_id: str
     words: tuple[TimedToken, ...]
     emotion_tone: str | None = None
+    emotion_tag: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -525,6 +527,7 @@ def merge_continuation_chunks(
                 speaker_id=prev_sid or current.speaker_id,
                 words=words,
                 emotion_tone=current.emotion_tone or nxt.emotion_tone,
+                emotion_tag=current.emotion_tag or nxt.emotion_tag,
             )
             current_label = (prev_sid, False)
             continue
@@ -575,6 +578,8 @@ def merge_dangling_chunks(
                 text=text or current.text,
                 speaker_id=current.speaker_id,
                 words=words,
+                emotion_tone=current.emotion_tone or nxt.emotion_tone,
+                emotion_tag=current.emotion_tag or nxt.emotion_tag,
             )
         else:
             merged.append(current)

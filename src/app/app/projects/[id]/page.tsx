@@ -13,6 +13,8 @@ import { retranslateLocalSegments } from "@/lib/local-step12";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
 import { preferStableMediaUrl, signedUrlIsFresh } from "@/lib/media-url";
+import type { EmotionTag } from "@/lib/emotion-tag";
+import { toneFromEmotionTag } from "@/lib/emotion-tag";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 import {
@@ -32,7 +34,10 @@ function snapshotTargetTexts(rows: Segment[]) {
 
 function snapshotEmotionTones(rows: Segment[]) {
   return Object.fromEntries(
-    rows.map((row) => [row.id, String(row.emotion_tone || "")]),
+    rows.map((row) => [
+      row.id,
+      JSON.stringify(row.emotion_tag || row.emotion_tone || ""),
+    ]),
   );
 }
 
@@ -178,7 +183,22 @@ function ProjectEditor() {
           ? {
               ...segment,
               emotion_tone: tone,
-              // Keep clip_speak_speed so save still detects prior dub preview.
+              dubbed_audio_url: undefined,
+            }
+          : segment,
+      ),
+    );
+    setMessage(null);
+  };
+
+  const onEmotionTagChange = (segmentId: string, tag: EmotionTag) => {
+    setSegments((current) =>
+      current.map((segment) =>
+        segment.id === segmentId
+          ? {
+              ...segment,
+              emotion_tag: tag,
+              emotion_tone: toneFromEmotionTag(tag),
               dubbed_audio_url: undefined,
             }
           : segment,
@@ -245,6 +265,7 @@ function ProjectEditor() {
             source_end_ms,
             speak_speed,
             emotion_tone,
+            emotion_tag,
           }) => ({
             id,
             source_text,
@@ -259,6 +280,7 @@ function ProjectEditor() {
               typeof emotion_tone === "string" && emotion_tone.trim()
                 ? emotion_tone.trim()
                 : undefined,
+            emotion_tag: emotion_tag || undefined,
           }),
         ),
       );
@@ -611,6 +633,7 @@ function ProjectEditor() {
               defaultEmotionTone={project.tone_style}
               onChange={onSegmentChange}
               onEmotionToneChange={onEmotionToneChange}
+              onEmotionTagChange={onEmotionTagChange}
               onEnsureDubPreview={(id) => ensureDubPreview(id)}
               onSpeakSpeedChange={(id, speed) => {
                 setSegments((prev) =>

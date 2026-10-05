@@ -129,7 +129,8 @@ def build_asr_audio_cmd(settings: Settings, source: str, mp3_out: str) -> list[s
     file so uploads stay under the API limit.
     """
     ffmpeg = _ffmpeg(settings)
-    if (getattr(settings, "stt_provider", "gemini") or "gemini").strip().lower() == "gemini":
+    provider = (getattr(settings, "stt_provider", "scribe") or "scribe").strip().lower()
+    if provider in {"gemini", "scribe"}:
         return [
             ffmpeg, "-y", "-nostdin",
             "-i", source,
@@ -150,6 +151,27 @@ def build_asr_audio_cmd(settings: Settings, source: str, mp3_out: str) -> list[s
         "-ac", "1",
         "-b:a", "64k",
         mp3_out,
+    ]
+
+
+def build_pcm16_mono_cmd(
+    settings: Settings, source: str, wav_out: str, sample_rate: int = 16000
+) -> list[str]:
+    """16 kHz mono PCM16 for per-segment emotion analysis."""
+    return [
+        _ffmpeg(settings),
+        "-y",
+        "-nostdin",
+        "-i",
+        source,
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        str(int(sample_rate)),
+        "-ac",
+        "1",
+        wav_out,
     ]
 
 

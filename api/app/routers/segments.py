@@ -98,6 +98,7 @@ async def update_segments(
     speeds: dict[int, float] = {}
     source_ends: dict[int, int] = {}
     emotions: dict[int, str] = {}
+    emotion_tags: dict[int, dict] = {}
     changed_texts: dict[int, str] = {}
     for row in rows:
         if row.get("speak_speed") is not None:
@@ -116,6 +117,12 @@ async def update_segments(
             source_ends[idx] = int(seg.source_end_ms)
         if seg.emotion_tone:
             emotions[idx] = seg.emotion_tone
+        if isinstance(seg.emotion_tag, dict):
+            emotion_tags[idx] = seg.emotion_tag
+        elif seg.emotion_tone:
+            from ..worker.emotion_tag import apply_user_emotion_input
+
+            emotion_tags[idx] = apply_user_emotion_input(seg.emotion_tone)
         prior = prior_by_id.get(str(seg.id))
         if prior is not None and str(prior.get("target_text") or "") != seg.target_text:
             changed_texts[idx] = seg.target_text
@@ -125,6 +132,7 @@ async def update_segments(
         speeds_by_idx=speeds,
         source_end_by_idx=source_ends or None,
         emotion_by_idx=emotions or None,
+        emotion_tag_by_idx=emotion_tags or None,
     )
     if changed_texts:
         await invalidate_stale_dub_previews(
@@ -141,6 +149,8 @@ async def update_segments(
             row["source_end_ms"] = source_ends[idx]
         if idx in emotions:
             row["emotion_tone"] = emotions[idx]
+        if idx in emotion_tags:
+            row["emotion_tag"] = emotion_tags[idx]
     return await _segment_outs(
         rows,
         storage=storage,

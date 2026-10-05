@@ -21,6 +21,7 @@ from .dub_voice_assets import (
 )
 from .elevenlabs_client import ElevenLabsClient
 from .emotion import resolve_segment_emotion
+from .emotion_tag import emotion_tag_from_tone, parse_emotion_tag
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,12 @@ async def refresh_preview_clips(
                     or ""
                 ),
             )
+            raw_tag = meta.get("emotion_tag") or row.get("emotion_tag")
+            emotion_tag = (
+                parse_emotion_tag(raw_tag)
+                if isinstance(raw_tag, dict)
+                else emotion_tag_from_tone(emotion)
+            )
             try:
                 speak_speed = float(
                     row.get("speak_speed") or meta.get("speak_speed") or 1.0
@@ -150,6 +157,7 @@ async def refresh_preview_clips(
                 emotion,
                 target_lang,
                 speed=speak_speed,
+                emotion_tag=emotion_tag,
             )
 
             # API image has no ffmpeg — upload raw MP3 for editor preview.
@@ -165,6 +173,8 @@ async def refresh_preview_clips(
             if meta.get("emotion_user_set"):
                 meta_row["emotion_tone"] = emotion
                 meta_row["emotion_user_set"] = True
+            if emotion_tag:
+                meta_row["emotion_tag"] = emotion_tag
             detected = meta.get("detected_emotion_tone") or row.get(
                 "detected_emotion_tone"
             )

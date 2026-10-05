@@ -352,9 +352,27 @@ body {
   font-size: 0.85rem;
 }
 
-.emotion-tone-row select:disabled {
+.emotion-tone-row select:disabled,
+.emotion-tone-row input:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.emotion-tag-block {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.emotion-tone-row input {
+  flex: 1;
+  min-width: 0;
+  height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink);
+  padding: 0 0.55rem;
+  font-size: 0.85rem;
 }
 
 .speak-rate-btn,

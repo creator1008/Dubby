@@ -599,6 +599,7 @@ const realApi = {
           source_end_ms?: number;
           speak_speed?: number;
           emotion_tone?: string;
+          emotion_tag?: import("@/lib/emotion-tag").EmotionTag;
         }
       >,
     ) =>

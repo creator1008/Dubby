@@ -828,6 +828,7 @@ export const demoApi = {
           end_ms?: number;
           speak_speed?: number;
           emotion_tone?: string;
+          emotion_tag?: Segment["emotion_tag"];
         }
       >,
     ) => {
@@ -848,6 +849,7 @@ export const demoApi = {
         row.target_text = update.target_text;
         if (update.source_text !== undefined) row.source_text = update.source_text;
         if (update.emotion_tone) row.emotion_tone = update.emotion_tone;
+        if (update.emotion_tag) row.emotion_tag = update.emotion_tag;
         if (
           typeof update.end_ms === "number" &&
           Number.isFinite(update.end_ms) &&

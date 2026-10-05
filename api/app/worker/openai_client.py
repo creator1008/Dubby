@@ -58,6 +58,7 @@ class SegmentDraft:
     text: str
     speaker_id: str = "speaker_0"
     emotion_tone: str | None = None
+    emotion_tag: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -262,36 +263,18 @@ def assistant_message_text(payload: dict) -> str:
 
 
 def parse_translation_content(content: str, expected_idxs: list[int]) -> dict[int, str]:
-    """Model JSON -> {idx: translated text}; every expected idx must appear."""
+    """Model JSON -> {segment_id: text}. Match by idx/segment_id only, never order."""
+    from .document_translate import parse_translations_by_segment_id
+
     try:
         data = json.loads(coerce_model_json(content))
-        items = data["translations"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+    except (json.JSONDecodeError, TypeError) as exc:
         raise PipelineError(
             errors.TRANSLATION_FAILED,
             "translation response was not the expected JSON shape",
             retryable=True,
         ) from exc
-
-    result: dict[int, str] = {}
-    for item in items:
-        try:
-            result[int(item["idx"])] = str(item["text"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise PipelineError(
-                errors.TRANSLATION_FAILED,
-                "translation item missing idx/text",
-                retryable=True,
-            ) from exc
-
-    missing = [i for i in expected_idxs if i not in result]
-    if missing:
-        raise PipelineError(
-            errors.TRANSLATION_FAILED,
-            f"translation missing segments {missing[:10]}",
-            retryable=True,
-        )
-    return result
+    return parse_translations_by_segment_id(data, expected_idxs, require_all=True)
 
 
 def build_translation_messages(
@@ -312,7 +295,8 @@ def build_translation_messages(
         "write natural native spoken language for voice-over; retain all "
         "required diacritics; spell numbers and abbreviations as they should "
         "be spoken; never merge, split, drop, or reorder segments; return one "
-        "translation per idx. Use the full transcript context so pronouns, "
+        "translation per segment_id/idx. Never slice the document into N rows. "
+        "Use the full transcript context so pronouns, "
         "names, tense, and register stay consistent across segments — but still "
         "translate each idx independently without borrowing words from neighbors."
     )
@@ -321,7 +305,12 @@ def build_translation_messages(
         system = f"{system}\n\n{extra}"
     payload: dict[str, object] = {
         "segments": [
-            {"idx": idx, "text": text, "target_seconds": round(seconds, 2)}
+            {
+                "segment_id": idx,
+                "idx": idx,
+                "text": text,
+                "target_seconds": round(seconds, 2),
+            }
             for idx, text, seconds in items
         ]
     }
@@ -347,10 +336,11 @@ _TRANSLATION_SCHEMA = {
                     "items": {
                         "type": "object",
                         "properties": {
+                            "segment_id": {"type": "integer"},
                             "idx": {"type": "integer"},
                             "text": {"type": "string"},
                         },
-                        "required": ["idx", "text"],
+                        "required": ["segment_id", "idx", "text"],
                         "additionalProperties": False,
                     },
                 }

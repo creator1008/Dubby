@@ -482,9 +482,81 @@ def _apply_corrected_texts(
                 speaker_id=chunk.speaker_id,
                 words=chunk.words,
                 emotion_tone=chunk.emotion_tone,
+                emotion_tag=chunk.emotion_tag,
             )
         )
     return out
+
+
+def _rewrite_chunk(chunk: UtteranceChunk, **changes) -> UtteranceChunk:
+    return UtteranceChunk(
+        start_ms=changes.get("start_ms", chunk.start_ms),
+        end_ms=changes.get("end_ms", chunk.end_ms),
+        text=changes.get("text", chunk.text),
+        speaker_id=changes.get("speaker_id", chunk.speaker_id),
+        words=changes.get("words", chunk.words),
+        emotion_tone=changes.get("emotion_tone", chunk.emotion_tone),
+        emotion_tag=changes.get("emotion_tag", chunk.emotion_tag),
+    )
+
+
+async def _tag_chunk_emotions(
+    engine,
+    audio_path: str,
+    chunks: list[UtteranceChunk],
+    *,
+    fallback_tone: str,
+    scratch: Path,
+) -> list[UtteranceChunk]:
+    """Attach auto emotion_tag from PCM; keep existing tags."""
+    from .emotion_tag import (
+        default_emotion_tag,
+        detect_emotion_tags_for_segments,
+        emotion_tag_from_tone,
+        normalize_emotion_class,
+        parse_emotion_tag,
+    )
+
+    fallback = normalize_emotion_class(fallback_tone)
+    default = default_emotion_tag(fallback=fallback)
+    wav = scratch / "emotion.wav"
+    try:
+        await engine.extract_pcm16_mono(audio_path, str(wav))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("emotion wav extract skipped: %s", exc)
+        wav = Path(audio_path)
+    rows = [
+        {
+            "idx": i,
+            "start_ms": c.start_ms,
+            "end_ms": c.end_ms,
+            "source_end_ms": c.end_ms,
+            "source_text": c.text,
+        }
+        for i, c in enumerate(chunks)
+    ]
+    tags: dict[int, dict] = {}
+    try:
+        tags = detect_emotion_tags_for_segments(str(wav), rows, fallback=fallback)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("emotion tagging skipped: %s", exc)
+    tagged: list[UtteranceChunk] = []
+    for i, chunk in enumerate(chunks):
+        existing = chunk.emotion_tag
+        if existing:
+            tag = parse_emotion_tag(existing, fallback=fallback)
+        elif chunk.emotion_tone:
+            tag = emotion_tag_from_tone(chunk.emotion_tone, fallback=fallback)
+        else:
+            tag = tags.get(i) or dict(default)
+        tagged.append(
+            _rewrite_chunk(
+                chunk,
+                emotion_tag=tag,
+                emotion_tone=str(tag.get("class") or fallback).lower(),
+            )
+        )
+    return tagged
 
 
 def _correction_is_lossy(original: str, corrected: str) -> bool:
@@ -564,6 +636,7 @@ def _chunks_from_whisper_drafts(
                 speaker_id=draft.speaker_id or "speaker_0",
                 words=overlapping,
                 emotion_tone=draft.emotion_tone,
+                emotion_tag=getattr(draft, "emotion_tag", None),
             )
         )
     return chunks
@@ -586,12 +659,14 @@ def _chunks_from_split_rows(
             if word.start_ms < end_ms and word.end_ms > start_ms
         )
         inherited = None
+        inherited_tag = None
         best_overlap = 0
         for original in originals:
             overlap = min(original.end_ms, end_ms) - max(original.start_ms, start_ms)
-            if overlap > best_overlap and original.emotion_tone:
+            if overlap > best_overlap and (original.emotion_tone or original.emotion_tag):
                 best_overlap = overlap
                 inherited = original.emotion_tone
+                inherited_tag = original.emotion_tag
         out.append(
             UtteranceChunk(
                 start_ms=start_ms,
@@ -600,6 +675,7 @@ def _chunks_from_split_rows(
                 speaker_id=speaker_id or "speaker_1",
                 words=overlapping,
                 emotion_tone=inherited,
+                emotion_tag=inherited_tag,
             )
         )
     return out or originals
@@ -694,6 +770,7 @@ async def _fill_uncovered_asr_tail(
                     text=draft.text,
                     speaker_id=draft.speaker_id,
                     emotion_tone=draft.emotion_tone,
+                    emotion_tag=getattr(draft, "emotion_tag", None),
                 )
             )
         gap_chunks = _chunks_from_whisper_drafts(offset_drafts, [])
@@ -711,7 +788,7 @@ async def _fill_uncovered_asr_tail(
 
 
 async def run_transcribe(ctx: JobContext) -> None:
-    """transcribe: R2 source -> Gemini full STT -> document translate -> segments.
+    """transcribe: R2 source -> Scribe STT -> document translate by segment_id.
 
     Project: * -> processing -> ready_for_edit (failed on error).
     """
@@ -775,30 +852,37 @@ async def run_transcribe(ctx: JobContext) -> None:
             raise PipelineError(errors.NO_SEGMENTS, "ASR produced no segments")
 
         chunks = dedupe_boundary_overlaps(chunks)
-        chunks, speech_ranges, tail_notes = await _fill_uncovered_asr_tail(
-            ctx,
-            engine,
-            asr_audio=str(asr_audio),
-            chunks=chunks,
-            speech_ranges=speech_ranges,
-            duration_ms=max(1, int(round(float(info.duration_seconds) * 1000))),
-            source_lang=source_lang,
-            diarize=bool(project.get("diarization_enabled")),
-            scratch=scratch,
-        )
-        quality_warnings.extend(tail_notes)
-        if any(
-            note.startswith("asr_gap_appended") or note.startswith("asr_tail_appended")
-            for note in tail_notes
-        ):
-            await _upload_speech_ranges(
+        stt_provider = str(transcribe_result.provider or "").strip().lower()
+        # Scribe (and WhisperX) already return word timestamps. Uncovered
+        # silence is original audio in the mix — do not invent gap captions.
+        if stt_provider not in {"scribe", "whisperx"}:
+            chunks, speech_ranges, tail_notes = await _fill_uncovered_asr_tail(
                 ctx,
-                str(project["source_key"]),
-                speech_ranges,
-                scratch,
+                engine,
+                asr_audio=str(asr_audio),
+                chunks=chunks,
+                speech_ranges=speech_ranges,
+                duration_ms=max(1, int(round(float(info.duration_seconds) * 1000))),
+                source_lang=source_lang,
+                diarize=bool(project.get("diarization_enabled")),
+                scratch=scratch,
             )
+            quality_warnings.extend(tail_notes)
+            if any(
+                note.startswith("asr_gap_appended") or note.startswith("asr_tail_appended")
+                for note in tail_notes
+            ):
+                await _upload_speech_ranges(
+                    ctx,
+                    str(project["source_key"]),
+                    speech_ranges,
+                    scratch,
+                )
 
-        if bool(project.get("diarization_enabled")):
+        if (
+            bool(project.get("diarization_enabled"))
+            and not transcribe_result.speakers_labeled
+        ):
             provider = create_diarization_provider(ctx.settings)
             if provider is None:
                 quality_warnings.append(
@@ -853,7 +937,7 @@ async def run_transcribe(ctx: JobContext) -> None:
                         quality_warnings.append("diarization_split_speaker_turns")
 
         if transcribe_result.skip_proofread:
-            quality_warnings.append("gemini_full_transcript")
+            quality_warnings.append(f"{stt_provider or 'stt'}_timestamps")
         else:
             await ctx.report(0.62, "correct_asr")
             correction_items = [(i, c.text) for i, c in enumerate(chunks) if c.text.strip()]
@@ -909,14 +993,7 @@ async def run_transcribe(ctx: JobContext) -> None:
                 else chunk.speaker_id
             )
             if sid and sid != chunk.speaker_id:
-                chunks[index] = UtteranceChunk(
-                    start_ms=chunk.start_ms,
-                    end_ms=chunk.end_ms,
-                    text=chunk.text,
-                    speaker_id=sid,
-                    words=chunk.words,
-                    emotion_tone=chunk.emotion_tone,
-                )
+                chunks[index] = _rewrite_chunk(chunk, speaker_id=sid)
         chunks, speaker_assignments = merge_continuation_chunks(
             chunks, speaker_assignments
         )
@@ -936,21 +1013,19 @@ async def run_transcribe(ctx: JobContext) -> None:
                 else chunk.speaker_id
             )
             if sid and sid != chunk.speaker_id:
-                chunks[index] = UtteranceChunk(
-                    start_ms=chunk.start_ms,
-                    end_ms=chunk.end_ms,
-                    text=chunk.text,
-                    speaker_id=sid,
-                    words=chunk.words,
-                    emotion_tone=chunk.emotion_tone,
-                )
+                chunks[index] = _rewrite_chunk(chunk, speaker_id=sid)
+
+        chunks = await _tag_chunk_emotions(
+            engine,
+            str(asr_audio),
+            chunks,
+            fallback_tone=str(project.get("tone_style") or "calm"),
+            scratch=scratch,
+        )
 
         await ctx.report(0.72, "translate")
-        # Full-document translation (Gemini) then per-idx spoken lines with
-        # duration / character budgets. Document context is the complete STT.
-        full_source = (transcribe_result.full_transcript or "").strip() or "\n".join(
-            f"[{i}] {c.text.strip()}" for i, c in enumerate(chunks) if c.text.strip()
-        )
+        from .document_translate import build_source_units, document_context_from_units
+
         translate_items = [
             (
                 i,
@@ -959,6 +1034,17 @@ async def run_transcribe(ctx: JobContext) -> None:
             )
             for i, c in enumerate(chunks)
         ]
+        units = build_source_units(
+            translate_items,
+            speakers=[c.speaker_id for c in chunks],
+            emotion_tags=[c.emotion_tag for c in chunks],
+            starts_ms=[c.start_ms for c in chunks],
+            ends_ms=[c.end_ms for c in chunks],
+        )
+        full_source = (
+            (transcribe_result.full_transcript or "").strip()
+            or document_context_from_units(units)
+        )
         translations = await _with_retries(
             ctx,
             lambda: engine.translate_batch(
@@ -975,7 +1061,9 @@ async def run_transcribe(ctx: JobContext) -> None:
                 start_ms=c.start_ms,
                 end_ms=c.end_ms,
                 text=c.text,
+                speaker_id=c.speaker_id or "speaker_1",
                 emotion_tone=c.emotion_tone,
+                emotion_tag=c.emotion_tag,
             )
             for c in chunks
         ]
@@ -1007,13 +1095,19 @@ async def run_transcribe(ctx: JobContext) -> None:
             for i, d in enumerate(drafts)
             if d.emotion_tone
         }
-        if detected_by_idx:
+        tags_by_idx = {
+            i: dict(d.emotion_tag)
+            for i, d in enumerate(drafts)
+            if d.emotion_tag
+        }
+        if detected_by_idx or tags_by_idx:
             from .dub_voice_assets import update_manifest_detected_emotions
 
             await update_manifest_detected_emotions(
                 ctx.storage,
                 source_key=str(project.get("source_key") or "") or None,
                 emotion_by_idx=detected_by_idx,
+                emotion_tag_by_idx=tags_by_idx or None,
             )
         await _set_project(
             ctx,
@@ -1078,6 +1172,10 @@ async def run_dub(ctx: JobContext) -> None:
                 if meta.get("emotion_user_set") and meta.get("emotion_tone"):
                     row["emotion_tone"] = str(meta.get("emotion_tone")).strip()
                     row["emotion_user_set"] = True
+                if isinstance(meta.get("emotion_tag"), dict):
+                    row["emotion_tag"] = meta["emotion_tag"]
+                    if meta.get("emotion_user_set"):
+                        row["emotion_user_set"] = True
                 detected = str(meta.get("detected_emotion_tone") or "").strip()
                 if detected:
                     row["detected_emotion_tone"] = detected
@@ -1224,6 +1322,13 @@ async def run_dub(ctx: JobContext) -> None:
         )
 
         from .emotion import detect_emotions_for_segments, resolve_segment_emotion
+        from .emotion_tag import (
+            detect_emotion_tags_for_segments,
+            emotion_tag_from_tone,
+            normalize_emotion_class,
+            parse_emotion_tag,
+            tone_from_emotion_tag,
+        )
 
         project_tone = resolve_segment_emotion(
             None, project_tone=str(project.get("tone_style") or "calm")
@@ -1232,6 +1337,7 @@ async def run_dub(ctx: JobContext) -> None:
             segment
             for segment in speakable
             if not segment.get("emotion_user_set")
+            and not isinstance(segment.get("emotion_tag"), dict)
             and not str(segment.get("detected_emotion_tone") or "").strip()
         ]
         pcm_tones = (
@@ -1241,13 +1347,21 @@ async def run_dub(ctx: JobContext) -> None:
             if pcm_needed
             else {}
         )
-        if pcm_tones:
+        pcm_tags = (
+            detect_emotion_tags_for_segments(
+                vocals, pcm_needed, fallback=normalize_emotion_class(project_tone)
+            )
+            if pcm_needed
+            else {}
+        )
+        if pcm_tones or pcm_tags:
             from .dub_voice_assets import update_manifest_detected_emotions
 
             await update_manifest_detected_emotions(
                 ctx.storage,
                 source_key=str(project.get("source_key") or "") or None,
                 emotion_by_idx={idx: str(tone) for idx, tone in pcm_tones.items()},
+                emotion_tag_by_idx=pcm_tags or None,
             )
         for segment in speakable:
             user_set = bool(segment.get("emotion_user_set"))
@@ -1261,13 +1375,24 @@ async def run_dub(ctx: JobContext) -> None:
             ).strip()
             if detected:
                 segment["detected_emotion_tone"] = detected
-            segment["_tts_emotion"] = resolve_segment_emotion(
-                saved,
-                project_tone=project_tone,
-                user_set=user_set,
-                detected=detected,
-            )
-            if user_set and saved:
+            if user_set and isinstance(segment.get("emotion_tag"), dict):
+                tag = parse_emotion_tag(segment["emotion_tag"], source="user")
+            elif user_set and saved:
+                tag = emotion_tag_from_tone(
+                    saved, fallback=normalize_emotion_class(project_tone), source="user"
+                )
+            elif isinstance(segment.get("emotion_tag"), dict):
+                tag = parse_emotion_tag(segment["emotion_tag"])
+            elif idx in pcm_tags:
+                tag = pcm_tags[idx]
+            else:
+                tag = emotion_tag_from_tone(
+                    detected or saved or project_tone,
+                    fallback=normalize_emotion_class(project_tone),
+                )
+            segment["emotion_tag"] = tag
+            segment["_tts_emotion"] = tone_from_emotion_tag(tag)
+            if user_set:
                 segment["emotion_tone"] = segment["_tts_emotion"]
             else:
                 segment.pop("emotion_tone", None)
@@ -1343,15 +1468,21 @@ async def run_dub(ctx: JobContext) -> None:
                 segment_tone = str(
                     seg.get("_tts_emotion") or tone_style or "calm"
                 )
+                segment_tag = (
+                    seg.get("emotion_tag")
+                    if isinstance(seg.get("emotion_tag"), dict)
+                    else None
+                )
                 await _with_retries(
                     ctx,
-                    lambda t=text, p=str(raw), v=voice_id, s=speak_speed, tone=segment_tone: engine.tts(
+                    lambda t=text, p=str(raw), v=voice_id, s=speak_speed, tone=segment_tone, tag=segment_tag: engine.tts(
                         t,
                         v,
                         p,
                         tone,
                         target_lang,
                         s,
+                        emotion_tag=tag,
                     ),
                     step="tts",
                 )
@@ -1382,6 +1513,7 @@ async def run_dub(ctx: JobContext) -> None:
                     "tts_speak_speed": speak_speed,
                     "speak_speed_locked": speak_speed_locked,
                     "emotion_tone": segment_tone,
+                    "emotion_tag": segment_tag,
                     "detected_emotion_tone": seg.get("detected_emotion_tone"),
                     "source_end_ms": int(
                         seg.get("source_end_ms")
@@ -1422,6 +1554,16 @@ async def run_dub(ctx: JobContext) -> None:
                     or tone_style
                     or "calm"
                 )
+                segment_tag = (
+                    item.get("emotion_tag")
+                    or item.get("seg", {}).get("emotion_tag")
+                    if isinstance(
+                        item.get("emotion_tag")
+                        or item.get("seg", {}).get("emotion_tag"),
+                        dict,
+                    )
+                    else None
+                )
 
                 # 1) Compress translation (same meaning, fewer spoken syllables).
                 if ctx.settings.translation_timing_rewrite:
@@ -1449,13 +1591,14 @@ async def run_dub(ctx: JobContext) -> None:
                                 tts_speak_speed = max(0.7, min(1.2, speak_speed))
                             await _with_retries(
                                 ctx,
-                                lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed, tone=segment_tone: engine.tts(
+                                lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed, tone=segment_tone, tag=segment_tag: engine.tts(
                                     t,
                                     v,
                                     p,
                                     tone,
                                     target_lang,
                                     s,
+                                    emotion_tag=tag,
                                 ),
                                 step="tts",
                             )
@@ -1527,13 +1670,14 @@ async def run_dub(ctx: JobContext) -> None:
                         tts_speak_speed = faster
                         await _with_retries(
                             ctx,
-                            lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed, tone=segment_tone: engine.tts(
+                            lambda t=text, p=str(raw), v=voice_id, s=tts_speak_speed, tone=segment_tone, tag=segment_tag: engine.tts(
                                 t,
                                 v,
                                 p,
                                 tone,
                                 target_lang,
                                 s,
+                                emotion_tag=tag,
                             ),
                             step="tts",
                         )

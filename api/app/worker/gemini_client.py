@@ -30,8 +30,7 @@ from .locale_rules import (
     translation_pair_rules,
 )
 from .emotion import EMOTION_TONES, normalize_emotion_tone
-from .openai_client import SegmentDraft, TranscribeResult, parse_translation_content
-from .translation_align import idxs_needing_retranslate
+from .openai_client import SegmentDraft, TranscribeResult
 
 logger = logging.getLogger("dubby.worker.gemini")
 
@@ -73,6 +72,7 @@ _TRANSLATION_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "segment_id": {"type": "integer"},
                     "idx": {"type": "integer"},
                     "text": {"type": "string"},
                 },
@@ -403,30 +403,52 @@ class GeminiClient:
             f"[{idx}] {text.strip()}" for idx, text, _ in items if text.strip()
         )
         extra = translation_pair_rules(source_lang, target_lang)
+        from .document_translate import (
+            document_context_from_units,
+            ids_needing_retranslate,
+            parse_translations_by_segment_id,
+        )
+
+        units = []
         segments_payload = []
         for idx, text, seconds in items:
             duration = max(0.35, float(seconds))
+            units.append(
+                {
+                    "segment_id": idx,
+                    "idx": idx,
+                    "source_text": text,
+                    "target_seconds": round(duration, 2),
+                }
+            )
             segments_payload.append(
                 {
+                    "segment_id": idx,
                     "idx": idx,
                     "source_text": text,
                     "target_seconds": round(duration, 2),
                     "max_chars": spoken_char_budget(target_lang, duration),
                 }
             )
+        full_source = (document_context or "").strip() or document_context_from_units(
+            units
+        )
         prompt = (
             f"You are a professional dubbing translator.\n"
-            f"Translate EACH numbered segment from {src} into spoken {tgt}.\n"
+            f"Translate the full transcript from {src} into spoken {tgt}.\n"
+            "Then re-attach each line by the given segment_id/idx.\n"
             "full_transcript is context only: names, pronouns, and story continuity.\n"
-            "The text for idx N must translate ONLY that row's source_text.\n"
-            "- never put the document opening or a later scene onto the wrong idx\n"
-            "- never merge, split, drop, or reorder idxs\n"
+            "The text for segment_id N must translate ONLY that row's source_text.\n"
+            "- never slice the document translation into N rows by paragraph or order\n"
+            "- never put the document opening or a later scene onto the wrong id\n"
+            "- never merge, split, drop, or reorder ids\n"
             "- a short source line must stay a short translation\n"
             "- do not leave source-language wording in the target line\n"
             "- fit target_seconds / max_chars by tightening wording, not by deleting meaning\n"
             "- spell numbers and abbreviations as they should be spoken\n"
+            "- keep emotion_tag off the translation; do not invent or move emotions\n"
             f"{extra}\n"
-            "Return JSON with full_translation plus translations[{idx,text}]."
+            "Return JSON with full_translation plus translations[{segment_id,idx,text}]."
         )
         user = json.dumps(
             {
@@ -442,10 +464,9 @@ class GeminiClient:
             error_code=errors.TRANSLATION_FAILED,
         )
         wanted = [idx for idx, _, _ in items]
-        # parse_translation_content expects {"translations":[...]} which we have.
-        parsed = parse_translation_content(json.dumps(payload, ensure_ascii=False), wanted)
+        parsed = parse_translations_by_segment_id(payload, wanted, require_all=False)
         source_by_idx = {idx: text for idx, text, _ in items}
-        bad_idxs = idxs_needing_retranslate(
+        bad_idxs = ids_needing_retranslate(
             items, parsed, source_lang, target_lang
         )
         if bad_idxs:
@@ -456,16 +477,17 @@ class GeminiClient:
                     "Translate only that caption's source_text. Do not use lines "
                     "from other scenes. Keep short captions short.\n"
                     f"{extra}\n"
-                    "Return JSON with full_translation plus translations[{idx,text}]."
+                    "Return JSON with full_translation plus translations[{segment_id,idx,text}]."
                     f"\n\n{json.dumps({'segments': [{'idx': i, 'source_text': t, 'target_seconds': round(max(0.35, s), 2)} for i, t, s in retry_items]}, ensure_ascii=False)}"
                 ),
                 schema=_TRANSLATION_SCHEMA,
                 audio_path=None,
                 error_code=errors.TRANSLATION_FAILED,
             )
-            retried = parse_translation_content(
-                json.dumps(retry_payload, ensure_ascii=False),
+            retried = parse_translations_by_segment_id(
+                retry_payload,
                 [i for i, _, _ in retry_items],
+                require_all=False,
             )
             parsed.update(retried)
         return {

@@ -33,19 +33,18 @@ _AUDIO_TAG_STABILITY = {
     "whisper": 1.0,
     "calm": 0.5,
     "cheerful": 0.5,
+    "happy": 0.4,
     "angry": 0.0,
     "excited": 0.0,
     "energetic": 0.0,
-}
-
-# Documented v3/v4 inline audio tags (Prompting Eleven v4 / v3 help). Not SSML.
-_AUDIO_TAGS = {
-    "whisper": "[whispers] ",
-    "excited": "[excited] ",
-    "angry": "[angry] ",
-    "sad": "[sad] ",
-    "cheerful": "[happily] ",
-    "energetic": "[excited] ",
+    "nervous": 0.35,
+    "serious": 0.65,
+    "playful": 0.3,
+    "worried": 0.45,
+    "embarrassed": 0.55,
+    "lonely": 0.8,
+    "confident": 0.55,
+    "hopeful": 0.5,
 }
 
 
@@ -72,12 +71,20 @@ def _uses_audio_tags(model: str) -> bool:
     return name.startswith("eleven_v3") or name.startswith("eleven_v4")
 
 
-def tagged_text(text: str, tone_style: str) -> str:
-    """Prefix the official bracket audio tag for v3/v4. Emotion is not a JSON field."""
-    prefix = _AUDIO_TAGS.get((tone_style or "").strip().lower(), "")
-    if not prefix:
+def tagged_text(
+    text: str,
+    tone_style: str = "",
+    *,
+    emotion_tag: dict | None = None,
+) -> str:
+    """Prefix documented v3/v4 bracket audio tags. Emotion is not a JSON field."""
+    from .emotion_tag import audio_tags_from_emotion_tag, emotion_tag_from_tone
+
+    if (text or "").lstrip().startswith("["):
         return text
-    if text.startswith("["):
+    tag = emotion_tag or emotion_tag_from_tone(tone_style)
+    prefix = audio_tags_from_emotion_tag(tag)
+    if not prefix:
         return text
     return f"{prefix}{text}"
 
@@ -93,26 +100,33 @@ def build_tts_body(
     tone_style: str,
     language: str = "",
     speed: float = 1.0,
+    emotion_tag: dict | None = None,
 ) -> dict:
     """JSON body for POST /v1/text-to-speech/{voice_id}.
 
     Eleven v4/v3: emotion is an inline audio tag on ``text`` (no SSML, no
     dedicated emotion request field). voice_settings stay stability +
     similarity_boost. Older models keep style/speed/speaker_boost.
+    Model id is ``eleven_v4`` (not ``eleven_4``).
     """
     from .emotion import voice_settings_for_emotion
+    from .emotion_tag import parse_emotion_tag, stability_for_emotion_tag
 
     voice_settings = voice_settings_for_emotion(tone_style)
     clamped_speed = min(max(float(speed), 0.7), 1.2)
     lang_code = language.strip().lower().split("-", 1)[0] if language else ""
+    parsed_tag = parse_emotion_tag(emotion_tag) if emotion_tag else None
     if _uses_audio_tags(model):
+        stability = (
+            stability_for_emotion_tag(parsed_tag)
+            if parsed_tag
+            else _AUDIO_TAG_STABILITY.get((tone_style or "").strip().lower(), 0.5)
+        )
         body: dict = {
-            "text": tagged_text(text, tone_style),
+            "text": tagged_text(text, tone_style, emotion_tag=parsed_tag),
             "model_id": model,
             "voice_settings": {
-                "stability": _AUDIO_TAG_STABILITY.get(
-                    (tone_style or "").strip().lower(), 0.5
-                ),
+                "stability": stability,
                 "similarity_boost": float(
                     voice_settings.get("similarity_boost", 0.75)
                 ),
@@ -386,6 +400,7 @@ class ElevenLabsClient:
         tone_style: str = "neutral",
         language: str = "",
         speed: float = 1.0,
+        emotion_tag: dict | None = None,
     ) -> None:
         """Synthesize one segment to MP3 at ``out_path``.
 
@@ -401,6 +416,7 @@ class ElevenLabsClient:
             tone_style=tone_style,
             language=language,
             speed=speed,
+            emotion_tag=emotion_tag,
         )
         attempts = max(1, self._settings.pipeline_step_retries + 1)
         last_error: Exception | None = None

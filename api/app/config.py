@@ -127,7 +127,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_model: str = "gemini-3.7-flash"
-    stt_provider: Literal["gemini", "openai"] = "gemini"
+    # Production default is ElevenLabs Scribe (STT + diarization + timestamps).
+    # ``gemini`` / ``openai`` remain for rollback. WhisperX is not used (no GPU).
+    stt_provider: Literal["scribe", "whisperx", "gemini", "openai"] = "scribe"
     translation_provider: Literal["gemini", "openai", "xai"] = "gemini"
 
     # --- OpenAI (Whisper ASR + GPT translation fallback / diarize / align) -----
@@ -165,13 +167,15 @@ class Settings(BaseSettings):
     voice_changer_after_tts: bool = False
     # Tempo policy. Rubber Band is preferred outside atempo's high-quality range.
     # Keep residual tempo mild; prefer compress + slot extension first.
-    tts_max_speedup: float = Field(default=1.5, ge=1.0, le=4.0)
-    tts_min_tempo: float = Field(default=0.85, ge=0.5, le=1.0)
+    # Residual tempo only after wording is compressed; keep it mild.
+    tts_max_speedup: float = Field(default=1.12, ge=1.0, le=4.0)
+    tts_min_tempo: float = Field(default=1.0, ge=0.5, le=1.0)
     tts_atempo_max: float = Field(default=1.5, ge=1.0, le=2.0)
     rubberband_path: str = ""
 
     # --- Speaker diarization -------------------------------------------------
-    diarization_provider: Literal["disabled", "mock", "openai", "pyannote"] = "openai"
+    # Scribe STT already returns speakers; this flag is only for non-Scribe STT.
+    diarization_provider: Literal["disabled", "mock", "openai", "pyannote", "scribe"] = "scribe"
     diarization_model: str = "gpt-4o-transcribe-diarize"
     pyannote_auth_token: str = ""
     pyannote_model: str = "pyannote/speaker-diarization-3.1"
@@ -318,6 +322,10 @@ class Settings(BaseSettings):
             )
             if uses_gemini and not (self.gemini_api_key or "").strip():
                 missing.append("GEMINI_API_KEY")
+            if (self.stt_provider or "").strip().lower() == "scribe" and not (
+                self.elevenlabs_api_key or ""
+            ).strip():
+                missing.append("ELEVENLABS_API_KEY")
             if self.pipeline_mode != "real":
                 raise ValueError("APP_ENV=production requires PIPELINE_MODE=real")
             if missing:

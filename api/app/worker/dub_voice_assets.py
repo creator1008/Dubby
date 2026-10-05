@@ -128,6 +128,9 @@ async def persist_dub_voice_assets(
         )
         if detected:
             meta_row["detected_emotion_tone"] = str(detected).strip()
+        tag = item.get("emotion_tag") or seg.get("emotion_tag")
+        if isinstance(tag, dict):
+            meta_row["emotion_tag"] = tag
         for key in ("gain_db", "source_level_db", "tts_level_db"):
             try:
                 value = float(item[key]) if item.get(key) is not None else None
@@ -260,10 +263,14 @@ async def update_manifest_speak_speeds(
     speeds_by_idx: dict[int, float],
     source_end_by_idx: dict[int, int] | None = None,
     emotion_by_idx: dict[int, str] | None = None,
+    emotion_tag_by_idx: dict[int, dict] | None = None,
 ) -> None:
-    """Upsert speak_speed / source_end_ms / emotion_tone into the dub-voice manifest."""
+    """Upsert speak_speed / source_end_ms / emotion_tone / emotion_tag."""
     if not source_key or (
-        not speeds_by_idx and not source_end_by_idx and not emotion_by_idx
+        not speeds_by_idx
+        and not source_end_by_idx
+        and not emotion_by_idx
+        and not emotion_tag_by_idx
     ):
         return
     by_idx = await load_dub_voice_manifest(storage, source_key)
@@ -332,6 +339,31 @@ async def update_manifest_speak_speeds(
                 if prior != cleaned and str(row.get("audio_key") or "").strip():
                     row["audio_key"] = ""
                 changed = True
+    if emotion_tag_by_idx:
+        from .emotion_tag import parse_emotion_tag, tone_from_emotion_tag
+
+        for idx, tag in emotion_tag_by_idx.items():
+            parsed = parse_emotion_tag(tag, source="user")
+            parsed["source"] = "user"
+            row = by_idx.get(idx)
+            if not row:
+                by_idx[idx] = {
+                    "idx": idx,
+                    "speak_speed": 1.0,
+                    "emotion_tag": parsed,
+                    "emotion_tone": tone_from_emotion_tag(parsed),
+                    "emotion_user_set": True,
+                    "audio_key": "",
+                }
+                changed = True
+                continue
+            if row.get("emotion_tag") != parsed or not row.get("emotion_user_set"):
+                row["emotion_tag"] = parsed
+                row["emotion_tone"] = tone_from_emotion_tag(parsed)
+                row["emotion_user_set"] = True
+                if str(row.get("audio_key") or "").strip():
+                    row["audio_key"] = ""
+                changed = True
     if not changed:
         return
     manifest = {
@@ -352,11 +384,13 @@ async def update_manifest_detected_emotions(
     *,
     source_key: str | None,
     emotion_by_idx: dict[int, str],
+    emotion_tag_by_idx: dict[int, dict] | None = None,
 ) -> None:
-    """Persist per-idx Gemini/PCM detections without marking editor overrides."""
-    if not source_key or not emotion_by_idx:
+    """Persist per-idx detections without marking editor overrides."""
+    if not source_key or (not emotion_by_idx and not emotion_tag_by_idx):
         return
     from .emotion import normalize_emotion_tone
+    from .emotion_tag import parse_emotion_tag
 
     by_idx = await load_dub_voice_manifest(storage, source_key)
     changed = False
@@ -375,6 +409,24 @@ async def update_manifest_detected_emotions(
         prior = str(row.get("detected_emotion_tone") or "").strip()
         if prior != cleaned:
             row["detected_emotion_tone"] = cleaned
+            changed = True
+    for idx, tag in (emotion_tag_by_idx or {}).items():
+        parsed = parse_emotion_tag(tag)
+        row = by_idx.get(idx)
+        if not row:
+            by_idx[idx] = {
+                "idx": idx,
+                "speak_speed": 1.0,
+                "emotion_tag": parsed,
+                "detected_emotion_tone": str(parsed.get("class") or "Calm").lower(),
+                "audio_key": "",
+            }
+            changed = True
+            continue
+        if row.get("emotion_user_set"):
+            continue
+        if row.get("emotion_tag") != parsed:
+            row["emotion_tag"] = parsed
             changed = True
     if not changed:
         return
@@ -466,6 +518,13 @@ async def enrich_segments_with_dub_voice(
             copied.pop("emotion_user_set", None)
         if detected:
             copied["detected_emotion_tone"] = str(detected)
+        tag = meta.get("emotion_tag") or copied.get("emotion_tag")
+        if isinstance(tag, dict):
+            copied["emotion_tag"] = tag
+            if not copied.get("emotion_tone"):
+                from .emotion_tag import tone_from_emotion_tag
+
+                copied["emotion_tone"] = tone_from_emotion_tag(tag)
         audio_key = str(meta.get("audio_key") or "").strip()
         meta_text = str(meta.get("target_text") or "").strip()
         current_text = str(copied.get("target_text") or "").strip()

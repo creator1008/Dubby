@@ -68,6 +68,7 @@ export type Segment = {
   clip_speak_speed?: number;
   /** Detected emotion tone applied when synthesizing this segment's dub. */
   emotion_tone?: ToneStyle | string;
+  emotion_tag?: import("./emotion-tag").EmotionTag;
 };
 
 /** Keep preview clips when the API omits optional voice fields.
@@ -97,7 +98,9 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
     }
     const textChanged = prior.target_text !== row.target_text;
     const toneChanged =
-      (prior.emotion_tone || "") !== (row.emotion_tone || "");
+      (prior.emotion_tone || "") !== (row.emotion_tone || "") ||
+      JSON.stringify(prior.emotion_tag || null) !==
+        JSON.stringify(row.emotion_tag || null);
     const staleVoice = textChanged || toneChanged;
     return {
       ...row,
@@ -115,6 +118,7 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
             ? undefined
             : prior.clip_speak_speed,
       emotion_tone: row.emotion_tone ?? prior.emotion_tone,
+      emotion_tag: row.emotion_tag ?? prior.emotion_tag,
     };
   });
 }

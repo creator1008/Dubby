@@ -2,6 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Segment, ToneStyle } from "@/lib/ui-types";
+import {
+  EMOTION_CLASSES,
+  emotionTagFromUiInput,
+  parseEmotionTag,
+  toneFromEmotionTag,
+  type EmotionClass,
+  type EmotionTag,
+} from "@/lib/emotion-tag";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { dubLangDisplayName } from "@/lib/languages";
 import {
@@ -12,15 +20,27 @@ import {
   sourceEndMsOf,
 } from "@/lib/speak-rate";
 
-const TONE_OPTIONS: ToneStyle[] = [
-  "sad",
-  "angry",
-  "whisper",
-  "excited",
-  "energetic",
-  "calm",
-  "cheerful",
-];
+function emotionClassLabel(
+  text: Record<string, string>,
+  klass: EmotionClass,
+): string {
+  const labels: Record<EmotionClass, string> = {
+    Happy: text.toneHappy,
+    Calm: text.toneCalm,
+    Confident: text.toneConfident,
+    Hopeful: text.toneHopeful,
+    Sad: text.toneSad,
+    Angry: text.toneAngry,
+    Excited: text.toneExcited,
+    Nervous: text.toneNervous,
+    Serious: text.toneSerious,
+    Playful: text.tonePlayful,
+    Worried: text.toneWorried,
+    Embarrassed: text.toneEmbarrassed,
+    Lonely: text.toneLonely,
+  };
+  return labels[klass] || klass;
+}
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -28,23 +48,6 @@ function formatMs(ms: number) {
   const r = s % 60;
   const millis = ms % 1000;
   return `${m}:${String(r).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
-}
-
-function emotionToneLabel(
-  text: Record<string, string>,
-  tone: string | undefined,
-): string | null {
-  if (!tone) return null;
-  const labels: Record<string, string> = {
-    sad: text.toneSad,
-    angry: text.toneAngry,
-    whisper: text.toneWhisper,
-    excited: text.toneExcited,
-    energetic: text.toneEnergetic,
-    calm: text.toneCalm,
-    cheerful: text.toneCheerful,
-  };
-  return labels[tone] ?? tone;
 }
 
 function speakerOrderIndex(segments: Segment[], speakerId: string): number {
@@ -69,6 +72,7 @@ type Props = {
   onChange: (id: string, field: "source_text" | "target_text", value: string) => void;
   onSpeakSpeedChange?: (id: string, speed: number) => void;
   onEmotionToneChange?: (id: string, tone: ToneStyle) => void;
+  onEmotionTagChange?: (id: string, tag: EmotionTag) => void;
   /** Regenerate dubbed preview for one segment; returns a playable URL. */
   onEnsureDubPreview?: (segmentId: string) => Promise<string | undefined>;
 };
@@ -381,7 +385,7 @@ function SpeakRateControl({
   );
 }
 
-function EmotionToneControl({
+function EmotionTagControl({
   segment,
   disabled,
   defaultTone,
@@ -390,34 +394,59 @@ function EmotionToneControl({
   segment: Segment;
   disabled?: boolean;
   defaultTone?: ToneStyle | string;
-  onChange?: (tone: ToneStyle) => void;
+  onChange?: (tag: EmotionTag) => void;
 }) {
   const text = useAppDictionary();
-  const fallback =
-    defaultTone && TONE_OPTIONS.includes(defaultTone as ToneStyle)
-      ? (defaultTone as ToneStyle)
-      : "calm";
-  const value =
-    segment.emotion_tone && TONE_OPTIONS.includes(segment.emotion_tone as ToneStyle)
-      ? (segment.emotion_tone as ToneStyle)
-      : fallback;
+  const parsed = parseEmotionTag(
+    segment.emotion_tag || segment.emotion_tone,
+    parseEmotionTag(defaultTone).class,
+  );
+  const [custom, setCustom] = useState(parsed.custom || "");
 
   return (
-    <label className="emotion-tone-row">
-      <span className="emotion-tone-label">{text.tone}</span>
-      <select
-        value={value}
-        disabled={disabled}
-        aria-label={text.tone}
-        onChange={(e) => onChange?.(e.target.value as ToneStyle)}
-      >
-        {TONE_OPTIONS.map((tone) => (
-          <option key={tone} value={tone}>
-            {emotionToneLabel(text, tone) ?? tone}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="emotion-tag-block">
+      <label className="emotion-tone-row">
+        <span className="emotion-tone-label">{text.tone}</span>
+        <select
+          value={parsed.class}
+          disabled={disabled}
+          aria-label={text.tone}
+          onChange={(e) => {
+            const next = {
+              ...parsed,
+              class: e.target.value as EmotionClass,
+              custom: custom.trim() || null,
+              source: "user" as const,
+            };
+            onChange?.(next);
+          }}
+        >
+          {EMOTION_CLASSES.map((klass) => (
+            <option key={klass} value={klass}>
+              {emotionClassLabel(text, klass)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="emotion-tone-row">
+        <span className="emotion-tone-label">{text.toneCustom}</span>
+        <input
+          type="text"
+          value={custom}
+          disabled={disabled}
+          placeholder={text.toneCustomPlaceholder}
+          onChange={(e) => setCustom(e.target.value)}
+          onBlur={() => {
+            const typed = custom.trim();
+            if (!typed) {
+              onChange?.({ ...parsed, custom: null, source: "user" });
+              return;
+            }
+            onChange?.(emotionTagFromUiInput(typed, parsed));
+          }}
+        />
+      </label>
+    </div>
   );
 }
 
@@ -432,6 +461,7 @@ export function SubtitleEditor({
   onChange,
   onSpeakSpeedChange,
   onEmotionToneChange,
+  onEmotionTagChange,
   onEnsureDubPreview,
 }: Props) {
   const text = useAppDictionary();
@@ -507,11 +537,18 @@ export function SubtitleEditor({
                       }
                     />
                   </label>
-                  <EmotionToneControl
+                  <EmotionTagControl
+                    key={`${seg.id}-emotion`}
                     segment={seg}
                     disabled={disabled}
                     defaultTone={defaultEmotionTone}
-                    onChange={(tone) => onEmotionToneChange?.(seg.id, tone)}
+                    onChange={(tag) => {
+                      onEmotionTagChange?.(seg.id, tag);
+                      onEmotionToneChange?.(
+                        seg.id,
+                        toneFromEmotionTag(tag) as ToneStyle,
+                      );
+                    }}
                   />
                   {showSpeakRate ? (
                     <SpeakRateControl

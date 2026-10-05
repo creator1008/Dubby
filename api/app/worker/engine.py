@@ -43,6 +43,9 @@ class Engine(ABC):
     async def extract_asr_audio(self, source_path: str, audio_out: str) -> None: ...
 
     @abstractmethod
+    async def extract_pcm16_mono(self, source_path: str, wav_out: str) -> None: ...
+
+    @abstractmethod
     async def trim_asr_audio(
         self, source_path: str, audio_out: str, start_ms: int, end_ms: int
     ) -> None: ...
@@ -140,6 +143,7 @@ class Engine(ABC):
         tone_style: str = "neutral",
         language: str = "",
         speed: float = 1.0,
+        emotion_tag: dict | None = None,
     ) -> None: ...
 
     @abstractmethod
@@ -266,6 +270,12 @@ class RealEngine(Engine):
             errors.FFMPEG_FAILED,
         )
 
+    async def extract_pcm16_mono(self, source_path: str, wav_out: str) -> None:
+        await self._run(
+            media.build_pcm16_mono_cmd(self._settings, source_path, wav_out),
+            errors.FFMPEG_FAILED,
+        )
+
     async def trim_asr_audio(
         self, source_path: str, audio_out: str, start_ms: int, end_ms: int
     ) -> None:
@@ -284,13 +294,78 @@ class RealEngine(Engine):
         duration_seconds: float | None = None,
         diarize: bool = False,
     ) -> TranscribeResult:
-        if (self._settings.stt_provider or "").strip().lower() == "gemini":
+        provider = (self._settings.stt_provider or "").strip().lower()
+        if provider == "scribe":
+            try:
+                return await self._transcribe_scribe(
+                    asr_audio_path, language, diarize=diarize
+                )
+            except PipelineError as exc:
+                logger.warning(
+                    "Scribe failed (%s); falling back to WhisperX/legacy STT", exc
+                )
+                return await self._transcribe_fallback(
+                    asr_audio_path,
+                    language,
+                    duration_seconds=duration_seconds,
+                    diarize=diarize,
+                )
+        if provider == "whisperx":
+            return await self._transcribe_whisperx(asr_audio_path, language)
+        if provider == "gemini":
             return await self.gemini.transcribe(
                 asr_audio_path,
                 language,
                 duration_seconds=duration_seconds,
                 diarize=diarize,
             )
+        return await self.openai.transcribe(asr_audio_path, language)
+
+    async def _transcribe_scribe(
+        self, asr_audio_path: str, language: str, *, diarize: bool
+    ) -> TranscribeResult:
+        from .scribe_client import ScribeClient
+
+        client = ScribeClient(self._settings)
+        try:
+            return await client.transcribe(
+                asr_audio_path, language, diarize=diarize
+            )
+        finally:
+            await client.aclose()
+
+    async def _transcribe_whisperx(
+        self, asr_audio_path: str, language: str
+    ) -> TranscribeResult:
+        from .whisperx_client import transcribe_whisperx
+
+        return await transcribe_whisperx(asr_audio_path, language)
+
+    async def _transcribe_fallback(
+        self,
+        asr_audio_path: str,
+        language: str,
+        *,
+        duration_seconds: float | None,
+        diarize: bool,
+    ) -> TranscribeResult:
+        from .whisperx_client import whisperx_available
+
+        if whisperx_available():
+            try:
+                return await self._transcribe_whisperx(asr_audio_path, language)
+            except PipelineError as exc:
+                logger.warning("WhisperX fallback failed: %s", exc)
+        if (self._settings.gemini_api_key or "").strip():
+            try:
+                return await self.gemini.transcribe(
+                    asr_audio_path,
+                    language,
+                    duration_seconds=duration_seconds,
+                    diarize=diarize,
+                )
+            except PipelineError as exc:
+                logger.warning("Gemini STT fallback failed: %s", exc)
         return await self.openai.transcribe(asr_audio_path, language)
 
     async def translate_batch(
@@ -425,9 +500,16 @@ class RealEngine(Engine):
         tone_style: str = "neutral",
         language: str = "",
         speed: float = 1.0,
+        emotion_tag: dict | None = None,
     ) -> None:
         await self.elevenlabs.tts_to_file(
-            text, voice_id, out_path, tone_style, language, speed=speed
+            text,
+            voice_id,
+            out_path,
+            tone_style,
+            language,
+            speed=speed,
+            emotion_tag=emotion_tag,
         )
 
     async def clip_duration_seconds(self, path: str) -> float:
@@ -596,6 +678,9 @@ class MockEngine(Engine):
     async def extract_asr_audio(self, source_path: str, audio_out: str) -> None:
         _write_wav(audio_out, _MOCK_DEFAULT_DURATION)
 
+    async def extract_pcm16_mono(self, source_path: str, wav_out: str) -> None:
+        _write_wav(wav_out, _MOCK_DEFAULT_DURATION)
+
     async def trim_asr_audio(
         self, source_path: str, audio_out: str, start_ms: int, end_ms: int
     ) -> None:
@@ -727,8 +812,9 @@ class MockEngine(Engine):
         tone_style: str = "neutral",
         language: str = "",
         speed: float = 1.0,
+        emotion_tag: dict | None = None,
     ) -> None:
-        del voice_id, tone_style, language, speed
+        del voice_id, tone_style, language, speed, emotion_tag
         seconds = max(0.2, len(text) * _MOCK_SECONDS_PER_CHAR)
         _write_wav(out_path, seconds)
 

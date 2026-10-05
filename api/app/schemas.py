@@ -151,10 +151,8 @@ class SegmentUpdate(BaseModel):
     end_ms: int | None = Field(default=None, ge=0)
     speak_speed: float | None = Field(default=None, ge=0.5, le=1.5)
     source_end_ms: int | None = Field(default=None, ge=0)
-    emotion_tone: str | None = Field(
-        default=None,
-        pattern="^(sad|angry|whisper|excited|energetic|calm|cheerful)$",
-    )
+    emotion_tone: str | None = Field(default=None, max_length=80)
+    emotion_tag: dict | None = None
 
 
 class SegmentsBulkUpdate(BaseModel):
@@ -196,6 +194,7 @@ class SegmentOut(BaseModel):
     source_end_ms: int | None = None
     # Detected / applied emotion tone for this segment's dub.
     emotion_tone: str | None = None
+    emotion_tag: dict | None = None
 
 
 # --- Jobs -------------------------------------------------------------------

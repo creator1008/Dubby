@@ -21,6 +21,8 @@ import {
 import { useAppDictionary, useLocale } from "@/lib/i18n/locale-context";
 import { LANG_CODES, isDubLangCode, localizedLangLabel } from "@/lib/languages";
 import { downloadProjectOutput } from "@/lib/mobile";
+import type { EmotionTag } from "@/lib/emotion-tag";
+import { toneFromEmotionTag } from "@/lib/emotion-tag";
 import type {
   Job,
   LangCode,
@@ -50,7 +52,10 @@ function snapshotTargetTexts(rows: Segment[]) {
 
 function snapshotEmotionTones(rows: Segment[]) {
   return Object.fromEntries(
-    rows.map((row) => [row.id, String(row.emotion_tone || "")]),
+    rows.map((row) => [
+      row.id,
+      JSON.stringify(row.emotion_tag || row.emotion_tone || ""),
+    ]),
   );
 }
 
@@ -702,8 +707,23 @@ export default function NewDubPage() {
           ? {
               ...segment,
               emotion_tone: tone,
-              // Clear clip URL only — keep clip_speak_speed so save still
-              // knows a dubbed preview existed and must be regenerated.
+              dubbed_audio_url: undefined,
+            }
+          : segment,
+      ),
+    );
+    setMessage(null);
+    if (outputUrl) setOutputUrl(null);
+  };
+
+  const onEmotionTagChange = (segmentId: string, tag: EmotionTag) => {
+    setSegments((current) =>
+      current.map((segment) =>
+        segment.id === segmentId
+          ? {
+              ...segment,
+              emotion_tag: tag,
+              emotion_tone: toneFromEmotionTag(tag),
               dubbed_audio_url: undefined,
             }
           : segment,
@@ -769,6 +789,7 @@ export default function NewDubPage() {
           source_end_ms,
           speak_speed,
           emotion_tone,
+          emotion_tag,
         }) => ({
           id,
           source_text,
@@ -783,6 +804,7 @@ export default function NewDubPage() {
             typeof emotion_tone === "string" && emotion_tone.trim()
               ? emotion_tone.trim()
               : undefined,
+          emotion_tag: emotion_tag || undefined,
         }),
       ),
     );
@@ -1330,6 +1352,7 @@ export default function NewDubPage() {
                 defaultEmotionTone={project.tone_style || toneStyle}
                 onChange={onSegmentChange}
                 onEmotionToneChange={onEmotionToneChange}
+                onEmotionTagChange={onEmotionTagChange}
                 onEnsureDubPreview={ensureDubPreview}
                 onSpeakSpeedChange={(id, speed) => {
                   setSegments((prev) =>

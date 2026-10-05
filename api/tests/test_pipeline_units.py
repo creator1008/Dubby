@@ -698,7 +698,7 @@ def test_gpt_chat_endpoint_stays_on_openai() -> None:
 
 def test_default_translation_model_is_openai() -> None:
     fields = Settings.model_fields
-    assert fields["stt_provider"].default == "gemini"
+    assert fields["stt_provider"].default == "scribe"
     assert fields["translation_provider"].default == "gemini"
     assert fields["gemini_model"].default == "gemini-3.7-flash"
     assert fields["elevenlabs_tts_model"].default == "eleven_v4"
