@@ -42,6 +42,8 @@ from .diarization import (
     assign_speakers,
     collapse_minor_speakers,
     create_diarization_provider,
+    inherit_adjacent_question_speakers,
+    inherit_continuation_speakers,
     normalize_speaker_ids,
     split_timed_texts_on_turns,
 )
@@ -75,6 +77,7 @@ from .utterance_pipeline import (
     TimedToken,
     UtteranceChunk,
     dedupe_boundary_overlaps,
+    merge_continuation_chunks,
 )
 
 logger = logging.getLogger("dubby.worker.pipeline")
@@ -893,6 +896,54 @@ async def run_transcribe(ctx: JobContext) -> None:
             )
         if any(overlap for _, overlap in speaker_assignments):
             quality_warnings.append("overlapping_speakers_majority_voice")
+
+        speaker_assignments = inherit_continuation_speakers(
+            speaker_assignments,
+            [c.text for c in chunks],
+            [(c.start_ms, c.end_ms) for c in chunks],
+        )
+        for index, chunk in enumerate(chunks):
+            sid = (
+                speaker_assignments[index][0]
+                if index < len(speaker_assignments)
+                else chunk.speaker_id
+            )
+            if sid and sid != chunk.speaker_id:
+                chunks[index] = UtteranceChunk(
+                    start_ms=chunk.start_ms,
+                    end_ms=chunk.end_ms,
+                    text=chunk.text,
+                    speaker_id=sid,
+                    words=chunk.words,
+                    emotion_tone=chunk.emotion_tone,
+                )
+        chunks, speaker_assignments = merge_continuation_chunks(
+            chunks, speaker_assignments
+        )
+        if speaker_assignments is None:
+            speaker_assignments = [
+                (c.speaker_id or "speaker_1", False) for c in chunks
+            ]
+        speaker_assignments = inherit_adjacent_question_speakers(
+            speaker_assignments,
+            [c.text for c in chunks],
+            [(c.start_ms, c.end_ms) for c in chunks],
+        )
+        for index, chunk in enumerate(chunks):
+            sid = (
+                speaker_assignments[index][0]
+                if index < len(speaker_assignments)
+                else chunk.speaker_id
+            )
+            if sid and sid != chunk.speaker_id:
+                chunks[index] = UtteranceChunk(
+                    start_ms=chunk.start_ms,
+                    end_ms=chunk.end_ms,
+                    text=chunk.text,
+                    speaker_id=sid,
+                    words=chunk.words,
+                    emotion_tone=chunk.emotion_tone,
+                )
 
         await ctx.report(0.72, "translate")
         # Full-document translation (Gemini) then per-idx spoken lines with

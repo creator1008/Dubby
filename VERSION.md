@@ -4,7 +4,7 @@
 |---------|---------|--------|
 | **1.0** | `v1.0.0` | Pre-redesign pipeline: My Voice Box TTS, Demucs selective bed, full-job dub. Frozen at tag `v1.0.0`. |
 | **2.0** | `v2.0.0` | Whisper-1 STT, gpt-4o-mini translation, ElevenLabs Flash TTS, selective Demucs mix. Frozen at tag `v2.0.0`. |
-| **3.0** | (main) | Gemini 3.7 Flash full-document STT + spoken translation + timestamps/speakers, ElevenLabs v4 TTS. `3.0.14` adds per-segment emotion from the same Gemini STT call (PCM heuristic fallback) and sends documented v4 audio tags. `3.0.13` keeps brief second speakers on short clips, does not drop mid-caption time when diarize has holes, and re-listens middle ASR gaps (not only the tail). |
+| **3.0** | (main) | Gemini 3.7 Flash full-document STT + spoken translation + timestamps/speakers, ElevenLabs v4 TTS. `3.0.15` keeps Vietnamese mid-sentence question tails on the same speaker and floors quiet/whisper TTS to an audible dialogue level. `3.0.14` adds per-segment emotion from the same Gemini STT call (PCM heuristic fallback) and sends documented v4 audio tags. `3.0.13` keeps brief second speakers on short clips, does not drop mid-caption time when diarize has holes, and re-listens middle ASR gaps (not only the tail). |
 
 Restore V2 tree:
 

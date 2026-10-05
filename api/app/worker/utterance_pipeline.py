@@ -22,6 +22,21 @@ _VI_UTTERANCE_END_RE = re.compile(
     r"không|được|đấy|thế|vậy|mà)[\"'”’)]*$",
     re.IGNORECASE,
 )
+# Mid-clause connectives: a breath here is still the same sentence.
+_VI_INCOMPLETE_END_RE = re.compile(
+    r"(?:cho|thì|mà|là|của|để|với|về|trong|nhưng|nên|rằng|nếu|vì|"
+    r"khi|lúc|hoặc|hay)$",
+    re.IGNORECASE,
+)
+# Question / tag tails that complete the previous stem (VN_couple 7–10).
+_VI_QUESTION_TAIL_RE = re.compile(
+    r"^(?:"
+    r"(?:em|anh|chị|cô|chú|bà|ông|mình|tôi|tao|mày)\s+không|"
+    r"(?:không|chưa|được không|phải không|hả|hở)|"
+    r".*\b(?:ai|gì|đâu|nào|sao|chi)\b"
+    r")[.?!…]*$",
+    re.IGNORECASE,
+)
 _SOURCE_WEIGHT_TOKEN_RE = re.compile(
     r"[0-9A-Za-z\u00c0-\u024f\u1e00-\u1eff]+(?:'[A-Za-z]+)?|"
     r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]+"
@@ -321,6 +336,33 @@ def build_breath_utterances(
     return _dedupe_chunks(_chunks_from_words(words, "speaker_0"))
 
 
+def is_grammatical_continuation(prev_text: str, next_text: str) -> bool:
+    """True when ``next_text`` is a tail of the same spoken sentence as ``prev``.
+
+    Vietnamese yes/no questions often pause before the tag (``… cho`` / ``em
+    không``) or the rhetorical close (``… thì`` / ``đưa cho ai?``). Those
+    halves must stay one speaker. Complete sentences followed by a reply
+    are not continuations.
+    """
+    prev = (prev_text or "").strip()
+    nxt = (next_text or "").strip()
+    if not prev or not nxt:
+        return False
+    nxt_tokens = _SOURCE_WEIGHT_TOKEN_RE.findall(nxt)
+    if not nxt_tokens or len(nxt_tokens) > 6:
+        return False
+    incomplete_stem = bool(_VI_INCOMPLETE_END_RE.search(prev)) or (
+        not looks_like_sentence_end(prev)
+    )
+    if not incomplete_stem:
+        return False
+    if nxt.endswith("?") or nxt.endswith("？"):
+        return True
+    if _VI_QUESTION_TAIL_RE.match(nxt):
+        return True
+    return len(nxt_tokens) <= 3 and bool(_VI_INCOMPLETE_END_RE.search(prev))
+
+
 def looks_like_sentence_end(text: str) -> bool:
     """True when ``text`` already closes a spoken utterance.
 
@@ -433,6 +475,66 @@ def expand_grouped_translations(
                 if not out[slot_i]:
                     out[slot_i] = (part or "").strip() or text
     return out
+
+
+def merge_continuation_chunks(
+    chunks: list[UtteranceChunk],
+    assignments: list[tuple[str | None, bool]] | None = None,
+    *,
+    max_gap_ms: int = 1800,
+    max_duration_ms: int = 12000,
+) -> tuple[list[UtteranceChunk], list[tuple[str | None, bool]] | None]:
+    """Merge same-speaker grammatical tails into one utterance (VN_couple 7–10).
+
+    Timing slots that are clearly one sentence (incomplete stem + question
+    tail) become a single editor/TTS row. Distinct finished turns stay apart.
+    """
+    if not chunks:
+        return [], assignments if assignments is None else []
+    labels = list(assignments) if assignments is not None else [
+        (chunk.speaker_id, False) for chunk in chunks
+    ]
+    if len(labels) != len(chunks):
+        return list(chunks), assignments
+
+    merged_chunks: list[UtteranceChunk] = []
+    merged_labels: list[tuple[str | None, bool]] = []
+    current = chunks[0]
+    current_label = labels[0]
+    for nxt, nxt_label in zip(chunks[1:], labels[1:]):
+        gap = nxt.start_ms - current.end_ms
+        combined = nxt.end_ms - current.start_ms
+        prev_sid = current_label[0] or current.speaker_id
+        next_sid = nxt_label[0] or nxt.speaker_id
+        same_speaker = bool(prev_sid) and prev_sid == next_sid
+        if (
+            same_speaker
+            and is_grammatical_continuation(current.text, nxt.text)
+            and 0 <= gap <= max_gap_ms
+            and combined <= max_duration_ms
+        ):
+            words = tuple([*current.words, *nxt.words])
+            if words:
+                text = _join_tokens(list(words))
+            else:
+                text = f"{current.text.strip()} {nxt.text.strip()}".strip()
+            current = UtteranceChunk(
+                start_ms=current.start_ms,
+                end_ms=nxt.end_ms,
+                text=text or current.text,
+                speaker_id=prev_sid or current.speaker_id,
+                words=words,
+                emotion_tone=current.emotion_tone or nxt.emotion_tone,
+            )
+            current_label = (prev_sid, False)
+            continue
+        merged_chunks.append(current)
+        merged_labels.append(current_label)
+        current = nxt
+        current_label = nxt_label
+    merged_chunks.append(current)
+    merged_labels.append(current_label)
+    return merged_chunks, (merged_labels if assignments is not None else None)
 
 
 def merge_dangling_chunks(

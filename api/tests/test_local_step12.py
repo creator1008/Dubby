@@ -237,9 +237,14 @@ def test_relative_loudness_gains_follow_source_levels_with_bounds() -> None:
 
 
 def test_matched_loudness_gain_compensates_tts_level_with_bounds() -> None:
-    assert _matched_loudness_gain(-24.0, -18.0) == -6.0
+    assert _matched_loudness_gain(-24.0, -18.0) == -2.0
     assert _matched_loudness_gain(-12.0, -24.0) == 12.0
-    assert _matched_loudness_gain(-40.0, -18.0) == -14.0
+    # Quiet tail measurements must not duck normal TTS below -20 dBFS.
+    assert _matched_loudness_gain(-40.0, -18.0) == -2.0
+    # VN_couple idx 9: source -22.4 / TTS -13.3 was -9.1 dB and inaudible.
+    assert _matched_loudness_gain(-22.4, -13.3) == -6.7
+    # Whisper-tagged TTS needs extra boost to stay audible.
+    assert _matched_loudness_gain(-20.0, -42.0) == 20.0
 
 
 def test_parse_translation_payload_accepts_common_shapes() -> None:

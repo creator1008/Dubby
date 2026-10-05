@@ -324,7 +324,12 @@ class GeminiClient:
             "the same letter across the whole clip. "
             "Dialogue, couples, and interviews: every time a different person "
             "starts talking, start a NEW segment. Never put two people in one "
-            "segment. Typical dialogue turns are 0.8–6 seconds."
+            "segment. Typical dialogue turns are 0.8–6 seconds. "
+            "Do not start a new segment or change speaker in the middle of one "
+            "grammatical sentence. A short breath before a question tail "
+            "(for example Vietnamese 'em không' or 'đưa cho ai?') is still the "
+            "same speaker and the same utterance — keep that whole sentence in "
+            "one caption."
             if diarize
             else "This is treated as a single narrator: set speaker to A on every segment."
         )
@@ -347,7 +352,9 @@ class GeminiClient:
             "  emotion is that segment's vocal delivery from ITS audio span plus "
             "the spoken text. Use exactly one of: sad, angry, whisper, excited, "
             "energetic, calm, cheerful. Emotion is metadata only — never change "
-            "timestamps, speaker, or wording because of it.\n"
+            "timestamps, speaker, or wording because of it. Do not mark a "
+            "mid-sentence question tail as whisper only because it is quieter "
+            "than the stem; use the stem's delivery.\n"
             "The concatenation of segment texts must cover the same words as "
             "full_transcript. Sort segments by start_sec. start_sec < end_sec."
         )

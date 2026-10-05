@@ -328,8 +328,150 @@ def split_timed_texts_on_turns(
             )
             out.append((start, end, text, majority.speaker_id or speaker))
             continue
-        out.extend(_close_split_holes(start, end, emitted_rows))
+        glued = _glue_continuation_split_rows(emitted_rows)
+        if _should_keep_unsplit_caption(text, glued):
+            majority = max(
+                overlapping,
+                key=lambda t: max(
+                    0, min(end, t.end_ms) - max(start, t.start_ms)
+                ),
+            )
+            out.append((start, end, text, majority.speaker_id or speaker))
+            continue
+        if len(glued) <= 1:
+            out.append((start, end, text, glued[0][3] if glued else speaker))
+            continue
+        out.extend(_close_split_holes(start, end, glued))
     out.sort(key=lambda row: (row[0], row[1]))
+    return out
+
+
+def _glue_continuation_split_rows(
+    rows: list[tuple[int, int, str, str]],
+) -> list[tuple[int, int, str, str]]:
+    """Keep mid-sentence question tails on the stem speaker after a turn cut."""
+    from .utterance_pipeline import is_grammatical_continuation
+
+    if len(rows) < 2:
+        return rows
+    glued: list[tuple[int, int, str, str]] = [rows[0]]
+    for row in rows[1:]:
+        prev = glued[-1]
+        if is_grammatical_continuation(prev[2], row[2]):
+            glued[-1] = (
+                prev[0],
+                max(prev[1], row[1]),
+                f"{prev[2].strip()} {row[2].strip()}".strip(),
+                prev[3],
+            )
+        else:
+            glued.append(row)
+    return glued
+
+
+def _caption_has_continuation_cut(text: str) -> bool:
+    """True when some token cut of ``text`` is a grammatical stem + tail."""
+    from .utterance_pipeline import is_grammatical_continuation
+
+    tokens = (text or "").split()
+    if len(tokens) < 2:
+        return False
+    return any(
+        is_grammatical_continuation(" ".join(tokens[:index]), " ".join(tokens[index:]))
+        for index in range(1, len(tokens))
+    )
+
+
+def _should_keep_unsplit_caption(
+    text: str,
+    rows: list[tuple[int, int, str, str]],
+    *,
+    max_tail_ms: int = 2800,
+) -> bool:
+    """Avoid cutting a yes/no or rhetorical question at a mid-sentence breath."""
+    if len(rows) < 2 or not _caption_has_continuation_cut(text):
+        return False
+    return all(int(row[1]) - int(row[0]) <= max_tail_ms for row in rows[1:])
+
+
+def inherit_continuation_speakers(
+    assignments: list[tuple[str | None, bool]],
+    texts: list[str],
+    segments: list[tuple[int, int]],
+    *,
+    max_gap_ms: int = 1800,
+    max_tail_ms: int = 2800,
+) -> list[tuple[str | None, bool]]:
+    """Give grammatical tails the previous speaker when the turn looks weak.
+
+    OpenAI diarize often flips speaker at a breath inside ``… cho / em không``
+    or ``… thì / đưa cho ai?``. Real replies after a finished sentence stay.
+    """
+    from .utterance_pipeline import is_grammatical_continuation
+
+    if (
+        not assignments
+        or len(assignments) != len(texts)
+        or len(assignments) != len(segments)
+    ):
+        return assignments
+    out = list(assignments)
+    for index in range(1, len(out)):
+        prev_sid, _ = out[index - 1]
+        sid, overlap = out[index]
+        if not prev_sid or not sid or prev_sid == sid:
+            continue
+        if not is_grammatical_continuation(texts[index - 1], texts[index]):
+            continue
+        prev_end = int(segments[index - 1][1])
+        start, end = int(segments[index][0]), int(segments[index][1])
+        gap = start - prev_end
+        tail_ms = max(0, end - start)
+        weak_turn = overlap or tail_ms <= max_tail_ms or gap <= max_gap_ms
+        if not weak_turn:
+            continue
+        out[index] = (prev_sid, False)
+    return out
+
+
+def inherit_adjacent_question_speakers(
+    assignments: list[tuple[str | None, bool]],
+    texts: list[str],
+    segments: list[tuple[int, int]],
+    *,
+    max_gap_ms: int = 500,
+) -> list[tuple[str | None, bool]]:
+    """Keep rapid follow-up questions on the same speaker (couple rant)."""
+    from .utterance_pipeline import looks_like_sentence_end
+
+    if (
+        not assignments
+        or len(assignments) != len(texts)
+        or len(assignments) != len(segments)
+    ):
+        return assignments
+    out = list(assignments)
+
+    def _is_question(text: str) -> bool:
+        cleaned = (text or "").strip()
+        if cleaned.endswith("?") or cleaned.endswith("？"):
+            return True
+        lowered = cleaned.lower()
+        return lowered.endswith("không") or lowered.endswith("không?")
+
+    for index in range(1, len(out)):
+        prev_sid, _ = out[index - 1]
+        sid, _ = out[index]
+        if not prev_sid or not sid or prev_sid == sid:
+            continue
+        if not _is_question(texts[index - 1]) or not _is_question(texts[index]):
+            continue
+        if not looks_like_sentence_end(texts[index - 1]):
+            continue
+        gap = int(segments[index][0]) - int(segments[index - 1][1])
+        if gap < 0 or gap > max_gap_ms:
+            continue
+        out[index] = (prev_sid, False)
     return out
 
 

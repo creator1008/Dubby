@@ -45,13 +45,28 @@ def cover_recognized_phrase_boundaries(
     return merge_speech_ranges(adjusted)
 
 
-def matched_loudness_gain(source_level_db: float, tts_level_db: float) -> float:
-    """Match generated speech to its source slot while avoiding clipping/noise.
+# Dialogue must stay audible after matching. Short question tails (VN_couple
+# idx 7/9) measured 6–8 dB quieter than the stem, so matching ducked loud TTS
+# into the mud. Whisper-tagged v4 clips also need extra boost.
+MIN_SOURCE_MATCH_DB = -20.0
+MIN_DIALOGUE_OUTPUT_DB = -20.0
+MAX_LOUDNESS_CUT_DB = 14.0
+MAX_LOUDNESS_BOOST_DB = 20.0
 
-    Bounds are wide enough for quiet vs loud speakers in the same clip; tighter
-    clamps left soft lines far below shouts after matching.
+
+def matched_loudness_gain(source_level_db: float, tts_level_db: float) -> float:
+    """Match generated speech to its source slot while staying audible.
+
+    Bounds are wide enough for quiet vs loud speakers in the same clip, but
+    never match to a source below ``MIN_SOURCE_MATCH_DB`` or leave dialogue
+    below ``MIN_DIALOGUE_OUTPUT_DB``. Whisper TTS often needs more than +14 dB
+    to reach that floor.
     """
-    return round(max(-14.0, min(14.0, source_level_db - tts_level_db)), 2)
+    effective_source = max(float(source_level_db), MIN_SOURCE_MATCH_DB)
+    raw = effective_source - float(tts_level_db)
+    min_gain = MIN_DIALOGUE_OUTPUT_DB - float(tts_level_db)
+    gain = max(raw, min_gain)
+    return round(max(-MAX_LOUDNESS_CUT_DB, min(MAX_LOUDNESS_BOOST_DB, gain)), 2)
 
 
 def source_loudness_levels(

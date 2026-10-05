@@ -115,3 +115,89 @@ def test_split_timed_texts_keeps_caption_when_turns_have_a_hole() -> None:
     assert split[0][0] == 0
     assert split[0][1] == 10000
     assert split[0][2] == "cau chuyen dai o giua bi bo"
+
+
+def test_vn_couple_question_tails_keep_same_speaker() -> None:
+    """VN_couple 7–10: mid-sentence question tails are not a new speaker."""
+    from app.worker.diarization import (
+        SpeakerTurn,
+        inherit_continuation_speakers,
+        split_timed_texts_on_turns,
+    )
+    from app.worker.utterance_pipeline import (
+        UtteranceChunk,
+        is_grammatical_continuation,
+        merge_continuation_chunks,
+    )
+
+    assert is_grammatical_continuation("Anh có đưa hết tiền cho", "em không")
+    assert is_grammatical_continuation("Không đưa cho em thì", "đưa cho ai?")
+    # Finished question + a real reply must stay two speakers.
+    assert not is_grammatical_continuation(
+        "Anh có đưa hết tiền cho em không?", "Không."
+    )
+
+    turns = [
+        SpeakerTurn(7000, 8200, "speaker_1"),
+        SpeakerTurn(8500, 9200, "speaker_2"),
+        SpeakerTurn(9400, 10800, "speaker_1"),
+        SpeakerTurn(11100, 12000, "speaker_2"),
+    ]
+    captions = [
+        (7000, 9200, "Anh có đưa hết tiền cho em không", "speaker_1"),
+        (9400, 12000, "Không đưa cho em thì đưa cho ai?", "speaker_1"),
+    ]
+    split = split_timed_texts_on_turns(captions, turns)
+    assert len(split) == 2
+    assert split[0][3] == "speaker_1"
+    assert split[1][3] == "speaker_1"
+    assert "em không" in split[0][2]
+    assert "đưa cho ai" in split[1][2]
+
+    already_split = [
+        UtteranceChunk(7000, 8200, "Anh có đưa hết tiền cho", "speaker_1", ()),
+        UtteranceChunk(8500, 9200, "em không", "speaker_2", ()),
+        UtteranceChunk(9400, 10800, "Không đưa cho em thì", "speaker_1", ()),
+        UtteranceChunk(11100, 12000, "đưa cho ai?", "speaker_2", ()),
+    ]
+    assigned = [(c.speaker_id, False) for c in already_split]
+    inherited = inherit_continuation_speakers(
+        assigned,
+        [c.text for c in already_split],
+        [(c.start_ms, c.end_ms) for c in already_split],
+    )
+    assert [sid for sid, _ in inherited] == [
+        "speaker_1",
+        "speaker_1",
+        "speaker_1",
+        "speaker_1",
+    ]
+    merged, merged_labels = merge_continuation_chunks(already_split, inherited)
+    assert len(merged) == 2
+    assert "em không" in merged[0].text
+    assert "đưa cho ai" in merged[1].text
+    assert [sid for sid, _ in (merged_labels or [])] == ["speaker_1", "speaker_1"]
+
+    # Real VN_couple idx 6–9: 80ms gaps, 350ms tail, stem of Q2 already flipped.
+    from app.worker.diarization import inherit_adjacent_question_speakers
+
+    vn = [
+        UtteranceChunk(9490, 10720, "Anh có đưa hết tiền cho", "speaker_1", ()),
+        UtteranceChunk(10800, 11150, "em không?", "speaker_2", ()),
+        UtteranceChunk(11230, 12170, "Không đưa cho em thì", "speaker_2", ()),
+        UtteranceChunk(12250, 12720, "đưa cho ai?", "speaker_1", ()),
+    ]
+    vn_assigned = [(c.speaker_id, False) for c in vn]
+    vn_inherited = inherit_continuation_speakers(
+        vn_assigned,
+        [c.text for c in vn],
+        [(c.start_ms, c.end_ms) for c in vn],
+    )
+    vn_merged, vn_labels = merge_continuation_chunks(vn, vn_inherited)
+    assert len(vn_merged) == 2
+    vn_labels = inherit_adjacent_question_speakers(
+        vn_labels or [],
+        [c.text for c in vn_merged],
+        [(c.start_ms, c.end_ms) for c in vn_merged],
+    )
+    assert [sid for sid, _ in vn_labels] == ["speaker_1", "speaker_1"]
