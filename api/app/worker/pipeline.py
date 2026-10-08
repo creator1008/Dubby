@@ -974,7 +974,7 @@ async def _recover_uncovered_dialogue(
             {
                 "idx": int(row["idx"]),
                 "start_ms": int(row["start_ms"]),
-                "end_ms": int(row.get("source_end_ms") or row["end_ms"]),
+                "end_ms": int(row["end_ms"]),
                 "source_text": str(row.get("source_text") or ""),
                 "target_text": str(row.get("target_text") or ""),
                 "speaker_id": row.get("speaker_id"),
@@ -1586,9 +1586,7 @@ async def run_dub(ctx: JobContext) -> None:
                             {
                                 "idx": int(row["idx"]),
                                 "start_ms": int(row["start_ms"]),
-                                "end_ms": int(
-                                    row.get("source_end_ms") or row["end_ms"]
-                                ),
+                                "end_ms": int(row["end_ms"]),
                                 "source_text": str(row.get("source_text") or ""),
                                 "target_text": str(row.get("target_text") or ""),
                                 "speaker_id": row.get("speaker_id"),
