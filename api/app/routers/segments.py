@@ -99,6 +99,7 @@ async def update_segments(
     source_ends: dict[int, int] = {}
     emotions: dict[int, str] = {}
     emotion_tags: dict[int, dict] = {}
+    emotion_modes: dict[int, str] = {}
     changed_texts: dict[int, str] = {}
     for row in rows:
         if row.get("speak_speed") is not None:
@@ -115,14 +116,17 @@ async def update_segments(
             speeds[idx] = float(seg.speak_speed)
         if seg.source_end_ms is not None and seg.source_end_ms > 0:
             source_ends[idx] = int(seg.source_end_ms)
-        if seg.emotion_tone:
-            emotions[idx] = seg.emotion_tone
-        if isinstance(seg.emotion_tag, dict):
-            emotion_tags[idx] = seg.emotion_tag
-        elif seg.emotion_tone:
-            from ..worker.emotion_tag import apply_user_emotion_input
+        if seg.emotion_mode in {"custom", "auto"}:
+            emotion_modes[idx] = seg.emotion_mode
+        if seg.emotion_mode != "auto":
+            if seg.emotion_tone:
+                emotions[idx] = seg.emotion_tone
+            if isinstance(seg.emotion_tag, dict):
+                emotion_tags[idx] = seg.emotion_tag
+            elif seg.emotion_tone:
+                from ..worker.emotion_tag import apply_user_emotion_input
 
-            emotion_tags[idx] = apply_user_emotion_input(seg.emotion_tone)
+                emotion_tags[idx] = apply_user_emotion_input(seg.emotion_tone)
         prior = prior_by_id.get(str(seg.id))
         if prior is not None and str(prior.get("target_text") or "") != seg.target_text:
             changed_texts[idx] = seg.target_text
@@ -133,6 +137,7 @@ async def update_segments(
         source_end_by_idx=source_ends or None,
         emotion_by_idx=emotions or None,
         emotion_tag_by_idx=emotion_tags or None,
+        emotion_mode_by_idx=emotion_modes or None,
     )
     if changed_texts:
         await invalidate_stale_dub_previews(
@@ -147,6 +152,10 @@ async def update_segments(
             row["speak_speed"] = speeds[idx]
         if idx in source_ends:
             row["source_end_ms"] = source_ends[idx]
+        if idx in emotion_modes:
+            row["emotion_mode"] = emotion_modes[idx]
+            if emotion_modes[idx] == "auto":
+                row.pop("emotion_user_set", None)
         if idx in emotions:
             row["emotion_tone"] = emotions[idx]
         if idx in emotion_tags:

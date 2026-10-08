@@ -695,7 +695,10 @@ export const demoApi = {
       body: Pick<
         Project,
         "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled" | "dub_voice_ids" | "voice_mode" | "pipeline_version"
-      >,
+      > & {
+        emotion_mode?: Project["emotion_mode"];
+        emotion_tag?: Project["emotion_tag"];
+      },
     ) => {
       const userId = await requireUserId();
       const st = loadState();
@@ -712,6 +715,8 @@ export const demoApi = {
         dub_voice_ids: body.dub_voice_ids ?? [],
         voice_mode: body.voice_mode ?? "voice_box",
         pipeline_version: body.pipeline_version ?? "3.0",
+        emotion_mode: body.emotion_mode ?? "auto",
+        emotion_tag: body.emotion_tag,
         duration_seconds: null,
         source_key: null,
         output_key: null,
@@ -727,7 +732,7 @@ export const demoApi = {
     },
     update: async (
       id: string,
-      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids" | "voice_mode">>,
+      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids" | "voice_mode" | "emotion_mode" | "emotion_tag">>,
     ) => {
       const project = await requireOwnedProject(id);
       Object.assign(project, body, { updated_at: nowIso() });
@@ -829,6 +834,7 @@ export const demoApi = {
           speak_speed?: number;
           emotion_tone?: string;
           emotion_tag?: Segment["emotion_tag"];
+          emotion_mode?: Segment["emotion_mode"];
         }
       >,
     ) => {
@@ -848,8 +854,23 @@ export const demoApi = {
         }
         row.target_text = update.target_text;
         if (update.source_text !== undefined) row.source_text = update.source_text;
-        if (update.emotion_tone) row.emotion_tone = update.emotion_tone;
-        if (update.emotion_tag) row.emotion_tag = update.emotion_tag;
+        if (update.emotion_mode === "auto") {
+          row.emotion_mode = "auto";
+          row.emotion_user_set = false;
+          delete row.emotion_tone;
+          if (row.detected_emotion_tag) {
+            row.emotion_tag = row.detected_emotion_tag;
+          } else {
+            delete row.emotion_tag;
+          }
+        } else {
+          if (update.emotion_mode === "custom") {
+            row.emotion_mode = "custom";
+            row.emotion_user_set = true;
+          }
+          if (update.emotion_tone) row.emotion_tone = update.emotion_tone;
+          if (update.emotion_tag) row.emotion_tag = update.emotion_tag;
+        }
         if (
           typeof update.end_ms === "number" &&
           Number.isFinite(update.end_ms) &&

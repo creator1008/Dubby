@@ -25,6 +25,23 @@ def test_paragraph_on_short_slot_is_document_dump() -> None:
     assert not translation_too_long_for_slot("어른 찾아라", "ko", 1.2)
 
 
+def test_english_target_leftover_hangul_is_untranslated() -> None:
+    assert target_missing_expected_script("난 너희를 위해서 호의를 베푸는 거야", "en")
+    assert not target_missing_expected_script("I am doing this as a favor for you", "en")
+
+
+def test_idxs_needing_retranslate_flags_source_script_on_english_target() -> None:
+    items = [
+        (0, "난 너희를 위해서 호의를 베푸는 거야", 3.0),
+        (1, "이제 시작하자", 1.5),
+    ]
+    translated = {
+        0: "I am doing this as a favor for you",
+        1: "이제 시작하자",
+    }
+    assert idxs_needing_retranslate(items, translated, "ko", "en") == [1]
+
+
 def test_idxs_needing_retranslate_catches_untranslated_and_stub() -> None:
     items = [
         (0, "Trong khu rừng xanh có một ngôi nhà hình cây nấm.", 4.0),

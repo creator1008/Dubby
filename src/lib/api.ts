@@ -513,11 +513,14 @@ const realApi = {
   projects: {
     list: () => request<Project[]>("/v1/projects"),
     get: (id: string) => request<Project>(`/v1/projects/${id}`),
-    create: (body: Pick<Project, "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled" | "dub_voice_ids" | "voice_mode" | "pipeline_version">) =>
+    create: (body: Pick<Project, "title" | "source_lang" | "target_lang" | "subtitle_mode" | "tone_style" | "diarization_enabled" | "dub_voice_ids" | "voice_mode" | "pipeline_version"> & {
+      emotion_mode?: Project["emotion_mode"];
+      emotion_tag?: Project["emotion_tag"];
+    }) =>
       request<Project>("/v1/projects", { method: "POST", body: JSON.stringify(body) }),
     update: (
       id: string,
-      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids" | "voice_mode">>,
+      body: Partial<Pick<Project, "tone_style" | "diarization_enabled" | "subtitle_mode" | "dub_voice_ids" | "voice_mode" | "emotion_mode" | "emotion_tag">>,
     ) => request<Project>(`/v1/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -600,6 +603,7 @@ const realApi = {
           speak_speed?: number;
           emotion_tone?: string;
           emotion_tag?: import("@/lib/emotion-tag").EmotionTag;
+          emotion_mode?: import("@/lib/emotion-tag").EmotionMode;
         }
       >,
     ) =>

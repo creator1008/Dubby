@@ -161,3 +161,56 @@ export function toneFromEmotionTag(tag: EmotionTag | null | undefined): string {
   if (parsed.volume === "whisper") return "whisper";
   return parsed.class.toLowerCase();
 }
+
+export function emotionTagFromClass(
+  klass: EmotionClass,
+  current?: EmotionTag | null,
+): EmotionTag {
+  return {
+    class: klass,
+    intensity: current?.intensity || "medium",
+    volume: current?.volume || "normal",
+    custom: null,
+    source: "user",
+  };
+}
+
+export type EmotionMode = "custom" | "auto";
+
+/** Map the 13-class tag onto the legacy project ``tone_style`` CHECK values. */
+export function toneStyleFromClass(klass: EmotionClass): string {
+  const mapped: Record<EmotionClass, string> = {
+    Happy: "cheerful",
+    Calm: "calm",
+    Confident: "calm",
+    Hopeful: "cheerful",
+    Sad: "sad",
+    Angry: "angry",
+    Excited: "excited",
+    Nervous: "whisper",
+    Serious: "calm",
+    Playful: "energetic",
+    Worried: "sad",
+    Embarrassed: "calm",
+    Lonely: "sad",
+  };
+  return mapped[klass] || "calm";
+}
+
+export function normalizeEmotionMode(
+  value: string | null | undefined,
+): EmotionMode {
+  return value === "custom" ? "custom" : "auto";
+}
+
+export function formatEmotionTagDisplay(
+  tag: EmotionTag | null | undefined,
+  classLabel: (klass: EmotionClass) => string,
+): string {
+  const parsed = parseEmotionTag(tag);
+  const label = classLabel(parsed.class);
+  const extra = (parsed.custom || "").trim();
+  return extra && extra.toLowerCase() !== parsed.class.toLowerCase()
+    ? `${label} · ${extra}`
+    : label;
+}

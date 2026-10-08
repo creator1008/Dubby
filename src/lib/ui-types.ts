@@ -1,4 +1,5 @@
 import type { DubLangCode } from "@/lib/languages";
+import type { EmotionMode, EmotionTag } from "@/lib/emotion-tag";
 
 export type LangCode = DubLangCode;
 export type SubtitleMode = "none" | "source" | "target";
@@ -9,7 +10,18 @@ export type ToneStyle =
   | "excited"
   | "energetic"
   | "calm"
-  | "cheerful";
+  | "cheerful"
+  | "happy"
+  | "confident"
+  | "hopeful"
+  | "nervous"
+  | "serious"
+  | "playful"
+  | "worried"
+  | "embarrassed"
+  | "lonely"
+  | "neutral"
+  | "warm";
 
 export type Session = {
   user_id: string;
@@ -34,6 +46,9 @@ export type Project = {
   voice_mode?: "voice_box" | "auto_clone";
   /** Pipeline architecture version (2.0 = original-base mix). */
   pipeline_version?: string;
+  /** custom = 사용자 지정 registered tone; auto = 자동감지. */
+  emotion_mode?: EmotionMode;
+  emotion_tag?: EmotionTag | null;
   duration_seconds: number | null;
   source_key: string | null;
   output_key: string | null;
@@ -68,7 +83,11 @@ export type Segment = {
   clip_speak_speed?: number;
   /** Detected emotion tone applied when synthesizing this segment's dub. */
   emotion_tone?: ToneStyle | string;
-  emotion_tag?: import("./emotion-tag").EmotionTag;
+  emotion_tag?: EmotionTag;
+  detected_emotion_tone?: string;
+  detected_emotion_tag?: EmotionTag;
+  emotion_mode?: EmotionMode;
+  emotion_user_set?: boolean;
 };
 
 /** Keep preview clips when the API omits optional voice fields.
@@ -99,6 +118,7 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
     const textChanged = prior.target_text !== row.target_text;
     const toneChanged =
       (prior.emotion_tone || "") !== (row.emotion_tone || "") ||
+      (prior.emotion_mode || "") !== (row.emotion_mode || "") ||
       JSON.stringify(prior.emotion_tag || null) !==
         JSON.stringify(row.emotion_tag || null);
     const staleVoice = textChanged || toneChanged;
@@ -119,6 +139,12 @@ export function mergeSegmentVoiceFields(prev: Segment[], next: Segment[]): Segme
             : prior.clip_speak_speed,
       emotion_tone: row.emotion_tone ?? prior.emotion_tone,
       emotion_tag: row.emotion_tag ?? prior.emotion_tag,
+      detected_emotion_tag:
+        row.detected_emotion_tag ?? prior.detected_emotion_tag,
+      detected_emotion_tone:
+        row.detected_emotion_tone ?? prior.detected_emotion_tone,
+      emotion_mode: row.emotion_mode ?? prior.emotion_mode,
+      emotion_user_set: row.emotion_user_set ?? prior.emotion_user_set,
     };
   });
 }

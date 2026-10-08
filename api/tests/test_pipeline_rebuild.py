@@ -12,6 +12,7 @@ from app.worker.emotion_tag import (
     apply_user_emotion_input,
     audio_tags_from_emotion_tag,
     parse_emotion_tag,
+    resolve_tts_emotion_tag,
 )
 from app.worker.scribe_client import transcribe_result_from_scribe
 
@@ -61,6 +62,7 @@ def test_scribe_groups_words_by_speaker_and_pause() -> None:
     assert result.drafts[1].speaker_id == "speaker_2"
     assert result.drafts[0].end_ms == 800
     assert result.drafts[1].start_ms == 2000
+    assert result.speech_ranges == [(0, 400), (450, 800), (2000, 2400)]
 
 
 def test_document_translate_matches_segment_id_not_array_order() -> None:
@@ -120,3 +122,59 @@ def test_emotion_tag_schema_and_v4_audio_tags() -> None:
     whisper = parse_emotion_tag("whisper")
     assert whisper["class"] == "Calm"
     assert whisper["volume"] == "whisper"
+
+
+def test_tts_emotion_auto_ignores_user_override() -> None:
+    user = apply_user_emotion_input("Angry")
+    detected = parse_emotion_tag(
+        {"class": "Sad", "intensity": "low", "volume": "soft", "source": "auto"}
+    )
+    tag = resolve_tts_emotion_tag(
+        mode="auto",
+        user_tag=user,
+        user_tone="angry",
+        detected_tag=detected,
+        project_tone="calm",
+    )
+    assert tag["class"] == "Sad"
+    assert tag["source"] == "auto"
+
+
+def test_asr_mid_clip_holes_are_detected_at_800ms() -> None:
+    from app.worker.media import asr_timeline_gaps
+
+    gaps = asr_timeline_gaps(
+        [(0, 2000), (3500, 5000)],
+        8000,
+        min_ms=800,
+    )
+    assert (2000, 3500) in gaps
+    assert gaps[-1][0] == 5000
+
+
+def test_tts_emotion_custom_uses_user_then_project() -> None:
+    user = apply_user_emotion_input("Playful")
+    detected = parse_emotion_tag({"class": "Sad", "source": "auto"})
+    tag = resolve_tts_emotion_tag(
+        mode="custom",
+        user_tag=user,
+        detected_tag=detected,
+        project_tone="calm",
+    )
+    assert tag["class"] == "Playful"
+    assert tag["source"] == "user"
+    fallback = resolve_tts_emotion_tag(
+        mode="custom",
+        detected_tag=detected,
+        project_tone="cheerful",
+    )
+    assert fallback["class"] == "Happy"
+    assert fallback["source"] == "user"
+
+
+def test_asr_timeline_gaps_include_mid_clip_holes() -> None:
+    from app.worker.media import asr_timeline_gaps
+
+    gaps = asr_timeline_gaps([(0, 1500), (14000, 16000)], 20000, min_ms=800)
+    assert (1500, 14000) in gaps
+    assert (16000, 20000) in gaps

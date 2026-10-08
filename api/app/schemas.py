@@ -42,12 +42,21 @@ ToneStyle = Literal[
     "energetic",
     "calm",
     "cheerful",
+    "happy",
+    "confident",
+    "hopeful",
+    "nervous",
+    "serious",
+    "playful",
+    "worried",
+    "embarrassed",
+    "lonely",
     # Legacy values still accepted from older clients / DB rows.
     "neutral",
     "warm",
-    "serious",
 ]
 VoiceMode = Literal["voice_box", "auto_clone"]
+EmotionMode = Literal["custom", "auto"]
 ProjectStatus = Literal[
     "created",
     "uploading",
@@ -75,6 +84,8 @@ class ProjectCreate(BaseModel):
     voice_mode: VoiceMode = "voice_box"
     dub_voice_ids: list[str] = Field(default_factory=list, max_length=8)
     pipeline_version: str = "3.0"
+    emotion_mode: EmotionMode = "auto"
+    emotion_tag: dict | None = None
 
 
 class ProjectUpdate(BaseModel):
@@ -86,6 +97,8 @@ class ProjectUpdate(BaseModel):
     diarization_enabled: bool | None = None
     voice_mode: VoiceMode | None = None
     dub_voice_ids: list[str] | None = Field(default=None, max_length=8)
+    emotion_mode: EmotionMode | None = None
+    emotion_tag: dict | None = None
 
 
 class ProjectOut(BaseModel):
@@ -100,6 +113,8 @@ class ProjectOut(BaseModel):
     voice_mode: VoiceMode = "voice_box"
     dub_voice_ids: list[str] = Field(default_factory=list)
     pipeline_version: str = "3.0"
+    emotion_mode: EmotionMode = "auto"
+    emotion_tag: dict | None = None
     duration_seconds: float | None = None
     source_key: str | None = None
     output_key: str | None = None
@@ -115,6 +130,13 @@ class ProjectOut(BaseModel):
         if value in ("voice_box", "auto_clone"):
             return value
         return "voice_box"
+
+    @field_validator("emotion_mode", mode="before")
+    @classmethod
+    def coerce_emotion_mode(cls, value: object) -> object:
+        if value == "custom":
+            return value
+        return "auto"
 
     @field_validator("quality_warnings", mode="before")
     @classmethod
@@ -153,6 +175,7 @@ class SegmentUpdate(BaseModel):
     source_end_ms: int | None = Field(default=None, ge=0)
     emotion_tone: str | None = Field(default=None, max_length=80)
     emotion_tag: dict | None = None
+    emotion_mode: EmotionMode | None = None
 
 
 class SegmentsBulkUpdate(BaseModel):
@@ -195,6 +218,10 @@ class SegmentOut(BaseModel):
     # Detected / applied emotion tone for this segment's dub.
     emotion_tone: str | None = None
     emotion_tag: dict | None = None
+    detected_emotion_tone: str | None = None
+    detected_emotion_tag: dict | None = None
+    emotion_mode: EmotionMode = "auto"
+    emotion_user_set: bool | None = None
 
 
 # --- Jobs -------------------------------------------------------------------

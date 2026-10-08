@@ -44,6 +44,9 @@ _PROJECT_PATCHABLE = {
     "subtitle_mode",
     "tone_style",
     "diarization_enabled",
+    "voice_mode",
+    "pipeline_version",
+    "emotion_mode",
     "status",
     "source_key",
     "output_key",
@@ -128,6 +131,9 @@ class SupabaseRestRepository(Repository):
         tone_style: str = "neutral",
         diarization_enabled: bool = False,
         dub_voice_ids: list[str] | None = None,
+        voice_mode: str = "voice_box",
+        pipeline_version: str = "3.0",
+        emotion_mode: str = "auto",
     ) -> Row:
         voices = [
             str(v).strip()
@@ -148,6 +154,11 @@ class SupabaseRestRepository(Repository):
                 "subtitle_mode": subtitle_mode,
                 "tone_style": tone_style,
                 "diarization_enabled": diarization_enabled,
+                "voice_mode": (
+                    voice_mode if voice_mode in {"voice_box", "auto_clone"} else "voice_box"
+                ),
+                "pipeline_version": pipeline_version or "3.0",
+                "emotion_mode": "custom" if emotion_mode == "custom" else "auto",
             },
         )
         resp.raise_for_status()

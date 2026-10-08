@@ -13,8 +13,15 @@ import { retranslateLocalSegments } from "@/lib/local-step12";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
 import { isDubLangCode } from "@/lib/languages";
 import { preferStableMediaUrl, signedUrlIsFresh } from "@/lib/media-url";
-import type { EmotionTag } from "@/lib/emotion-tag";
-import { toneFromEmotionTag } from "@/lib/emotion-tag";
+import type { EmotionClass, EmotionMode, EmotionTag } from "@/lib/emotion-tag";
+import {
+  EMOTION_CLASSES,
+  emotionTagFromClass,
+  normalizeEmotionMode,
+  parseEmotionTag,
+  toneFromEmotionTag,
+  toneStyleFromClass,
+} from "@/lib/emotion-tag";
 import type { Job, Project, Segment, ToneStyle } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
 import {
@@ -36,9 +43,34 @@ function snapshotEmotionTones(rows: Segment[]) {
   return Object.fromEntries(
     rows.map((row) => [
       row.id,
-      JSON.stringify(row.emotion_tag || row.emotion_tone || ""),
+      JSON.stringify({
+        mode: row.emotion_mode || "",
+        tag: row.emotion_tag || row.emotion_tone || "",
+      }),
     ]),
   );
+}
+
+function emotionClassLabel(
+  text: Record<string, string>,
+  klass: EmotionClass,
+): string {
+  const labels: Record<EmotionClass, string> = {
+    Happy: text.toneHappy,
+    Calm: text.toneCalm,
+    Confident: text.toneConfident,
+    Hopeful: text.toneHopeful,
+    Sad: text.toneSad,
+    Angry: text.toneAngry,
+    Excited: text.toneExcited,
+    Nervous: text.toneNervous,
+    Serious: text.toneSerious,
+    Playful: text.tonePlayful,
+    Worried: text.toneWorried,
+    Embarrassed: text.toneEmbarrassed,
+    Lonely: text.toneLonely,
+  };
+  return labels[klass] || klass;
 }
 
 function ProjectEditor() {
@@ -197,12 +229,57 @@ function ProjectEditor() {
         segment.id === segmentId
           ? {
               ...segment,
-              emotion_tag: tag,
+              emotion_mode: "custom",
+              emotion_user_set: true,
+              emotion_tag: { ...tag, source: "user" },
               emotion_tone: toneFromEmotionTag(tag),
               dubbed_audio_url: undefined,
             }
           : segment,
       ),
+    );
+    setMessage(null);
+  };
+
+  const onEmotionModeChange = (segmentId: string, mode: EmotionMode) => {
+    setSegments((current) =>
+      current.map((segment) => {
+        if (segment.id !== segmentId) return segment;
+        if (mode === "auto") {
+          const detected = parseEmotionTag(
+            segment.detected_emotion_tag ||
+              segment.detected_emotion_tone ||
+              (segment.emotion_tag?.source === "auto"
+                ? segment.emotion_tag
+                : null),
+            parseEmotionTag(project?.tone_style).class,
+          );
+          return {
+            ...segment,
+            emotion_mode: "auto",
+            emotion_user_set: false,
+            emotion_tag: detected,
+            emotion_tone: toneFromEmotionTag(detected),
+            dubbed_audio_url: undefined,
+          };
+        }
+        const seeded = emotionTagFromClass(
+          parseEmotionTag(
+            segment.emotion_tag ||
+              segment.detected_emotion_tag ||
+              project?.tone_style,
+          ).class,
+          segment.emotion_tag,
+        );
+        return {
+          ...segment,
+          emotion_mode: "custom",
+          emotion_user_set: true,
+          emotion_tag: seeded,
+          emotion_tone: toneFromEmotionTag(seeded),
+          dubbed_audio_url: undefined,
+        };
+      }),
     );
     setMessage(null);
   };
@@ -246,43 +323,42 @@ function ProjectEditor() {
         const priorText =
           baselineTargetRef.current[segment.id] ?? segment.target_text;
         const priorTone = baselineEmotionRef.current[segment.id] ?? "";
-        const currentTone = String(segment.emotion_tone || "");
+        const currentTone = JSON.stringify({
+          mode: segment.emotion_mode || "",
+          tag: segment.emotion_tag || segment.emotion_tone || "",
+        });
         const textChanged = hasTextBaseline && priorText !== segment.target_text;
-        const toneChanged =
-          hasToneBaseline &&
-          priorTone !== currentTone &&
-          !(priorTone === "" && currentTone !== "");
+        const toneChanged = hasToneBaseline && priorTone !== currentTone;
         return projectHasDubPreview && (textChanged || toneChanged);
       });
       const next = await api.segments.update(
         projectId,
-        prepared.map(
-          ({
-            id,
-            source_text,
-            target_text,
-            end_ms,
-            source_end_ms,
-            speak_speed,
-            emotion_tone,
-            emotion_tag,
-          }) => ({
-            id,
-            source_text,
-            target_text,
-            end_ms,
-            source_end_ms: source_end_ms ?? end_ms,
+        prepared.map((segment) => {
+          const mode = normalizeEmotionMode(
+            segment.emotion_mode || project.emotion_mode,
+          );
+          return {
+            id: segment.id,
+            source_text: segment.source_text,
+            target_text: segment.target_text,
+            end_ms: segment.end_ms,
+            source_end_ms: segment.source_end_ms ?? segment.end_ms,
             speak_speed:
-              typeof speak_speed === "number" && Number.isFinite(speak_speed)
-                ? speak_speed
+              typeof segment.speak_speed === "number" &&
+              Number.isFinite(segment.speak_speed)
+                ? segment.speak_speed
                 : 1,
+            emotion_mode: mode,
             emotion_tone:
-              typeof emotion_tone === "string" && emotion_tone.trim()
-                ? emotion_tone.trim()
+              mode === "custom" &&
+              typeof segment.emotion_tone === "string" &&
+              segment.emotion_tone.trim()
+                ? segment.emotion_tone.trim()
                 : undefined,
-            emotion_tag: emotion_tag || undefined,
-          }),
-        ),
+            emotion_tag:
+              mode === "custom" ? segment.emotion_tag || undefined : undefined,
+          };
+        }),
       );
       const merged = ensureSourceEndMs(mergeSegmentVoiceFields(prepared, next));
       setSegments(merged);
@@ -423,7 +499,15 @@ function ProjectEditor() {
   };
 
   const updateQualitySetting = async (
-    patch: Partial<Pick<Project, "tone_style" | "diarization_enabled">>,
+    patch: Partial<
+      Pick<
+        Project,
+        | "tone_style"
+        | "diarization_enabled"
+        | "emotion_mode"
+        | "emotion_tag"
+      >
+    >,
   ) => {
     if (!projectId) return;
     try {
@@ -560,30 +644,80 @@ function ProjectEditor() {
         <div className="app-panel">
           <h2 className="panel-inline-title">{text.dubResult}</h2>
           <div className="row">
-            <label>
-              {text.tone}
-              <select
-                value={
-                  ["sad", "angry", "whisper", "excited", "energetic", "calm", "cheerful"].includes(
-                    project.tone_style,
-                  )
-                    ? project.tone_style
-                    : "calm"
-                }
-                disabled={Boolean(activeJob)}
-                onChange={(e) => void updateQualitySetting({
-                  tone_style: e.target.value as ToneStyle,
-                })}
+            <div className="emotion-mode-field">
+              <span className="emotion-tone-label">{text.emotionMode}</span>
+              <div
+                className="input-mode-toggle emotion-mode-toggle"
+                role="group"
+                aria-label={text.emotionMode}
               >
-                <option value="sad">{text.toneSad}</option>
-                <option value="angry">{text.toneAngry}</option>
-                <option value="whisper">{text.toneWhisper}</option>
-                <option value="excited">{text.toneExcited}</option>
-                <option value="energetic">{text.toneEnergetic}</option>
-                <option value="calm">{text.toneCalm}</option>
-                <option value="cheerful">{text.toneCheerful}</option>
-              </select>
-            </label>
+                <button
+                  type="button"
+                  className={
+                    normalizeEmotionMode(project.emotion_mode) === "custom"
+                      ? "is-active"
+                      : undefined
+                  }
+                  disabled={Boolean(activeJob)}
+                  onClick={() => {
+                    const klass = parseEmotionTag(
+                      project.emotion_tag || project.tone_style,
+                    ).class;
+                    void updateQualitySetting({
+                      emotion_mode: "custom",
+                      tone_style: toneStyleFromClass(klass) as ToneStyle,
+                      emotion_tag: emotionTagFromClass(klass, project.emotion_tag),
+                    });
+                  }}
+                >
+                  {text.emotionModeCustom}
+                </button>
+                <button
+                  type="button"
+                  className={
+                    normalizeEmotionMode(project.emotion_mode) === "auto"
+                      ? "is-active"
+                      : undefined
+                  }
+                  disabled={Boolean(activeJob)}
+                  onClick={() =>
+                    void updateQualitySetting({
+                      emotion_mode: "auto",
+                      tone_style: "calm",
+                      emotion_tag: null,
+                    })
+                  }
+                >
+                  {text.emotionModeAuto}
+                </button>
+              </div>
+              {normalizeEmotionMode(project.emotion_mode) === "custom" ? (
+                <label>
+                  {text.tone}
+                  <select
+                    value={parseEmotionTag(project.emotion_tag || project.tone_style).class}
+                    disabled={Boolean(activeJob)}
+                    onChange={(e) => {
+                      const klass = e.target.value as EmotionClass;
+                      void updateQualitySetting({
+                        emotion_mode: "custom",
+                        tone_style: toneStyleFromClass(klass) as ToneStyle,
+                        emotion_tag: emotionTagFromClass(klass),
+                      });
+                    }}
+                  >
+                    {EMOTION_CLASSES.map((klass) => (
+                      <option key={klass} value={klass}>
+                        {emotionClassLabel(text, klass)}
+                      </option>
+                    ))}
+                  </select>
+                  <small className="field-hint">{text.toneHelpCustom}</small>
+                </label>
+              ) : (
+                <small className="field-hint">{text.toneHelpAuto}</small>
+              )}
+            </div>
             <label>
               {text.speakerSeparation}
               <select
@@ -631,9 +765,11 @@ function ProjectEditor() {
               }
               sourceMediaUrl={sourceUrl}
               defaultEmotionTone={project.tone_style}
+              defaultEmotionMode={project.emotion_mode}
               onChange={onSegmentChange}
               onEmotionToneChange={onEmotionToneChange}
               onEmotionTagChange={onEmotionTagChange}
+              onEmotionModeChange={onEmotionModeChange}
               onEnsureDubPreview={(id) => ensureDubPreview(id)}
               onSpeakSpeedChange={(id, speed) => {
                 setSegments((prev) =>

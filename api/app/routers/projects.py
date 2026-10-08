@@ -49,6 +49,8 @@ async def _save_dub_meta(
     voice_ids: list[str] | None = None,
     voice_mode: str | None = None,
     pipeline_version: str = "3.0",
+    emotion_mode: str | None = None,
+    emotion_tag: dict | None = None,
 ) -> None:
     key = storage.project_meta_key(owner_id, project_id, _DUB_VOICE_META)
     existing: dict = {}
@@ -65,6 +67,10 @@ async def _save_dub_meta(
     if voice_mode is not None:
         existing["voice_mode"] = voice_mode if voice_mode in {"voice_box", "auto_clone"} else "voice_box"
     existing["pipeline_version"] = pipeline_version or "3.0"
+    if emotion_mode is not None:
+        existing["emotion_mode"] = "custom" if emotion_mode == "custom" else "auto"
+    if emotion_tag is not None:
+        existing["emotion_tag"] = emotion_tag if isinstance(emotion_tag, dict) else None
     await storage.upload_bytes(
         json.dumps(existing).encode("utf-8"),
         key,
@@ -123,6 +129,12 @@ async def _with_dub_voices(
         out["pipeline_version"] = str(meta["pipeline_version"])
     elif not out.get("pipeline_version"):
         out["pipeline_version"] = "3.0"
+    if meta.get("emotion_mode") in {"custom", "auto"}:
+        out["emotion_mode"] = meta["emotion_mode"]
+    elif not out.get("emotion_mode"):
+        out["emotion_mode"] = "auto"
+    if isinstance(meta.get("emotion_tag"), dict):
+        out["emotion_tag"] = meta["emotion_tag"]
     return out
 
 
@@ -164,6 +176,9 @@ async def create_project(
             tone_style=body.tone_style,
             diarization_enabled=body.diarization_enabled,
             dub_voice_ids=body.dub_voice_ids,
+            voice_mode=body.voice_mode,
+            pipeline_version=body.pipeline_version or "3.0",
+            emotion_mode=body.emotion_mode,
         )
     except Exception as exc:
         message = str(exc)
@@ -184,6 +199,7 @@ async def create_project(
         str(v).strip() for v in (body.dub_voice_ids or []) if str(v).strip()
     ][:8]
     voice_mode = body.voice_mode if body.voice_mode in {"voice_box", "auto_clone"} else "voice_box"
+    emotion_mode = body.emotion_mode if body.emotion_mode == "custom" else "auto"
     owner_id = user.id
     project_id = UUID(str(row["id"]))
     pipeline_version = body.pipeline_version or "3.0"
@@ -197,6 +213,8 @@ async def create_project(
                 voice_ids=voices,
                 voice_mode=voice_mode,
                 pipeline_version=pipeline_version,
+                emotion_mode=emotion_mode,
+                emotion_tag=body.emotion_tag if emotion_mode == "custom" else None,
             )
         except Exception:  # noqa: BLE001 - project create should still succeed
             logger.exception("failed to persist dub meta sidecar")
@@ -208,6 +226,8 @@ async def create_project(
         "dub_voice_ids": voices,
         "voice_mode": voice_mode,
         "pipeline_version": pipeline_version,
+        "emotion_mode": emotion_mode,
+        "emotion_tag": body.emotion_tag if emotion_mode == "custom" else None,
     }
     return ProjectOut.model_validate(row)
 
@@ -233,11 +253,18 @@ async def update_project(
     storage: Storage,
 ) -> ProjectOut:
     fields = body.model_dump(exclude_unset=True)
-    row = await repo.update_project(user.id, project_id, fields)
+    db_fields = {
+        key: value
+        for key, value in fields.items()
+        if key != "emotion_tag"
+    }
+    row = await repo.update_project(user.id, project_id, db_fields)
     if row is None:
         raise NotFoundError("Project not found")
     meta_voice_ids = None
     meta_voice_mode = None
+    meta_emotion_mode = None
+    meta_emotion_tag = None
     if "dub_voice_ids" in fields:
         meta_voice_ids = [
             str(v).strip()
@@ -247,7 +274,16 @@ async def update_project(
     if "voice_mode" in fields:
         mode = str(fields.get("voice_mode") or "voice_box")
         meta_voice_mode = mode if mode in {"voice_box", "auto_clone"} else "voice_box"
-    if meta_voice_ids is not None or meta_voice_mode is not None:
+    if "emotion_mode" in fields:
+        meta_emotion_mode = "custom" if fields.get("emotion_mode") == "custom" else "auto"
+    if "emotion_tag" in fields:
+        meta_emotion_tag = fields.get("emotion_tag") if isinstance(fields.get("emotion_tag"), dict) else None
+    if (
+        meta_voice_ids is not None
+        or meta_voice_mode is not None
+        or meta_emotion_mode is not None
+        or "emotion_tag" in fields
+    ):
         try:
             await _save_dub_meta(
                 storage,
@@ -255,6 +291,8 @@ async def update_project(
                 project_id,
                 voice_ids=meta_voice_ids,
                 voice_mode=meta_voice_mode,
+                emotion_mode=meta_emotion_mode,
+                emotion_tag=meta_emotion_tag,
             )
         except Exception:  # noqa: BLE001
             logger.exception("failed to update dub meta sidecar")
@@ -263,6 +301,10 @@ async def update_project(
         row = {**row, "dub_voice_ids": meta_voice_ids}
     if meta_voice_mode is not None:
         row = {**row, "voice_mode": meta_voice_mode}
+    if meta_emotion_mode is not None:
+        row = {**row, "emotion_mode": meta_emotion_mode}
+    if "emotion_tag" in fields:
+        row = {**row, "emotion_tag": meta_emotion_tag}
     return ProjectOut.model_validate(row)
 
 

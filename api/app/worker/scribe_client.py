@@ -192,7 +192,17 @@ def transcribe_result_from_scribe(
     full = str(payload.get("text") or "").strip()
     if not full:
         full = " ".join(d.text for d in drafts)
-    speech_ranges = [(d.start_ms, d.end_ms) for d in drafts if d.end_ms > d.start_ms]
+    # Word hits (not grouped drafts) so mix/voice-removal can cover speech
+    # that later caption merge/split dropped as its own row.
+    speech_ranges = [
+        (token.start_ms, token.end_ms)
+        for token in tokens
+        if token.end_ms > token.start_ms
+    ]
+    if not speech_ranges:
+        speech_ranges = [
+            (d.start_ms, d.end_ms) for d in drafts if d.end_ms > d.start_ms
+        ]
     labeled = len(speaker_map) >= 2
     return TranscribeResult(
         drafts=drafts,

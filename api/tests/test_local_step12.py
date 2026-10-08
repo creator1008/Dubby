@@ -116,6 +116,31 @@ def test_dub_voice_removal_fills_mid_phrase_gaps() -> None:
     assert filled[0][1] >= 13940
 
 
+def test_dialogue_scrub_covers_uncaptioned_tts_and_untranslated_captions() -> None:
+    from app.worker.dub_quality import dialogue_scrub_bounds, voice_removal_ranges
+
+    # Caption exists in the middle without TTS (empty translation) — still scrub.
+    bounds = dialogue_scrub_bounds(
+        [(0, 2000), (8000, 12000)],
+        [(0, 2200)],
+    )
+    filled = voice_removal_ranges([], bounds, fill_interiors=True)
+    assert filled[0][0] <= 0
+    assert any(end >= 12000 for _, end in filled)
+
+
+def test_dialogue_scrub_covers_recovered_stt_gap() -> None:
+    from app.worker.dub_quality import dialogue_scrub_bounds, voice_removal_ranges
+
+    bounds = dialogue_scrub_bounds(
+        [(0, 2000), (8000, 10000)],
+        [(0, 2200), (8000, 10200)],
+        extra_bounds=[(3500, 5200)],
+    )
+    filled = voice_removal_ranges([], bounds, fill_interiors=True)
+    assert any(start <= 3500 and end >= 5200 for start, end in filled)
+
+
 def test_dub_voice_removal_keeps_bgm_gap_between_separate_lines() -> None:
     from app.worker.dub_quality import voice_removal_ranges
 

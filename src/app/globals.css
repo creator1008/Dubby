@@ -1882,6 +1882,27 @@ body {
   line-height: 1.4;
 }
 
+.emotion-mode-field,
+.emotion-tag-block {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.emotion-tone-row {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.emotion-tone-label {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+}
+
+.emotion-mode-toggle {
+  width: fit-content;
+}
+
 .billing-status,
 .billing-product {
   display: flex;
@@ -2862,4 +2883,31 @@ body {
   bottom: 0;
   padding-top: 0.5rem;
   background: linear-gradient(transparent, #fff 30%);
+}
+
+.emotion-mode-field,
+.emotion-tag-block {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 12rem;
+}
+
+.emotion-tone-label {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--ink-soft);
+}
+
+.emotion-tone-row {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.emotion-tone-row input[readonly] {
+  background: rgba(12, 26, 36, 0.04);
+  cursor: default;
+}
+
+.emotion-mode-toggle {
+  margin: 0;
 }

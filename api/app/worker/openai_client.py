@@ -476,9 +476,32 @@ class OpenAIClient:
             "translation request failed",
         )
         parsed = parse_translation_content(content, [idx for idx, _, _ in items])
+        from .document_translate import ids_needing_retranslate
         from .locale_rules import apply_translation_postprocess
 
         source_by_idx = {idx: text for idx, text, _ in items}
+        bad_idxs = ids_needing_retranslate(
+            items, parsed, source_lang, target_lang
+        )
+        if bad_idxs:
+            retry_items = [row for row in items if row[0] in set(bad_idxs)]
+            retry_content = await self._chat_completion(
+                {
+                    "messages": build_translation_messages(
+                        retry_items,
+                        source_lang,
+                        target_lang,
+                        document_context=document_context,
+                    ),
+                    "response_format": _TRANSLATION_SCHEMA,
+                    "temperature": 0.1,
+                },
+                "translation retry failed",
+            )
+            retried = parse_translation_content(
+                retry_content, [idx for idx, _, _ in retry_items]
+            )
+            parsed.update(retried)
         return {
             idx: apply_translation_postprocess(
                 source_by_idx.get(idx, ""),

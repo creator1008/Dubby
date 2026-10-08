@@ -79,6 +79,15 @@ def test_asr_timeline_gaps_finds_middle_hole() -> None:
     assert gaps == [(3200, 9800)]
 
 
+def test_asr_timeline_gaps_finds_sub_two_second_spoken_hole() -> None:
+    gaps = media.asr_timeline_gaps(
+        [(0, 2000), (3100, 5000)],
+        5000,
+        min_ms=800,
+    )
+    assert gaps == [(2000, 3100)]
+
+
 def test_uncovered_voiced_ranges_finds_intro_hole() -> None:
     gaps = media.uncovered_voiced_ranges(
         [(0, 14000), (14000, 30000)],

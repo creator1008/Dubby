@@ -120,3 +120,32 @@ def test_classify_falls_back_when_silent() -> None:
         )
         == "cheerful"
     )
+
+
+def test_resolve_tts_emotion_tag_custom_uses_user_and_auto_uses_detected() -> None:
+    from app.worker.emotion_tag import resolve_tts_emotion_tag
+
+    user = {"class": "Angry", "intensity": "high", "volume": "loud", "custom": None, "source": "user"}
+    detected = {
+        "class": "Sad",
+        "intensity": "low",
+        "volume": "soft",
+        "custom": None,
+        "source": "auto",
+    }
+    custom = resolve_tts_emotion_tag(
+        mode="custom",
+        user_tag=user,
+        detected_tag=detected,
+        project_tone="calm",
+    )
+    auto = resolve_tts_emotion_tag(
+        mode="auto",
+        user_tag=user,
+        detected_tag=detected,
+        project_tone="calm",
+    )
+    assert custom["class"] == "Angry"
+    assert custom["source"] == "user"
+    assert auto["class"] == "Sad"
+    assert auto["source"] == "auto"

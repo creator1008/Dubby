@@ -158,6 +158,25 @@ async def source_loudness_levels_async(
     return levels
 
 
+def dialogue_scrub_bounds(
+    caption_bounds: list[tuple[int, int]],
+    tts_bounds: list[tuple[int, int]],
+    extra_bounds: list[tuple[int, int]] | None = None,
+) -> list[tuple[int, int]]:
+    """Union captioned source-language spans with any extended TTS slots.
+
+    Empty translations still must not leave original dialogue in the mix.
+    True no-dialogue holes (no caption, no TTS, no ASR words) stay original.
+    ``extra_bounds`` covers STT-recovered mid-file speech that was missing
+    from the first caption pass.
+    """
+    return merge_speech_ranges(
+        list(caption_bounds or [])
+        + list(tts_bounds or [])
+        + list(extra_bounds or [])
+    )
+
+
 def voice_removal_ranges(
     saved_ranges: list[tuple[int, int]],
     segment_bounds: list[tuple[int, int]],

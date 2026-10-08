@@ -21,7 +21,11 @@ from .dub_voice_assets import (
 )
 from .elevenlabs_client import ElevenLabsClient
 from .emotion import resolve_segment_emotion
-from .emotion_tag import emotion_tag_from_tone, parse_emotion_tag
+from .emotion_tag import (
+    normalize_emotion_mode,
+    resolve_tts_emotion_tag,
+    tone_from_emotion_tag,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,22 +129,29 @@ async def refresh_preview_clips(
             speaker = str(row.get("speaker_id") or "").strip() or "speaker_1"
             voice_id = voices.get(speaker) or next(iter(voices.values()))
             meta = by_idx_meta.get(idx) or {}
-            emotion = resolve_segment_emotion(
-                str(meta.get("emotion_tone") or row.get("emotion_tone") or ""),
-                project_tone=project_tone,
-                user_set=bool(meta.get("emotion_user_set")),
-                detected=str(
+            mode = normalize_emotion_mode(
+                meta.get("emotion_mode")
+                or row.get("emotion_mode")
+                or project.get("emotion_mode")
+                or ("custom" if meta.get("emotion_user_set") else "auto")
+            )
+            emotion_tag = resolve_tts_emotion_tag(
+                mode=mode,
+                user_tag=meta.get("emotion_tag") or row.get("emotion_tag"),
+                user_tone=str(meta.get("emotion_tone") or row.get("emotion_tone") or ""),
+                detected_tag=meta.get("detected_emotion_tag")
+                or row.get("detected_emotion_tag"),
+                detected_tone=str(
                     meta.get("detected_emotion_tone")
                     or row.get("detected_emotion_tone")
                     or ""
                 ),
+                project_tag=project.get("emotion_tag")
+                if isinstance(project.get("emotion_tag"), dict)
+                else None,
+                project_tone=project_tone,
             )
-            raw_tag = meta.get("emotion_tag") or row.get("emotion_tag")
-            emotion_tag = (
-                parse_emotion_tag(raw_tag)
-                if isinstance(raw_tag, dict)
-                else emotion_tag_from_tone(emotion)
-            )
+            emotion = tone_from_emotion_tag(emotion_tag)
             try:
                 speak_speed = float(
                     row.get("speak_speed") or meta.get("speak_speed") or 1.0
@@ -170,16 +181,27 @@ async def refresh_preview_clips(
                 "audio_key": clip_key,
                 "target_text": text,
             }
-            if meta.get("emotion_user_set"):
+            meta_row["emotion_mode"] = mode
+            if mode == "custom":
                 meta_row["emotion_tone"] = emotion
                 meta_row["emotion_user_set"] = True
-            if emotion_tag:
-                meta_row["emotion_tag"] = emotion_tag
+                if emotion_tag:
+                    meta_row["emotion_tag"] = emotion_tag
+            else:
+                meta_row["emotion_user_set"] = False
+                if emotion_tag:
+                    meta_row["emotion_tag"] = emotion_tag
+                meta_row.pop("emotion_tone", None)
             detected = meta.get("detected_emotion_tone") or row.get(
                 "detected_emotion_tone"
             )
             if detected:
                 meta_row["detected_emotion_tone"] = str(detected)
+            detected_tag = meta.get("detected_emotion_tag") or row.get(
+                "detected_emotion_tag"
+            )
+            if isinstance(detected_tag, dict):
+                meta_row["detected_emotion_tag"] = detected_tag
             for key in ("source_end_ms", "gain_db", "source_level_db", "tts_level_db"):
                 if meta.get(key) is not None:
                     meta_row[key] = meta[key]

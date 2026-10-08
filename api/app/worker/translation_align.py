@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import re
 
-from .language_passthrough import dominant_script
+from .language_passthrough import dominant_script, expected_script, should_passthrough
 from .locale_rules import spoken_char_budget
 
 _HANGUL_RE = re.compile(r"[\uac00-\ud7af]")
 
 
 def target_missing_expected_script(target_text: str, target_lang: str) -> bool:
-    """True when a Korean (etc.) line has no target script — usually untranslated."""
+    """True when the line is still in the source script or missing target script."""
     text = (target_text or "").strip()
     lang = (target_lang or "").strip().lower().split("-", 1)[0]
     if not text:
@@ -20,6 +20,13 @@ def target_missing_expected_script(target_text: str, target_lang: str) -> bool:
         return len(_HANGUL_RE.findall(text)) < 2
     if lang in {"zh", "ja"}:
         return dominant_script(text) not in {"cjk", None}
+    # Latin/other targets: leftover Hangul/CJK is original-language leak in TTS.
+    if should_passthrough(text, target_lang):
+        return True
+    expected = expected_script(target_lang)
+    observed = dominant_script(text)
+    if expected and observed and observed != expected:
+        return True
     return False
 
 

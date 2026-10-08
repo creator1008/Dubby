@@ -49,6 +49,7 @@ from .diarization import (
 )
 from .dub_quality import (
     cap_segment_ends_to_neighbors,
+    dialogue_scrub_bounds,
     final_voice_removal_bounds,
     matched_loudness_gain,
     next_start_by_segment_idx,
@@ -61,8 +62,11 @@ from .lipsync import create_lipsync_provider
 from .media import (
     asr_timeline_gaps,
     ffmpeg_has_rubberband,
+    measure_pcm16_wav_db,
     merge_speech_ranges,
+    uncovered_voiced_ranges,
     validate_source,
+    vocal_energy_ranges,
 )
 from .openai_client import SegmentDraft
 from .subtitles import build_ass
@@ -411,6 +415,11 @@ async def _load_project(ctx: JobContext) -> Row:
         raise PipelineError(
             errors.SOURCE_MISSING, "project has no uploaded source video"
         )
+    meta = await _load_dub_meta_from_storage(ctx, project)
+    if meta.get("emotion_mode") in {"custom", "auto"}:
+        project["emotion_mode"] = meta["emotion_mode"]
+    if isinstance(meta.get("emotion_tag"), dict):
+        project["emotion_tag"] = meta["emotion_tag"]
     return project
 
 
@@ -711,20 +720,38 @@ async def _fill_uncovered_asr_tail(
     source_lang: str,
     diarize: bool,
     scratch: Path,
+    pcm_path: str | None = None,
 ) -> tuple[list[UtteranceChunk], list[tuple[int, int]], list[str]]:
     """Re-listen ASR holes in the tail *and* the middle of the clip.
 
     Gemini often keeps the last caption but drops a mid-clip sentence. The
     old covered-end < 85% gate skipped those holes, so original speech stayed
     in the mix. Short clips (<20s) were skipped entirely.
+
+    Scribe/WhisperX also run this pass: empty/silent gap results stay original
+    audio (true no-dialogue). Gaps that yield words become captions + dub.
+
+    Largest holes first so a mid-clip dropped sentence is not skipped because
+    intro/outro silence occupied the refill budget.
     """
-    if duration_ms < 8_000 or not chunks:
+    if duration_ms < 4_000 or not chunks:
         return chunks, speech_ranges, []
-    gaps = asr_timeline_gaps(
-        [(chunk.start_ms, chunk.end_ms) for chunk in chunks],
-        duration_ms,
-        min_ms=2000,
-    )
+    covered = [(chunk.start_ms, chunk.end_ms) for chunk in chunks]
+    if speech_ranges:
+        covered = merge_speech_ranges(list(covered) + list(speech_ranges))
+    gaps = asr_timeline_gaps(covered, duration_ms, min_ms=800)
+    if pcm_path:
+        try:
+            voiced = vocal_energy_ranges(
+                pcm_path, min_speech_ms=400, floor_db=-36.0
+            )
+            extra = uncovered_voiced_ranges(
+                voiced, covered, min_ms=800, pad_ms=180
+            )
+            if extra:
+                gaps = merge_speech_ranges(list(gaps) + list(extra))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("voiced gap scan skipped: %s", exc)
     if not gaps:
         return chunks, speech_ranges, []
 
@@ -732,10 +759,20 @@ async def _fill_uncovered_asr_tail(
     ranges = list(speech_ranges)
     warnings: list[str] = []
     appended = 0
-    for index, (gap_start, gap_end) in enumerate(gaps[:4]):
+    ranked = sorted(gaps, key=lambda pair: pair[1] - pair[0], reverse=True)
+    for index, (gap_start, gap_end) in enumerate(ranked[:12]):
         pad_start = max(0, gap_start - 800)
-        if gap_end - pad_start < 2_000:
+        if gap_end - pad_start < 1_200:
             continue
+        if pcm_path:
+            try:
+                level = measure_pcm16_wav_db(pcm_path, gap_start, gap_end)
+            except Exception:
+                level = 0.0
+            else:
+                if level < -38.0:
+                    warnings.append(f"asr_gap_silent:{gap_start}-{gap_end}")
+                    continue
         warnings.append(f"asr_gap_uncovered:{gap_start}-{gap_end}/{duration_ms}")
         gap_mp3 = scratch / f"asr_gap_{index}.mp3"
         try:
@@ -785,6 +822,171 @@ async def _fill_uncovered_asr_tail(
         if any(gap_end >= int(duration_ms * 0.85) for _, gap_end in gaps):
             warnings.append(f"asr_tail_appended:{appended}")
     return merged, ranges, warnings
+
+
+async def _recover_uncovered_dialogue(
+    ctx: JobContext,
+    engine,
+    *,
+    source_path: str,
+    vocals_path: str,
+    segments: list[dict],
+    saved_ranges: list[tuple[int, int]],
+    duration_ms: int,
+    source_lang: str,
+    target_lang: str,
+    scratch: Path,
+) -> tuple[list[dict], list[tuple[int, int]], list[str]]:
+    """Dub-time safety net: STT-missed voiced holes → captions + TTS.
+
+    Vocal-energy is only used to *find* holes. Empty STT results keep original
+    audio (BGM). Words become new speakable rows so the mix is not original
+    language under dubbed dialogue.
+    """
+    from .language_passthrough import should_passthrough
+
+    warnings: list[str] = []
+    covered: list[tuple[int, int]] = list(saved_ranges or [])
+    for row in segments:
+        try:
+            start = int(row["start_ms"])
+            end = int(row.get("source_end_ms") or row["end_ms"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end > start and str(row.get("source_text") or "").strip():
+            if not should_passthrough(str(row.get("source_text") or ""), source_lang):
+                covered.append((start, end))
+    covered = merge_speech_ranges(covered)
+    try:
+        voiced = vocal_energy_ranges(
+            vocals_path, min_speech_ms=500, floor_db=-34.0
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("dub voiced scan skipped: %s", exc)
+        return segments, saved_ranges, warnings
+    holes = uncovered_voiced_ranges(voiced, covered, min_ms=800, pad_ms=180)
+    timeline = asr_timeline_gaps(covered, duration_ms, min_ms=800)
+    gaps = merge_speech_ranges(list(holes) + list(timeline))
+    if not gaps:
+        return segments, saved_ranges, warnings
+
+    asr_audio = scratch / "dub_asr.mp3"
+    try:
+        await engine.extract_asr_audio(source_path, str(asr_audio))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("dub ASR extract for gap fill failed: %s", exc)
+        return segments, saved_ranges, warnings
+
+    recovered: list[dict] = []
+    extra_ranges: list[tuple[int, int]] = []
+    max_idx = -1
+    for row in segments:
+        try:
+            max_idx = max(max_idx, int(row["idx"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    neighbor_speaker = "speaker_1"
+    for row in segments:
+        sid = str(row.get("speaker_id") or "").strip()
+        if sid:
+            neighbor_speaker = sid
+            break
+
+    ranked = sorted(gaps, key=lambda pair: pair[1] - pair[0], reverse=True)
+    for index, (gap_start, gap_end) in enumerate(ranked[:8]):
+        pad_start = max(0, gap_start - 800)
+        if gap_end - pad_start < 1_200:
+            continue
+        warnings.append(f"dub_gap_uncovered:{gap_start}-{gap_end}")
+        gap_mp3 = scratch / f"dub_gap_{index}.mp3"
+        try:
+            await engine.trim_asr_audio(
+                str(asr_audio), str(gap_mp3), pad_start, gap_end
+            )
+            gap_result = await _with_retries(
+                ctx,
+                lambda path=str(gap_mp3), start=pad_start, end=gap_end: engine.transcribe(
+                    path,
+                    source_lang,
+                    duration_seconds=max(0.5, (end - start) / 1000.0),
+                    diarize=False,
+                ),
+                step="dub_asr_gap",
+            )
+        except PipelineError as exc:
+            logger.warning("dub gap STT skipped %s-%s: %s", gap_start, gap_end, exc)
+            warnings.append(f"dub_gap_failed:{gap_start}-{gap_end}")
+            continue
+        drafts: list[tuple[int, int, str]] = []
+        for draft in gap_result.drafts:
+            start_ms = max(gap_start, int(draft.start_ms) + pad_start)
+            end_ms = min(gap_end, duration_ms, int(draft.end_ms) + pad_start)
+            text = str(draft.text or "").strip()
+            if end_ms <= start_ms or not text:
+                continue
+            if should_passthrough(text, source_lang):
+                continue
+            drafts.append((start_ms, end_ms, text))
+            extra_ranges.append((start_ms, end_ms))
+        if not drafts:
+            warnings.append(f"dub_gap_empty:{gap_start}-{gap_end}")
+            continue
+        translate_items = [
+            (i, text, max(0.35, (end - start) / 1000.0))
+            for i, (start, end, text) in enumerate(drafts)
+        ]
+        try:
+            translated = await _with_retries(
+                ctx,
+                lambda items=translate_items: engine.translate_batch(
+                    items, source_lang, target_lang
+                ),
+                step="dub_gap_translate",
+            )
+        except PipelineError as exc:
+            logger.warning("dub gap translate failed: %s", exc)
+            warnings.append(f"dub_gap_translate_failed:{gap_start}-{gap_end}")
+            continue
+        for i, (start_ms, end_ms, source_text) in enumerate(drafts):
+            max_idx += 1
+            target = str(translated.get(i) or "").strip()
+            if not target:
+                continue
+            recovered.append(
+                {
+                    "idx": max_idx,
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "source_end_ms": end_ms,
+                    "source_text": source_text,
+                    "target_text": target,
+                    "speaker_id": neighbor_speaker,
+                    "speaker_overlap": False,
+                }
+            )
+    if not recovered:
+        return segments, saved_ranges, warnings
+    warnings.append(f"dub_gap_appended:{len(recovered)}")
+    merged_segments = list(segments) + recovered
+    merged_ranges = merge_speech_ranges(list(saved_ranges or []) + extra_ranges)
+    try:
+        persist = [
+            {
+                "idx": int(row["idx"]),
+                "start_ms": int(row["start_ms"]),
+                "end_ms": int(row.get("source_end_ms") or row["end_ms"]),
+                "source_text": str(row.get("source_text") or ""),
+                "target_text": str(row.get("target_text") or ""),
+                "speaker_id": row.get("speaker_id"),
+                "speaker_overlap": bool(row.get("speaker_overlap", False)),
+            }
+            for row in sorted(merged_segments, key=lambda r: int(r.get("idx", 0)))
+        ]
+        await ctx.repo.replace_segments(ctx.project_id, persist)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not persist recovered dialogue rows: %s", exc)
+        warnings.append("dub_gap_not_persisted")
+    return merged_segments, merged_ranges, warnings
 
 
 async def run_transcribe(ctx: JobContext) -> None:
@@ -853,31 +1055,38 @@ async def run_transcribe(ctx: JobContext) -> None:
 
         chunks = dedupe_boundary_overlaps(chunks)
         stt_provider = str(transcribe_result.provider or "").strip().lower()
-        # Scribe (and WhisperX) already return word timestamps. Uncovered
-        # silence is original audio in the mix — do not invent gap captions.
-        if stt_provider not in {"scribe", "whisperx"}:
-            chunks, speech_ranges, tail_notes = await _fill_uncovered_asr_tail(
+        pcm_path: str | None = None
+        pcm_file = scratch / "asr_pcm.wav"
+        try:
+            await engine.extract_pcm16_mono(str(asr_audio), str(pcm_file))
+            pcm_path = str(pcm_file)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ASR PCM extract skipped: %s", exc)
+        # Mid-file holes with actual speech must become captions. Silent gaps
+        # return empty drafts and keep original audio (3.0.16 no-dialogue rule).
+        chunks, speech_ranges, tail_notes = await _fill_uncovered_asr_tail(
+            ctx,
+            engine,
+            asr_audio=str(asr_audio),
+            chunks=chunks,
+            speech_ranges=speech_ranges,
+            duration_ms=max(1, int(round(float(info.duration_seconds) * 1000))),
+            source_lang=source_lang,
+            diarize=bool(project.get("diarization_enabled")),
+            scratch=scratch,
+            pcm_path=pcm_path,
+        )
+        quality_warnings.extend(tail_notes)
+        if any(
+            note.startswith("asr_gap_appended") or note.startswith("asr_tail_appended")
+            for note in tail_notes
+        ):
+            await _upload_speech_ranges(
                 ctx,
-                engine,
-                asr_audio=str(asr_audio),
-                chunks=chunks,
-                speech_ranges=speech_ranges,
-                duration_ms=max(1, int(round(float(info.duration_seconds) * 1000))),
-                source_lang=source_lang,
-                diarize=bool(project.get("diarization_enabled")),
-                scratch=scratch,
+                str(project["source_key"]),
+                speech_ranges,
+                scratch,
             )
-            quality_warnings.extend(tail_notes)
-            if any(
-                note.startswith("asr_gap_appended") or note.startswith("asr_tail_appended")
-                for note in tail_notes
-            ):
-                await _upload_speech_ranges(
-                    ctx,
-                    str(project["source_key"]),
-                    speech_ranges,
-                    scratch,
-                )
 
         if (
             bool(project.get("diarization_enabled"))
@@ -1022,6 +1231,25 @@ async def run_transcribe(ctx: JobContext) -> None:
             fallback_tone=str(project.get("tone_style") or "calm"),
             scratch=scratch,
         )
+
+        word_ranges: list[tuple[int, int]] = []
+        for chunk in chunks:
+            if chunk.words:
+                word_ranges.extend(
+                    (word.start_ms, word.end_ms)
+                    for word in chunk.words
+                    if word.end_ms > word.start_ms
+                )
+            elif chunk.end_ms > chunk.start_ms:
+                word_ranges.append((chunk.start_ms, chunk.end_ms))
+        if word_ranges:
+            speech_ranges = merge_speech_ranges(word_ranges)
+            await _upload_speech_ranges(
+                ctx,
+                str(project["source_key"]),
+                speech_ranges,
+                scratch,
+            )
 
         await ctx.report(0.72, "translate")
         from .document_translate import build_source_units, document_context_from_units
@@ -1168,17 +1396,23 @@ async def run_dub(ctx: JobContext) -> None:
                     if speed_f is not None and speed_f > 0:
                         row["speak_speed"] = speed_f
 
-                # Per-segment tone: editor override, else Gemini/PCM detection.
+                # Per-segment tone: 사용자 지정 vs 자동감지 (not editor-always-wins).
+                if meta.get("emotion_mode") in {"custom", "auto"}:
+                    row["emotion_mode"] = meta["emotion_mode"]
                 if meta.get("emotion_user_set") and meta.get("emotion_tone"):
                     row["emotion_tone"] = str(meta.get("emotion_tone")).strip()
                     row["emotion_user_set"] = True
+                    row["emotion_mode"] = row.get("emotion_mode") or "custom"
                 if isinstance(meta.get("emotion_tag"), dict):
                     row["emotion_tag"] = meta["emotion_tag"]
                     if meta.get("emotion_user_set"):
                         row["emotion_user_set"] = True
+                        row["emotion_mode"] = row.get("emotion_mode") or "custom"
                 detected = str(meta.get("detected_emotion_tone") or "").strip()
                 if detected:
                     row["detected_emotion_tone"] = detected
+                if isinstance(meta.get("detected_emotion_tag"), dict):
+                    row["detected_emotion_tag"] = meta["detected_emotion_tag"]
 
                 # Freeze original ASR end; never overwrite with a rate-adjusted end_ms.
                 source_end = row.get("source_end_ms")
@@ -1260,6 +1494,119 @@ async def run_dub(ctx: JobContext) -> None:
         # V2: only dub segments that match the declared source language.
         from .language_passthrough import should_passthrough
 
+        # Demucs stems: IVC samples / loudness; mix bed rebuilt after TTS timing.
+        # Do not union vocal-energy VAD into the mix mask — music bleed on the
+        # vocals stem was treated as speech and muted the original BGM (jeju1).
+        # Energy is only a pointer for a second STT pass on uncovered holes.
+        await ctx.report(0.15, "stem_split")
+        stems_dir = scratch / "stems"
+        stems_dir.mkdir()
+        vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
+
+        saved_ranges = await _load_speech_ranges(
+            ctx, str(project["source_key"]), scratch
+        )
+        recovered_segments, saved_ranges, recover_notes = await _recover_uncovered_dialogue(
+            ctx,
+            engine,
+            source_path=str(source_path),
+            vocals_path=vocals,
+            segments=segments,
+            saved_ranges=saved_ranges,
+            duration_ms=max(1, int(round(float(info.duration_seconds) * 1000))),
+            source_lang=source_lang,
+            target_lang=str(project["target_lang"]),
+            scratch=scratch,
+        )
+        if recover_notes:
+            quality_warnings = coerce_quality_warnings(project.get("quality_warnings"))
+            quality_warnings.extend(recover_notes)
+            project["quality_warnings"] = quality_warnings
+            if any(note.startswith("dub_gap_appended") for note in recover_notes):
+                try:
+                    await _upload_speech_ranges(
+                        ctx,
+                        str(project["source_key"]),
+                        saved_ranges,
+                        scratch,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("could not persist recovered speech ranges: %s", exc)
+        segments = recovered_segments
+        from .translation_align import idxs_needing_retranslate
+
+        retry_items: list[tuple[int, str, float]] = []
+        translated_map: dict[int, str] = {}
+        for seg in segments:
+            try:
+                idx = int(seg["idx"])
+                start_ms = int(seg["start_ms"])
+                end_ms = int(seg.get("source_end_ms") or seg["end_ms"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            source_text = str(seg.get("source_text") or "").strip()
+            translated_map[idx] = str(seg.get("target_text") or "").strip()
+            if not source_text or should_passthrough(source_text, source_lang):
+                continue
+            retry_items.append(
+                (idx, source_text, max(0.35, (end_ms - start_ms) / 1000.0))
+            )
+        bad_idxs = idxs_needing_retranslate(
+            retry_items,
+            translated_map,
+            source_lang,
+            str(project["target_lang"]),
+        )
+        if bad_idxs:
+            retry_rows = [row for row in retry_items if row[0] in set(bad_idxs)]
+            try:
+                retried = await _with_retries(
+                    ctx,
+                    lambda items=retry_rows: engine.translate_batch(
+                        items,
+                        source_lang,
+                        str(project["target_lang"]),
+                    ),
+                    step="dub_retranslate",
+                )
+                by_idx = {int(seg["idx"]): seg for seg in segments if "idx" in seg}
+                for idx, text in retried.items():
+                    cleaned = str(text or "").strip()
+                    if not cleaned or idx not in by_idx:
+                        continue
+                    by_idx[idx]["target_text"] = cleaned
+                recover_notes.append(f"dub_retranslate:{len(retried)}")
+                project["quality_warnings"] = coerce_quality_warnings(
+                    project.get("quality_warnings")
+                ) + [f"dub_retranslate:{len(retried)}"]
+                try:
+                    await ctx.repo.replace_segments(
+                        ctx.project_id,
+                        [
+                            {
+                                "idx": int(row["idx"]),
+                                "start_ms": int(row["start_ms"]),
+                                "end_ms": int(
+                                    row.get("source_end_ms") or row["end_ms"]
+                                ),
+                                "source_text": str(row.get("source_text") or ""),
+                                "target_text": str(row.get("target_text") or ""),
+                                "speaker_id": row.get("speaker_id"),
+                                "speaker_overlap": bool(
+                                    row.get("speaker_overlap", False)
+                                ),
+                            }
+                            for row in sorted(
+                                segments, key=lambda r: int(r.get("idx", 0))
+                            )
+                        ],
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("could not persist retranslated rows: %s", exc)
+            except PipelineError as exc:
+                logger.warning("dub leftover-source retranslate skipped: %s", exc)
+        translated = [s for s in segments if str(s.get("target_text", "")).strip()]
+
         speakable = [
             s
             for s in translated
@@ -1273,14 +1620,6 @@ async def run_dub(ctx: JobContext) -> None:
         # Full timeline (incl. passthrough) so slots never steal a neighbor's audio.
         next_start_by_idx = next_start_by_segment_idx(segments)
 
-        # Demucs stems: IVC samples / loudness; mix bed rebuilt after TTS timing.
-        # Do not union vocal-energy VAD into the mix mask — music bleed on the
-        # vocals stem was treated as speech and muted the original BGM (jeju1).
-        await ctx.report(0.15, "stem_split")
-        stems_dir = scratch / "stems"
-        stems_dir.mkdir()
-        vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
-
         segment_bounds = [
             (
                 int(segment["start_ms"]),
@@ -1290,14 +1629,22 @@ async def run_dub(ctx: JobContext) -> None:
             if int(segment.get("source_end_ms") or segment["end_ms"])
             > int(segment["start_ms"])
         ]
+        caption_bounds = [
+            (
+                int(segment["start_ms"]),
+                int(segment.get("source_end_ms") or segment["end_ms"]),
+            )
+            for segment in segments
+            if str(segment.get("source_text") or "").strip()
+            and not should_passthrough(str(segment.get("source_text") or ""), source_lang)
+            and int(segment.get("source_end_ms") or segment["end_ms"])
+            > int(segment["start_ms"])
+        ]
         if not segment_bounds:
             raise PipelineError(
                 errors.NO_SEGMENTS,
                 "no valid timing ranges for dubbed speech",
             )
-        saved_ranges = await _load_speech_ranges(
-            ctx, str(project["source_key"]), scratch
-        )
         speakable_indices = {int(segment["idx"]) for segment in speakable}
         # Word-level speech ranges only — full segment bounds dilute soft speech
         # with silence and exaggerate loudness gaps across speakers.
@@ -1324,20 +1671,30 @@ async def run_dub(ctx: JobContext) -> None:
         from .emotion import detect_emotions_for_segments, resolve_segment_emotion
         from .emotion_tag import (
             detect_emotion_tags_for_segments,
-            emotion_tag_from_tone,
             normalize_emotion_class,
-            parse_emotion_tag,
+            normalize_emotion_mode,
+            resolve_tts_emotion_tag,
             tone_from_emotion_tag,
         )
 
         project_tone = resolve_segment_emotion(
             None, project_tone=str(project.get("tone_style") or "calm")
         )
+        project_mode = normalize_emotion_mode(project.get("emotion_mode"), fallback="auto")
+        project_tag = (
+            project.get("emotion_tag")
+            if isinstance(project.get("emotion_tag"), dict)
+            else None
+        )
         pcm_needed = [
             segment
             for segment in speakable
-            if not segment.get("emotion_user_set")
-            and not isinstance(segment.get("emotion_tag"), dict)
+            if normalize_emotion_mode(
+                segment.get("emotion_mode")
+                or ("custom" if segment.get("emotion_user_set") else project_mode)
+            )
+            == "auto"
+            and not isinstance(segment.get("detected_emotion_tag"), dict)
             and not str(segment.get("detected_emotion_tone") or "").strip()
         ]
         pcm_tones = (
@@ -1364,7 +1721,6 @@ async def run_dub(ctx: JobContext) -> None:
                 emotion_tag_by_idx=pcm_tags or None,
             )
         for segment in speakable:
-            user_set = bool(segment.get("emotion_user_set"))
             saved = str(segment.get("emotion_tone") or "").strip()
             try:
                 idx = int(segment["idx"])
@@ -1375,25 +1731,28 @@ async def run_dub(ctx: JobContext) -> None:
             ).strip()
             if detected:
                 segment["detected_emotion_tone"] = detected
-            if user_set and isinstance(segment.get("emotion_tag"), dict):
-                tag = parse_emotion_tag(segment["emotion_tag"], source="user")
-            elif user_set and saved:
-                tag = emotion_tag_from_tone(
-                    saved, fallback=normalize_emotion_class(project_tone), source="user"
-                )
-            elif isinstance(segment.get("emotion_tag"), dict):
-                tag = parse_emotion_tag(segment["emotion_tag"])
-            elif idx in pcm_tags:
-                tag = pcm_tags[idx]
-            else:
-                tag = emotion_tag_from_tone(
-                    detected or saved or project_tone,
-                    fallback=normalize_emotion_class(project_tone),
-                )
+            if idx in pcm_tags and not isinstance(segment.get("detected_emotion_tag"), dict):
+                segment["detected_emotion_tag"] = pcm_tags[idx]
+            mode = normalize_emotion_mode(
+                segment.get("emotion_mode")
+                or ("custom" if segment.get("emotion_user_set") else project_mode)
+            )
+            segment["emotion_mode"] = mode
+            tag = resolve_tts_emotion_tag(
+                mode=mode,
+                user_tag=segment.get("emotion_tag") if mode == "custom" else None,
+                user_tone=saved if mode == "custom" else None,
+                detected_tag=segment.get("detected_emotion_tag"),
+                detected_tone=detected,
+                pcm_tag=pcm_tags.get(idx),
+                project_tag=project_tag,
+                project_tone=project_tone,
+            )
             segment["emotion_tag"] = tag
             segment["_tts_emotion"] = tone_from_emotion_tag(tag)
-            if user_set:
+            if mode == "custom":
                 segment["emotion_tone"] = segment["_tts_emotion"]
+                segment["emotion_user_set"] = True
             else:
                 segment.pop("emotion_tone", None)
                 segment.pop("emotion_user_set", None)
@@ -1802,12 +2161,14 @@ async def run_dub(ctx: JobContext) -> None:
         # Rebuild mix bed after TTS slot extensions so scrub covers spoken audio.
         await ctx.report(0.76, "voice_removal")
         final_bounds = final_voice_removal_bounds(list(refined), next_start_by_idx)
-        if not final_bounds:
-            final_bounds = segment_bounds
+        mix_bounds = dialogue_scrub_bounds(
+            caption_bounds,
+            final_bounds or segment_bounds,
+        )
         mix_speech_ranges = merge_speech_ranges(list(saved_ranges or []))
         removal_ranges = voice_removal_ranges(
             mix_speech_ranges,
-            final_bounds,
+            mix_bounds,
             fill_interiors=True,
         )
         selective_bed = scratch / "speech_removed_bed.wav"
@@ -1825,6 +2186,10 @@ async def run_dub(ctx: JobContext) -> None:
 
         ass_path: str | None = None
         subtitle_mode = str(project.get("subtitle_mode") or "none")
+        # Dubbed output must show dubbed-language captions. "source" is an
+        # editor review option; burning original-language text on the mix
+        # looks like a language leak next to TTS.
+        burn_mode = "target" if subtitle_mode == "source" else subtitle_mode
         # Spoken lines may use timing-rewritten text; passthrough keeps editor copy.
         spoken_by_idx = {
             int(item["seg"]["idx"]): str(item["text"]).strip()
@@ -1837,11 +2202,11 @@ async def run_dub(ctx: JobContext) -> None:
             idx = int(row["idx"])
             if idx in end_by_idx:
                 copied["end_ms"] = end_by_idx[idx]
-            if subtitle_mode == "target" and idx in spoken_by_idx:
+            if burn_mode == "target" and idx in spoken_by_idx:
                 copied["target_text"] = spoken_by_idx[idx]
             ass_rows.append(copied)
         cap_segment_ends_to_neighbors(ass_rows)
-        ass_text = build_ass(ass_rows, subtitle_mode)  # type: ignore[arg-type]
+        ass_text = build_ass(ass_rows, burn_mode)  # type: ignore[arg-type]
         if ass_text is not None:
             await ctx.report(0.85, "burn_subtitles")
             ass_file = scratch / "subtitles.ass"

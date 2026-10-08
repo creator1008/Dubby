@@ -5,9 +5,12 @@ import type { Segment, ToneStyle } from "@/lib/ui-types";
 import {
   EMOTION_CLASSES,
   emotionTagFromUiInput,
+  formatEmotionTagDisplay,
+  normalizeEmotionMode,
   parseEmotionTag,
   toneFromEmotionTag,
   type EmotionClass,
+  type EmotionMode,
   type EmotionTag,
 } from "@/lib/emotion-tag";
 import { useAppDictionary } from "@/lib/i18n/locale-context";
@@ -69,10 +72,12 @@ type Props = {
   /** Full source media URL used when a per-segment clip is unavailable. */
   sourceMediaUrl?: string | null;
   defaultEmotionTone?: ToneStyle | string;
+  defaultEmotionMode?: EmotionMode;
   onChange: (id: string, field: "source_text" | "target_text", value: string) => void;
   onSpeakSpeedChange?: (id: string, speed: number) => void;
   onEmotionToneChange?: (id: string, tone: ToneStyle) => void;
   onEmotionTagChange?: (id: string, tag: EmotionTag) => void;
+  onEmotionModeChange?: (id: string, mode: EmotionMode) => void;
   /** Regenerate dubbed preview for one segment; returns a playable URL. */
   onEnsureDubPreview?: (segmentId: string) => Promise<string | undefined>;
 };
@@ -389,14 +394,25 @@ function EmotionTagControl({
   segment,
   disabled,
   defaultTone,
+  defaultMode,
   onChange,
+  onModeChange,
 }: {
   segment: Segment;
   disabled?: boolean;
   defaultTone?: ToneStyle | string;
+  defaultMode?: EmotionMode;
   onChange?: (tag: EmotionTag) => void;
+  onModeChange?: (mode: EmotionMode) => void;
 }) {
   const text = useAppDictionary();
+  const mode = normalizeEmotionMode(segment.emotion_mode || defaultMode);
+  const detected = parseEmotionTag(
+    segment.detected_emotion_tag ||
+      segment.detected_emotion_tone ||
+      (segment.emotion_tag?.source === "auto" ? segment.emotion_tag : null),
+    parseEmotionTag(defaultTone).class,
+  );
   const parsed = parseEmotionTag(
     segment.emotion_tag || segment.emotion_tone,
     parseEmotionTag(defaultTone).class,
@@ -405,47 +421,89 @@ function EmotionTagControl({
 
   return (
     <div className="emotion-tag-block">
-      <label className="emotion-tone-row">
-        <span className="emotion-tone-label">{text.tone}</span>
-        <select
-          value={parsed.class}
+      <div
+        className="input-mode-toggle emotion-mode-toggle"
+        role="group"
+        aria-label={text.emotionMode}
+      >
+        <button
+          type="button"
+          className={mode === "custom" ? "is-active" : undefined}
           disabled={disabled}
-          aria-label={text.tone}
-          onChange={(e) => {
-            const next = {
-              ...parsed,
-              class: e.target.value as EmotionClass,
-              custom: custom.trim() || null,
-              source: "user" as const,
-            };
-            onChange?.(next);
+          onClick={() => {
+            if (mode !== "custom") {
+              onChange?.({ ...parsed, source: "user" });
+            }
+            onModeChange?.("custom");
           }}
         >
-          {EMOTION_CLASSES.map((klass) => (
-            <option key={klass} value={klass}>
-              {emotionClassLabel(text, klass)}
-            </option>
-          ))}
-        </select>
-      </label>
+          {text.emotionModeCustom}
+        </button>
+        <button
+          type="button"
+          className={mode === "auto" ? "is-active" : undefined}
+          disabled={disabled}
+          onClick={() => onModeChange?.("auto")}
+        >
+          {text.emotionModeAuto}
+        </button>
+      </div>
       <label className="emotion-tone-row">
         <span className="emotion-tone-label">{text.toneCustom}</span>
         <input
           type="text"
-          value={custom}
-          disabled={disabled}
-          placeholder={text.toneCustomPlaceholder}
-          onChange={(e) => setCustom(e.target.value)}
-          onBlur={() => {
-            const typed = custom.trim();
-            if (!typed) {
-              onChange?.({ ...parsed, custom: null, source: "user" });
-              return;
-            }
-            onChange?.(emotionTagFromUiInput(typed, parsed));
-          }}
+          readOnly
+          value={formatEmotionTagDisplay(detected, (klass) =>
+            emotionClassLabel(text, klass),
+          )}
+          aria-label={text.toneCustom}
         />
       </label>
+      {mode === "custom" ? (
+        <>
+          <label className="emotion-tone-row">
+            <span className="emotion-tone-label">{text.tone}</span>
+            <select
+              value={parsed.class}
+              disabled={disabled}
+              aria-label={text.tone}
+              onChange={(e) => {
+                const next = {
+                  ...parsed,
+                  class: e.target.value as EmotionClass,
+                  custom: custom.trim() || null,
+                  source: "user" as const,
+                };
+                onChange?.(next);
+              }}
+            >
+              {EMOTION_CLASSES.map((klass) => (
+                <option key={klass} value={klass}>
+                  {emotionClassLabel(text, klass)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="emotion-tone-row">
+            <span className="emotion-tone-label">{text.toneUserCustom}</span>
+            <input
+              type="text"
+              value={custom}
+              disabled={disabled}
+              placeholder={text.toneCustomPlaceholder}
+              onChange={(e) => setCustom(e.target.value)}
+              onBlur={() => {
+                const typed = custom.trim();
+                if (!typed) {
+                  onChange?.({ ...parsed, custom: null, source: "user" });
+                  return;
+                }
+                onChange?.(emotionTagFromUiInput(typed, parsed));
+              }}
+            />
+          </label>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -458,10 +516,12 @@ export function SubtitleEditor({
   showSpeakRate = false,
   sourceMediaUrl,
   defaultEmotionTone,
+  defaultEmotionMode,
   onChange,
   onSpeakSpeedChange,
   onEmotionToneChange,
   onEmotionTagChange,
+  onEmotionModeChange,
   onEnsureDubPreview,
 }: Props) {
   const text = useAppDictionary();
@@ -542,6 +602,7 @@ export function SubtitleEditor({
                     segment={seg}
                     disabled={disabled}
                     defaultTone={defaultEmotionTone}
+                    defaultMode={defaultEmotionMode}
                     onChange={(tag) => {
                       onEmotionTagChange?.(seg.id, tag);
                       onEmotionToneChange?.(
@@ -549,6 +610,9 @@ export function SubtitleEditor({
                         toneFromEmotionTag(tag) as ToneStyle,
                       );
                     }}
+                    onModeChange={(nextMode) =>
+                      onEmotionModeChange?.(seg.id, nextMode)
+                    }
                   />
                   {showSpeakRate ? (
                     <SpeakRateControl

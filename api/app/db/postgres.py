@@ -34,6 +34,7 @@ _PROJECT_COLUMN_CANDIDATES = (
     "dub_voice_ids",
     "voice_mode",
     "pipeline_version",
+    "emotion_mode",
     "duration_seconds",
     "source_key",
     "output_key",
@@ -60,6 +61,9 @@ _PROJECT_PATCHABLE = {
     "tone_style",
     "diarization_enabled",
     "dub_voice_ids",
+    "voice_mode",
+    "pipeline_version",
+    "emotion_mode",
     "status",
     "source_key",
     "output_key",
@@ -163,6 +167,9 @@ class PostgresRepository(Repository):
         tone_style: str = "neutral",
         diarization_enabled: bool = False,
         dub_voice_ids: list[str] | None = None,
+        voice_mode: str = "voice_box",
+        pipeline_version: str = "3.0",
+        emotion_mode: str = "auto",
     ) -> Row:
         voices = [
             str(v).strip()
@@ -192,10 +199,15 @@ class PostgresRepository(Repository):
             values.append(json.dumps(voices))
         if "voice_mode" in self._project_column_set:
             cols.append("voice_mode")
-            values.append("voice_box")
+            values.append(
+                voice_mode if voice_mode in {"voice_box", "auto_clone"} else "voice_box"
+            )
         if "pipeline_version" in self._project_column_set:
             cols.append("pipeline_version")
-            values.append("2.0")
+            values.append(pipeline_version or "3.0")
+        if "emotion_mode" in self._project_column_set:
+            cols.append("emotion_mode")
+            values.append("custom" if emotion_mode == "custom" else "auto")
         placeholders = ", ".join(
             f"${i + 1}::jsonb" if col == "dub_voice_ids" else f"${i + 1}"
             for i, col in enumerate(cols)
@@ -234,7 +246,11 @@ class PostgresRepository(Repository):
     async def update_project(
         self, owner_id: UUID, project_id: UUID, fields: dict[str, Any]
     ) -> Row | None:
-        cols = {k: v for k, v in fields.items() if k in _PROJECT_PATCHABLE}
+        cols = {
+            k: v
+            for k, v in fields.items()
+            if k in _PROJECT_PATCHABLE and k in self._project_column_set
+        }
         if isinstance(cols.get("quality_warnings"), list):
             cols["quality_warnings"] = json.dumps(cols["quality_warnings"])
         if isinstance(cols.get("dub_voice_ids"), list):
@@ -558,7 +574,11 @@ class PostgresRepository(Repository):
     async def update_project_for_worker(
         self, project_id: UUID, fields: dict[str, Any]
     ) -> None:
-        cols = {k: v for k, v in fields.items() if k in _PROJECT_PATCHABLE}
+        cols = {
+            k: v
+            for k, v in fields.items()
+            if k in _PROJECT_PATCHABLE and k in self._project_column_set
+        }
         if isinstance(cols.get("quality_warnings"), list):
             cols["quality_warnings"] = json.dumps(cols["quality_warnings"])
         if not cols:

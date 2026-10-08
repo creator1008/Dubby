@@ -284,6 +284,51 @@ def tone_from_emotion_tag(tag: object | None) -> str:
     return str(parsed["class"]).lower()
 
 
+def normalize_emotion_mode(value: object | None, *, fallback: str = "auto") -> str:
+    raw = str(value or fallback).strip().lower()
+    return "custom" if raw == "custom" else "auto"
+
+
+def resolve_tts_emotion_tag(
+    *,
+    mode: str | None,
+    user_tag: object | None = None,
+    user_tone: str | None = None,
+    detected_tag: object | None = None,
+    detected_tone: str | None = None,
+    pcm_tag: object | None = None,
+    project_tag: object | None = None,
+    project_tone: str | None = None,
+) -> dict[str, Any]:
+    """Pick the Eleven v4 tag from 사용자 지정 vs 자동감지 — never editor-always-wins.
+
+    custom → user-registered tag (segment override, else project default).
+    auto → AI-extracted tag; user overrides are ignored.
+    """
+    fallback = normalize_emotion_class(project_tone)
+    if normalize_emotion_mode(mode) == "custom":
+        if isinstance(user_tag, dict):
+            return parse_emotion_tag(user_tag, fallback=fallback, source="user")
+        if (user_tone or "").strip():
+            return emotion_tag_from_tone(
+                user_tone, fallback=fallback, source="user"
+            )
+        if isinstance(project_tag, dict):
+            return parse_emotion_tag(project_tag, fallback=fallback, source="user")
+        return emotion_tag_from_tone(
+            project_tone, fallback=fallback, source="user"
+        )
+    if isinstance(detected_tag, dict):
+        return parse_emotion_tag(detected_tag, fallback=fallback, source="auto")
+    if isinstance(pcm_tag, dict):
+        return parse_emotion_tag(pcm_tag, fallback=fallback, source="auto")
+    if (detected_tone or "").strip():
+        return emotion_tag_from_tone(
+            detected_tone, fallback=fallback, source="auto"
+        )
+    return default_emotion_tag(fallback=fallback)
+
+
 def apply_user_emotion_input(
     raw: str,
     *,

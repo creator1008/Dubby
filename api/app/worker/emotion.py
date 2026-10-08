@@ -45,6 +45,14 @@ _LEGACY_TONE_MAP: dict[str, EmotionTone] = {
     "warm": "cheerful",
     "energetic": "energetic",
     "serious": "calm",
+    "happy": "cheerful",
+    "confident": "calm",
+    "hopeful": "cheerful",
+    "nervous": "whisper",
+    "playful": "cheerful",
+    "worried": "sad",
+    "embarrassed": "sad",
+    "lonely": "sad",
 }
 
 # ElevenLabs multilingual-v2 / flash voice_settings tuned per emotion.

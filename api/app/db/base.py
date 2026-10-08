@@ -45,6 +45,9 @@ class Repository(ABC):
         tone_style: str = "neutral",
         diarization_enabled: bool = False,
         dub_voice_ids: list[str] | None = None,
+        voice_mode: str = "voice_box",
+        pipeline_version: str = "3.0",
+        emotion_mode: str = "auto",
     ) -> Row: ...
 
     @abstractmethod
