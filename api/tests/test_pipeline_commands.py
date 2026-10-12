@@ -214,6 +214,7 @@ def test_demucs_cmd_two_stems_model_device() -> None:
     assert cmd[cmd.index("--two-stems") + 1] == "vocals"
     assert cmd[cmd.index("-d") + 1] == "cuda"
     assert cmd[cmd.index("-j") + 1] == "2"
+    assert cmd[cmd.index("--segment") + 1] == "7"
     assert cmd[cmd.index("-o") + 1] == "outdir"
     assert cmd[-1] == "audio.wav"
 

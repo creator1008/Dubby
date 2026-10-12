@@ -663,7 +663,7 @@ def parse_probe_output(payload: str, size_bytes: int) -> MediaInfo:
 
 
 def validate_source(info: MediaInfo, settings: Settings) -> None:
-    """MVP guardrails: container allow-list, <= 30 min, <= 500 MB, has audio."""
+    """Guardrails: container allow-list, duration/size caps, has audio."""
     if info.size_bytes > settings.max_source_bytes:
         raise PipelineError(
             errors.SOURCE_TOO_LARGE,
@@ -772,7 +772,11 @@ async def run_command(
     if proc.returncode != 0:
         tail = stderr.decode("utf-8", errors="replace")[-_STDERR_TAIL_CHARS:]
         logger.error("%s failed (rc=%s): %s", program, proc.returncode, tail)
-        raise PipelineError(
-            error_code, f"{program} exited with code {proc.returncode}: {tail[-300:]}"
+        killed = proc.returncode in (-9, 137, 9)
+        detail = (
+            f"{program} killed (exit {proc.returncode}); usually out of memory on long Demucs runs"
+            if killed
+            else f"{program} exited with code {proc.returncode}: {tail[-300:]}"
         )
+        raise PipelineError(error_code, detail)
     return stdout.decode("utf-8", errors="replace")

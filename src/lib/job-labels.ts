@@ -118,6 +118,8 @@ const PIPELINE_ERROR_KO: Record<string, string> = {
   source_too_large: "파일이 너무 큽니다. 최대 500MB까지 업로드할 수 있습니다.",
   source_unsupported_container: "지원하지 않는 영상 형식입니다. MP4를 사용해 주세요.",
   source_no_audio: "영상에 오디오가 없습니다.",
+  demucs_failed:
+    "배경과 목소리를 분리하는 중 메모리가 부족해 중단되었습니다. 워커를 재시작한 뒤 더빙만 다시 실행해 주세요.",
   probe_failed: "영상 정보를 읽지 못했습니다. 다른 파일로 다시 시도해 주세요.",
   worker_timeout: "작업 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
   voice_missing:
@@ -131,6 +133,8 @@ const PIPELINE_ERROR_EN: Record<string, string> = {
   source_too_large: "File is too large. Maximum upload size is 500MB.",
   source_unsupported_container: "Unsupported media format. Please use MP4.",
   source_no_audio: "This media has no audio track.",
+  demucs_failed:
+    "Voice/background split ran out of memory. Restart the worker and retry dub only.",
   probe_failed: "Could not read media info. Try another file.",
   worker_timeout: "The job timed out. Please try again shortly.",
   voice_missing:
@@ -144,6 +148,8 @@ const PIPELINE_ERROR_VI: Record<string, string> = {
   source_too_large: "File quá lớn. Giới hạn tải lên là 500MB.",
   source_unsupported_container: "Định dạng không hỗ trợ. Hãy dùng MP4.",
   source_no_audio: "Media không có âm thanh.",
+  demucs_failed:
+    "Tách giọng/nhạc nền hết bộ nhớ. Hãy khởi động lại worker rồi chạy lại bước lồng tiếng.",
   probe_failed: "Không đọc được thông tin media. Thử file khác.",
   worker_timeout: "Công việc bị quá thời gian. Vui lòng thử lại sau.",
   voice_missing:

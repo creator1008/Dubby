@@ -66,6 +66,17 @@ def _install_soundfile_io() -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    import os
+
+    # Limit BLAS/torch thread fan-out so long CPU separates stay under the
+    # worker memory cap (Docker SIGKILL / exit -9).
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    try:
+        torch.set_num_threads(1)
+    except Exception:
+        pass
     _install_soundfile_io()
     from demucs.separate import main as demucs_main
 

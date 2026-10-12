@@ -2330,8 +2330,12 @@ def _demucs_jobs() -> str:
     configured = os.getenv("DEMUCS_JOBS", "").strip()
     if configured:
         return configured
-    cpus = os.cpu_count() or 2
-    return str(min(4, max(1, cpus // 2)))
+    return "1"
+
+
+def _demucs_segment() -> str:
+    configured = os.getenv("DEMUCS_SEGMENT_SECONDS", "").strip()
+    return configured or "7"
 
 
 def _separate_no_vocals(work_dir: Path) -> tuple[Path, Path]:
@@ -2360,6 +2364,8 @@ def _separate_no_vocals(work_dir: Path) -> tuple[Path, Path]:
                 _demucs_device(),
                 "-j",
                 _demucs_jobs(),
+                "--segment",
+                _demucs_segment(),
                 "-o",
                 str(stem_root),
                 str(audio),

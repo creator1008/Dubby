@@ -119,7 +119,11 @@ class Settings(BaseSettings):
     # htdemucs is faster than htdemucs_ft; set DEMUCS_DEVICE=cuda when available.
     demucs_model: str = "htdemucs"
     demucs_device: str = "cpu"  # cpu | cuda
-    demucs_jobs: int = Field(default=2, ge=1, le=16)
+    # Parallel Demucs jobs double RAM. Keep 1 on small Lightsail / long sources.
+    demucs_jobs: int = Field(default=1, ge=1, le=16)
+    # HTDemucs OOM-kills (exit -9) on full 40–60 minute tracks; 7s is the
+    # documented max chunk for htdemucs and keeps CPU RAM in range.
+    demucs_segment_seconds: int = Field(default=7, ge=1, le=60)
     # Linear gain of the Demucs accompaniment stem under dubbed speech (0–1).
     # 0.15 made travel-vlog BGM inaudible; 0.8 keeps music clearly under the dub.
     mix_no_vocals_in_mask: float = Field(default=0.8, ge=0.05, le=1.0)

@@ -22,6 +22,7 @@ def build_demucs_cmd(settings: Settings, audio_in: str, out_dir: str) -> list[st
         "--two-stems", "vocals",
         "-d", settings.demucs_device,
         "-j", str(settings.demucs_jobs),
+        "--segment", str(settings.demucs_segment_seconds),
         "-o", out_dir,
         audio_in,
     ]
