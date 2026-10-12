@@ -82,7 +82,8 @@ class Settings(BaseSettings):
     worker_concurrency: int = Field(default=1, ge=1, le=8)
     worker_poll_interval_seconds: float = 3.0
     # Mark running jobs as failed if they have not heartbeat within this time.
-    worker_job_timeout_seconds: int = 3600
+    # 60-minute sources need more than one hour of wall-clock on CPU Demucs.
+    worker_job_timeout_seconds: int = 14400
 
     # --- Pipeline -------------------------------------------------------------
     # "real" runs ffmpeg/Demucs/OpenAI/ElevenLabs. "mock" replaces every
@@ -95,8 +96,8 @@ class Settings(BaseSettings):
     scratch_dir: str = ""
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
-    # Source validation limits (MVP): <= 30 minutes, <= 500 MB.
-    max_source_duration_seconds: float = 1800.0
+    # Source validation limits: <= 60 minutes, <= 500 MB.
+    max_source_duration_seconds: float = 3600.0
     max_source_bytes: int = 500 * 1024 * 1024
     # ffprobe format names accepted for source videos (comma separated).
     allowed_source_containers: str = "mp4,mov,m4a,3gp,3g2,mj2,matroska,webm"

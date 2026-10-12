@@ -231,7 +231,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     fileTooLarge: "파일이 너무 큽니다.",
     selectAnotherFile: "다른 파일 선택",
     dropFile: "탭하여 영상·오디오 선택",
-    fileHint: "갤러리 또는 파일 · MP4 권장 · 최대 30분 · 모바일은 짧은 클립 권장",
+    fileHint: "갤러리 또는 파일 · MP4 권장 · 최대 60분 · 모바일은 짧은 클립 권장",
     newDubDescription:
       "실제 오디오 추출과 화자·시간 간격 기반 음성 타임스탬프를 검증합니다.",
     fileAndSubtitle: "1. 파일 선택 및 자막 추출",
@@ -241,7 +241,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLink: "영상 링크",
     videoLinkPlaceholder: "https://www.youtube.com/watch?v=… 또는 MP4 URL",
     videoLinkHint:
-      "YouTube · Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM 링크 (최대 30분 · 500MB)",
+      "YouTube · Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM 링크 (최대 60분 · 500MB)",
     fetchingLink: "링크에서 영상 가져오는 중",
     fetchingLinkFailed: "링크에서 영상을 가져오지 못했습니다.",
     fetchingLinkTimeout: "영상 가져오기 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
@@ -609,7 +609,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     fileTooLarge: "The file is too large.",
     selectAnotherFile: "Choose another file",
     dropFile: "Tap to choose video or audio",
-    fileHint: "Gallery or files · MP4 recommended · max 30 min · shorter clips work better on mobile",
+    fileHint: "Gallery or files · MP4 recommended · max 60 min · shorter clips work better on mobile",
     newDubDescription:
       "Verify real audio extraction and speaker/time-interval speech timestamps.",
     fileAndSubtitle: "1. Select file and extract subtitles",
@@ -619,7 +619,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLink: "Video link",
     videoLinkPlaceholder: "https://www.youtube.com/watch?v=… or MP4 URL",
     videoLinkHint:
-      "YouTube · Facebook · TikTok page URLs, or direct MP4/WebM links (max 30 min · 500MB)",
+      "YouTube · Facebook · TikTok page URLs, or direct MP4/WebM links (max 60 min · 500MB)",
     fetchingLink: "Fetching video from link",
     fetchingLinkFailed: "Could not fetch the video from this link.",
     fetchingLinkTimeout: "Fetching the video timed out. Please try again.",
@@ -987,7 +987,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     fileTooLarge: "Tệp quá lớn.",
     selectAnotherFile: "Chọn tệp khác",
     dropFile: "Chạm để chọn video hoặc âm thanh",
-    fileHint: "Thư viện hoặc tệp · khuyến nghị MP4 · tối đa 30 phút · clip ngắn hơn trên mobile",
+    fileHint: "Thư viện hoặc tệp · khuyến nghị MP4 · tối đa 60 phút · clip ngắn hơn trên mobile",
     newDubDescription:
       "Kiểm tra trích xuất âm thanh và mốc thời gian theo người nói/khoảng thời gian.",
     fileAndSubtitle: "1. Chọn tệp và trích xuất phụ đề",
@@ -997,7 +997,7 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
     videoLink: "Liên kết video",
     videoLinkPlaceholder: "https://www.youtube.com/watch?v=… hoặc URL MP4",
     videoLinkHint:
-      "URL trang YouTube · Facebook · TikTok, hoặc liên kết MP4/WebM trực tiếp (tối đa 30 phút · 500MB)",
+      "URL trang YouTube · Facebook · TikTok, hoặc liên kết MP4/WebM trực tiếp (tối đa 60 phút · 500MB)",
     fetchingLink: "Đang lấy video từ liên kết",
     fetchingLinkFailed: "Không lấy được video từ liên kết này.",
     fetchingLinkTimeout: "Hết thời gian lấy video. Vui lòng thử lại.",
