@@ -229,6 +229,32 @@ def test_demucs_stem_location(tmp_path) -> None:
     assert vocals.name == "vocals.wav" and no_vocals.name == "no_vocals.wav"
 
 
+def test_demucs_chunk_ranges_cover_duration() -> None:
+    ranges = stems.chunk_ranges(41.0, 15)
+    assert ranges[0] == (0.0, 15.0)
+    assert abs(sum(length for _, length in ranges) - 41.0) < 0.02
+    assert all(length <= 15.0001 for _, length in ranges)
+
+
+def test_wav_slice_and_concat_cmds() -> None:
+    settings = _settings()
+    slice_cmd = stems.build_wav_slice_cmd(settings, "in.wav", "c.wav", 15.0, 10.0)
+    assert "-ss" in slice_cmd and slice_cmd[slice_cmd.index("-ss") + 1] == "15.000"
+    concat_cmd = stems.build_wav_concat_cmd(settings, "list.txt", "out.wav")
+    assert "-f" in concat_cmd and "concat" in concat_cmd
+
+
+def test_write_concat_list(tmp_path) -> None:
+    a = tmp_path / "a.wav"
+    b = tmp_path / "b.wav"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+    list_path = tmp_path / "list.txt"
+    stems.write_concat_list([a, b], list_path)
+    text = list_path.read_text(encoding="utf-8")
+    assert "a.wav" in text and "b.wav" in text
+
+
 def test_demucs_missing_stems_raises(tmp_path) -> None:
     import pytest
 

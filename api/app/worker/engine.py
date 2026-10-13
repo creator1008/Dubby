@@ -10,6 +10,7 @@ start in mock mode (enforced in :mod:`app.config`).
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import shutil
 import wave
@@ -25,6 +26,11 @@ from .media import HeartbeatFn, MediaInfo
 from .openai_client import OpenAIClient, SegmentDraft, TranscribeResult
 
 logger = logging.getLogger("dubby.worker.engine")
+
+
+def _demucs_oom(exc: PipelineError) -> bool:
+    text = f"{exc.code} {exc}".lower()
+    return "killed" in text or "exit -9" in text or "exit 137" in text or "out of memory" in text
 
 
 class Engine(ABC):
@@ -421,12 +427,85 @@ class RealEngine(Engine):
         )
 
     async def split_stems(self, wav_in: str, out_dir: str) -> tuple[str, str]:
+        duration = stems.wav_duration_seconds(wav_in)
+        chunk = float(self._settings.demucs_file_chunk_seconds)
+        if duration <= chunk + 0.05:
+            return await self._demucs_one_file(wav_in, out_dir)
+        logger.info(
+            "Demucs file-chunking %.1fs audio into %.0fs slices", duration, chunk
+        )
+        return await self._demucs_chunked(wav_in, out_dir, duration, chunk)
+
+    async def _demucs_one_file(self, wav_in: str, out_dir: str) -> tuple[str, str]:
         await self._run(
             stems.build_demucs_cmd(self._settings, wav_in, out_dir),
             errors.DEMUCS_FAILED,
         )
         vocals, no_vocals = stems.locate_stems(self._settings, wav_in, out_dir)
         return str(vocals), str(no_vocals)
+
+    async def _demucs_chunked(
+        self, wav_in: str, out_dir: str, duration: float, chunk: float
+    ) -> tuple[str, str]:
+        root = Path(out_dir)
+        slices = root / "source_chunks"
+        slices.mkdir(parents=True, exist_ok=True)
+        vocal_parts: list[Path] = []
+        bed_parts: list[Path] = []
+        for index, (start, length) in enumerate(stems.chunk_ranges(duration, chunk)):
+            part = slices / f"part_{index:04d}.wav"
+            part_out = root / f"demucs_part_{index:04d}"
+            await self._run(
+                stems.build_wav_slice_cmd(
+                    self._settings, wav_in, str(part), start, length
+                ),
+                errors.FFMPEG_FAILED,
+            )
+            vocals, no_vocals = await self._demucs_one_file_or_split(
+                str(part), str(part_out), length
+            )
+            vocal_parts.append(Path(vocals))
+            bed_parts.append(Path(no_vocals))
+            try:
+                part.unlink()
+            except OSError:
+                pass
+            gc.collect()
+        final_dir = root / self._settings.demucs_model / Path(wav_in).stem
+        final_dir.mkdir(parents=True, exist_ok=True)
+        vocals_out = final_dir / "vocals.wav"
+        no_vocals_out = final_dir / "no_vocals.wav"
+        await self._concat_wavs(vocal_parts, vocals_out)
+        await self._concat_wavs(bed_parts, no_vocals_out)
+        return str(vocals_out), str(no_vocals_out)
+
+    async def _demucs_one_file_or_split(
+        self, wav_in: str, out_dir: str, length: float
+    ) -> tuple[str, str]:
+        try:
+            return await self._demucs_one_file(wav_in, out_dir)
+        except PipelineError as exc:
+            if not _demucs_oom(exc) or length <= 6:
+                raise
+            logger.warning(
+                "Demucs OOM on %.1fs slice; splitting in half", length
+            )
+            duration = stems.wav_duration_seconds(wav_in)
+            half = max(duration / 2.0, 5.0)
+            return await self._demucs_chunked(wav_in, out_dir, duration, half)
+
+    async def _concat_wavs(self, parts: list[Path], dest: Path) -> None:
+        list_path = dest.with_suffix(".concat.txt")
+        stems.write_concat_list(parts, list_path)
+        await self._run(
+            stems.build_wav_concat_cmd(self._settings, str(list_path), str(dest)),
+            errors.FFMPEG_FAILED,
+        )
+        try:
+            list_path.unlink()
+        except OSError:
+            pass
+
 
     async def build_duck_bed(
         self,

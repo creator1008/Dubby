@@ -121,9 +121,11 @@ class Settings(BaseSettings):
     demucs_device: str = "cpu"  # cpu | cuda
     # Parallel Demucs jobs double RAM. Keep 1 on small Lightsail / long sources.
     demucs_jobs: int = Field(default=1, ge=1, le=16)
-    # HTDemucs OOM-kills (exit -9) on full 40–60 minute tracks; 7s is the
-    # documented max chunk for htdemucs and keeps CPU RAM in range.
+    # HTDemucs transformer window. File-level ffmpeg slices are the RAM control.
     demucs_segment_seconds: int = Field(default=7, ge=1, le=60)
+    # Split the source WAV with ffmpeg before each Demucs process so a 40–60
+    # minute track never sits in RAM as one tensor (exit -9 / SIGKILL).
+    demucs_file_chunk_seconds: int = Field(default=15, ge=5, le=120)
     # Linear gain of the Demucs accompaniment stem under dubbed speech (0–1).
     # 0.15 made travel-vlog BGM inaudible; 0.8 keeps music clearly under the dub.
     mix_no_vocals_in_mask: float = Field(default=0.8, ge=0.05, le=1.0)
