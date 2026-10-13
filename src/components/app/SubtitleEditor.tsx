@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Segment, ToneStyle } from "@/lib/ui-types";
 import {
   EMOTION_CLASSES,
-  emotionTagFromUiInput,
+  emotionClassLabel,
+  emotionTagFromClass,
   formatEmotionTagDisplay,
   normalizeEmotionMode,
   parseEmotionTag,
@@ -22,28 +23,6 @@ import {
   clampSpeakSpeed,
   sourceEndMsOf,
 } from "@/lib/speak-rate";
-
-function emotionClassLabel(
-  text: Record<string, string>,
-  klass: EmotionClass,
-): string {
-  const labels: Record<EmotionClass, string> = {
-    Happy: text.toneHappy,
-    Calm: text.toneCalm,
-    Confident: text.toneConfident,
-    Hopeful: text.toneHopeful,
-    Sad: text.toneSad,
-    Angry: text.toneAngry,
-    Excited: text.toneExcited,
-    Nervous: text.toneNervous,
-    Serious: text.toneSerious,
-    Playful: text.tonePlayful,
-    Worried: text.toneWorried,
-    Embarrassed: text.toneEmbarrassed,
-    Lonely: text.toneLonely,
-  };
-  return labels[klass] || klass;
-}
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -417,7 +396,6 @@ function EmotionTagControl({
     segment.emotion_tag || segment.emotion_tone,
     parseEmotionTag(defaultTone).class,
   );
-  const [custom, setCustom] = useState(parsed.custom || "");
 
   return (
     <div className="emotion-tag-block">
@@ -432,7 +410,7 @@ function EmotionTagControl({
           disabled={disabled}
           onClick={() => {
             if (mode !== "custom") {
-              onChange?.({ ...parsed, source: "user" });
+              onChange?.(emotionTagFromClass(parsed.class, parsed));
             }
             onModeChange?.("custom");
           }}
@@ -460,49 +438,25 @@ function EmotionTagControl({
         />
       </label>
       {mode === "custom" ? (
-        <>
-          <label className="emotion-tone-row">
-            <span className="emotion-tone-label">{text.tone}</span>
-            <select
-              value={parsed.class}
-              disabled={disabled}
-              aria-label={text.tone}
-              onChange={(e) => {
-                const next = {
-                  ...parsed,
-                  class: e.target.value as EmotionClass,
-                  custom: custom.trim() || null,
-                  source: "user" as const,
-                };
-                onChange?.(next);
-              }}
-            >
-              {EMOTION_CLASSES.map((klass) => (
-                <option key={klass} value={klass}>
-                  {emotionClassLabel(text, klass)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="emotion-tone-row">
-            <span className="emotion-tone-label">{text.toneUserCustom}</span>
-            <input
-              type="text"
-              value={custom}
-              disabled={disabled}
-              placeholder={text.toneCustomPlaceholder}
-              onChange={(e) => setCustom(e.target.value)}
-              onBlur={() => {
-                const typed = custom.trim();
-                if (!typed) {
-                  onChange?.({ ...parsed, custom: null, source: "user" });
-                  return;
-                }
-                onChange?.(emotionTagFromUiInput(typed, parsed));
-              }}
-            />
-          </label>
-        </>
+        <label className="emotion-tone-row">
+          <span className="emotion-tone-label">{text.tone}</span>
+          <select
+            value={parsed.class}
+            disabled={disabled}
+            aria-label={text.tone}
+            onChange={(e) =>
+              onChange?.(
+                emotionTagFromClass(e.target.value as EmotionClass, parsed),
+              )
+            }
+          >
+            {EMOTION_CLASSES.map((klass) => (
+              <option key={klass} value={klass}>
+                {emotionClassLabel(text, klass)}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
     </div>
   );

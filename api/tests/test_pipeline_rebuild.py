@@ -152,6 +152,21 @@ def test_asr_mid_clip_holes_are_detected_at_800ms() -> None:
     assert gaps[-1][0] == 5000
 
 
+def test_thirteen_class_tones_are_not_collapsed() -> None:
+    from app.worker.emotion_tag import (
+        emotion_tag_from_tone,
+        normalize_emotion_class,
+        tone_from_emotion_tag,
+    )
+
+    assert normalize_emotion_class("Playful") == "Playful"
+    assert normalize_emotion_class("confident") == "Confident"
+    tag = emotion_tag_from_tone("Hopeful", source="auto")
+    assert tag["class"] == "Hopeful"
+    assert tone_from_emotion_tag(tag) == "hopeful"
+    assert tone_from_emotion_tag("lonely") == "lonely"
+
+
 def test_tts_emotion_custom_uses_user_then_project() -> None:
     user = apply_user_emotion_input("Playful")
     detected = parse_emotion_tag({"class": "Sad", "source": "auto"})

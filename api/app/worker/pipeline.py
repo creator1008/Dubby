@@ -1754,6 +1754,11 @@ async def run_dub(ctx: JobContext) -> None:
             else:
                 segment.pop("emotion_tone", None)
                 segment.pop("emotion_user_set", None)
+                if not isinstance(segment.get("detected_emotion_tag"), dict):
+                    segment["detected_emotion_tag"] = tag
+                segment["detected_emotion_tone"] = tone_from_emotion_tag(
+                    segment.get("detected_emotion_tag") or tag
+                )
 
         await ctx.report(0.40, "dub_voice_tts")
         speakers: list[str] = []
@@ -1872,6 +1877,7 @@ async def run_dub(ctx: JobContext) -> None:
                     "emotion_tone": segment_tone,
                     "emotion_tag": segment_tag,
                     "detected_emotion_tone": seg.get("detected_emotion_tone"),
+                    "detected_emotion_tag": seg.get("detected_emotion_tag"),
                     "source_end_ms": int(
                         seg.get("source_end_ms")
                         or end_ms

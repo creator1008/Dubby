@@ -200,6 +200,10 @@ async def refresh_preview(
             row["detected_emotion_tone"] = str(meta["detected_emotion_tone"])
             if not row.get("emotion_tone"):
                 row["emotion_tone"] = str(meta["detected_emotion_tone"])
+        if isinstance(meta.get("detected_emotion_tag"), dict):
+            row["detected_emotion_tag"] = meta["detected_emotion_tag"]
+        if isinstance(meta.get("emotion_tag"), dict) and not row.get("emotion_tag"):
+            row["emotion_tag"] = meta["emotion_tag"]
         if meta.get("speak_speed") is not None and row.get("speak_speed") is None:
             try:
                 row["speak_speed"] = float(meta["speak_speed"])

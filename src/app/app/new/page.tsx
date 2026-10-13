@@ -24,8 +24,8 @@ import { downloadProjectOutput } from "@/lib/mobile";
 import type { EmotionClass, EmotionMode, EmotionTag } from "@/lib/emotion-tag";
 import {
   EMOTION_CLASSES,
+  emotionClassLabel,
   emotionTagFromClass,
-  emotionTagFromUiInput,
   normalizeEmotionMode,
   parseEmotionTag,
   toneFromEmotionTag,
@@ -68,28 +68,6 @@ function snapshotEmotionTones(rows: Segment[]) {
       }),
     ]),
   );
-}
-
-function emotionClassLabel(
-  text: Record<string, string>,
-  klass: EmotionClass,
-): string {
-  const labels: Record<EmotionClass, string> = {
-    Happy: text.toneHappy,
-    Calm: text.toneCalm,
-    Confident: text.toneConfident,
-    Hopeful: text.toneHopeful,
-    Sad: text.toneSad,
-    Angry: text.toneAngry,
-    Excited: text.toneExcited,
-    Nervous: text.toneNervous,
-    Serious: text.toneSerious,
-    Playful: text.tonePlayful,
-    Worried: text.toneWorried,
-    Embarrassed: text.toneEmbarrassed,
-    Lonely: text.toneLonely,
-  };
-  return labels[klass] || klass;
 }
 
 function speakerLabel(template: string, n: number) {
@@ -138,7 +116,6 @@ export default function NewDubPage() {
   const [emotionMode, setEmotionMode] = useState<EmotionMode>("auto");
   const [customEmotionClass, setCustomEmotionClass] =
     useState<EmotionClass>("Calm");
-  const [customEmotionText, setCustomEmotionText] = useState("");
   const [diarizationEnabled, setDiarizationEnabled] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"voice_box" | "auto_clone">("voice_box");
   const [boxVoices, setBoxVoices] = useState<UserVoice[]>([]);
@@ -355,12 +332,7 @@ export default function NewDubPage() {
       emotion_mode: emotionMode,
       emotion_tag:
         emotionMode === "custom"
-          ? customEmotionText.trim()
-            ? emotionTagFromUiInput(
-                customEmotionText,
-                emotionTagFromClass(customEmotionClass),
-              )
-            : emotionTagFromClass(customEmotionClass)
+          ? emotionTagFromClass(customEmotionClass)
           : undefined,
       diarization_enabled: diarizationEnabled,
       voice_mode: voiceMode,
@@ -1232,26 +1204,6 @@ export default function NewDubPage() {
                     ))}
                   </select>
                   <small className="field-hint">{text.toneHelpCustom}</small>
-                </label>
-                <label>
-                  {text.toneUserCustom}
-                  <input
-                    type="text"
-                    value={customEmotionText}
-                    disabled={uploading}
-                    placeholder={text.toneCustomPlaceholder}
-                    onChange={(e) => setCustomEmotionText(e.target.value)}
-                    onBlur={() => {
-                      const typed = customEmotionText.trim();
-                      if (!typed) return;
-                      const next = emotionTagFromUiInput(
-                        typed,
-                        emotionTagFromClass(customEmotionClass),
-                      );
-                      setCustomEmotionClass(next.class);
-                      setToneStyle(toneStyleFromClass(next.class) as ToneStyle);
-                    }}
-                  />
                 </label>
               ) : (
                 <small className="field-hint">{text.toneHelpAuto}</small>

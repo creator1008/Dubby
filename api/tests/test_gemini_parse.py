@@ -114,6 +114,7 @@ def test_normalize_keeps_optional_emotion_without_breaking_idx_fields() -> None:
     full, drafts = normalize_transcript_segments(payload, duration_ms=5000)
     assert full.startswith("Hello")
     assert drafts[0].emotion_tone == "excited"
+    assert drafts[0].emotion_tag and drafts[0].emotion_tag["class"] == "Excited"
     assert drafts[1].emotion_tone is None
     assert drafts[0].start_ms == 0
     assert drafts[1].end_ms == 2000

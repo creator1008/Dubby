@@ -16,6 +16,7 @@ import { preferStableMediaUrl, signedUrlIsFresh } from "@/lib/media-url";
 import type { EmotionClass, EmotionMode, EmotionTag } from "@/lib/emotion-tag";
 import {
   EMOTION_CLASSES,
+  emotionClassLabel,
   emotionTagFromClass,
   normalizeEmotionMode,
   parseEmotionTag,
@@ -49,28 +50,6 @@ function snapshotEmotionTones(rows: Segment[]) {
       }),
     ]),
   );
-}
-
-function emotionClassLabel(
-  text: Record<string, string>,
-  klass: EmotionClass,
-): string {
-  const labels: Record<EmotionClass, string> = {
-    Happy: text.toneHappy,
-    Calm: text.toneCalm,
-    Confident: text.toneConfident,
-    Hopeful: text.toneHopeful,
-    Sad: text.toneSad,
-    Angry: text.toneAngry,
-    Excited: text.toneExcited,
-    Nervous: text.toneNervous,
-    Serious: text.toneSerious,
-    Playful: text.tonePlayful,
-    Worried: text.toneWorried,
-    Embarrassed: text.toneEmbarrassed,
-    Lonely: text.toneLonely,
-  };
-  return labels[klass] || klass;
 }
 
 function ProjectEditor() {

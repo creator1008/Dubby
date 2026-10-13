@@ -29,7 +29,7 @@ from .locale_rules import (
     spoken_char_budget,
     translation_pair_rules,
 )
-from .emotion import EMOTION_TONES, normalize_emotion_tone
+from .emotion_tag import EMOTION_CLASSES, emotion_tag_from_tone
 from .openai_client import SegmentDraft, TranscribeResult
 
 logger = logging.getLogger("dubby.worker.gemini")
@@ -53,7 +53,7 @@ _TRANSCRIPT_SCHEMA: dict[str, Any] = {
                     "text": {"type": "string"},
                     "emotion": {
                         "type": "string",
-                        "enum": list(EMOTION_TONES),
+                        "enum": list(EMOTION_CLASSES),
                     },
                 },
                 "required": ["start_sec", "end_sec", "speaker", "text"],
@@ -198,8 +198,10 @@ def normalize_transcript_segments(
             speaker_map[speaker_raw] = f"speaker_{len(speaker_map) + 1}"
         emotion_raw = item.get("emotion", item.get("emotion_tone"))
         emotion = None
+        emotion_tag = None
         if emotion_raw:
-            emotion = normalize_emotion_tone(str(emotion_raw))
+            emotion_tag = emotion_tag_from_tone(str(emotion_raw), source="auto")
+            emotion = str(emotion_tag["class"]).lower()
         drafts.append(
             SegmentDraft(
                 start_ms=start_ms,
@@ -207,6 +209,7 @@ def normalize_transcript_segments(
                 text=text,
                 speaker_id=speaker_map[speaker_raw],
                 emotion_tone=emotion,
+                emotion_tag=emotion_tag,
             )
         )
 
@@ -224,6 +227,7 @@ def normalize_transcript_segments(
                     text=prev.text,
                     speaker_id=prev.speaker_id,
                     emotion_tone=prev.emotion_tone,
+                    emotion_tag=prev.emotion_tag,
                 )
                 start_ms = max(draft.start_ms, mid)
             else:
@@ -236,6 +240,7 @@ def normalize_transcript_segments(
                 text=draft.text,
                 speaker_id=draft.speaker_id,
                 emotion_tone=draft.emotion_tone,
+                emotion_tag=draft.emotion_tag,
             )
         cleaned.append(draft)
 
@@ -350,8 +355,9 @@ class GeminiClient:
             "segment to audible speech; do not invent equal-length slices.\n"
             "  text is exactly what was spoken in that range.\n"
             "  emotion is that segment's vocal delivery from ITS audio span plus "
-            "the spoken text. Use exactly one of: sad, angry, whisper, excited, "
-            "energetic, calm, cheerful. Emotion is metadata only — never change "
+            "the spoken text. Use exactly one of: Happy, Calm, Confident, Hopeful, "
+            "Sad, Angry, Excited, Nervous, Serious, Playful, Worried, Embarrassed, "
+            "Lonely. Emotion is metadata only — never change "
             "timestamps, speaker, or wording because of it. Do not mark a "
             "mid-sentence question tail as whisper only because it is quieter "
             "than the stem; use the stem's delivery.\n"

@@ -458,13 +458,12 @@ async def update_manifest_detected_emotions(
     """Persist per-idx detections without marking editor overrides."""
     if not source_key or (not emotion_by_idx and not emotion_tag_by_idx):
         return
-    from .emotion import normalize_emotion_tone
-    from .emotion_tag import parse_emotion_tag
+    from .emotion_tag import parse_emotion_tag, tone_from_emotion_tag
 
     by_idx = await load_dub_voice_manifest(storage, source_key)
     changed = False
     for idx, tone in emotion_by_idx.items():
-        cleaned = normalize_emotion_tone(str(tone or "").strip() or None)
+        cleaned = tone_from_emotion_tag(str(tone or "").strip() or None)
         row = by_idx.get(idx)
         if not row:
             by_idx[idx] = {

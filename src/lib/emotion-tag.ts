@@ -177,24 +177,31 @@ export function emotionTagFromClass(
 
 export type EmotionMode = "custom" | "auto";
 
-/** Map the 13-class tag onto the legacy project ``tone_style`` CHECK values. */
+/** Persist the 13 ElevenLabs classes on ``tone_style`` (same list as the editor). */
 export function toneStyleFromClass(klass: EmotionClass): string {
-  const mapped: Record<EmotionClass, string> = {
-    Happy: "cheerful",
-    Calm: "calm",
-    Confident: "calm",
-    Hopeful: "cheerful",
-    Sad: "sad",
-    Angry: "angry",
-    Excited: "excited",
-    Nervous: "whisper",
-    Serious: "calm",
-    Playful: "energetic",
-    Worried: "sad",
-    Embarrassed: "calm",
-    Lonely: "sad",
+  return klass.toLowerCase();
+}
+
+export function emotionClassLabel(
+  text: Record<string, string>,
+  klass: EmotionClass,
+): string {
+  const labels: Record<EmotionClass, string> = {
+    Happy: text.toneHappy,
+    Calm: text.toneCalm,
+    Confident: text.toneConfident,
+    Hopeful: text.toneHopeful,
+    Sad: text.toneSad,
+    Angry: text.toneAngry,
+    Excited: text.toneExcited,
+    Nervous: text.toneNervous,
+    Serious: text.toneSerious,
+    Playful: text.tonePlayful,
+    Worried: text.toneWorried,
+    Embarrassed: text.toneEmbarrassed,
+    Lonely: text.toneLonely,
   };
-  return mapped[klass] || "calm";
+  return labels[klass] || klass;
 }
 
 export function normalizeEmotionMode(
@@ -207,10 +214,5 @@ export function formatEmotionTagDisplay(
   tag: EmotionTag | null | undefined,
   classLabel: (klass: EmotionClass) => string,
 ): string {
-  const parsed = parseEmotionTag(tag);
-  const label = classLabel(parsed.class);
-  const extra = (parsed.custom || "").trim();
-  return extra && extra.toLowerCase() !== parsed.class.toLowerCase()
-    ? `${label} · ${extra}`
-    : label;
+  return classLabel(parseEmotionTag(tag).class);
 }
