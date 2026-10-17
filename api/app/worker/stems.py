@@ -52,18 +52,43 @@ def build_demucs_cmd(settings: Settings, audio_in: str, out_dir: str) -> list[st
 
 
 def build_wav_slice_cmd(
-    settings: Settings, source: str, wav_out: str, start: float, length: float
+    settings: Settings,
+    source: str,
+    wav_out: str,
+    start: float,
+    length: float,
+    *,
+    accurate: bool = False,
 ) -> list[str]:
-    return [
+    """Slice ``source`` to ``wav_out``.
+
+    ``accurate=True`` decodes first (``-ss`` after ``-i``) so utterance-end
+    cuts land on the sample, not the previous keyframe.
+    """
+    cmd = [
         media.resolve_media_binary(settings.ffmpeg_path, "ffmpeg"),
         "-y",
         "-nostdin",
-        "-ss",
-        f"{start:.3f}",
-        "-t",
-        f"{length:.3f}",
-        "-i",
-        source,
+    ]
+    if accurate:
+        cmd += [
+            "-i",
+            source,
+            "-ss",
+            f"{start:.3f}",
+            "-t",
+            f"{length:.3f}",
+        ]
+    else:
+        cmd += [
+            "-ss",
+            f"{start:.3f}",
+            "-t",
+            f"{length:.3f}",
+            "-i",
+            source,
+        ]
+    cmd += [
         "-acodec",
         "pcm_s16le",
         "-ar",
@@ -72,6 +97,7 @@ def build_wav_slice_cmd(
         "2",
         wav_out,
     ]
+    return cmd
 
 
 def write_concat_list(paths: list[Path], list_path: Path) -> None:

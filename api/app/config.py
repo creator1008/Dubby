@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     # Split the source WAV with ffmpeg before each Demucs process so a 40–60
     # minute track never sits in RAM as one tensor (exit -9 / SIGKILL).
     demucs_file_chunk_seconds: int = Field(default=15, ge=5, le=120)
+    # Dub jobs on sources this long (or longer) run Demucs/mix in ~3 min windows.
+    dub_chunk_min_duration_seconds: int = Field(default=300, ge=5, le=3600)
+    dub_chunk_target_seconds: int = Field(default=180, ge=3, le=600)
+    # Wait this long past the 3-minute mark for the current line to finish.
+    dub_chunk_max_overrun_seconds: int = Field(default=120, ge=2, le=600)
+    # Fold a leftover shorter than this into the previous window.
+    dub_chunk_min_tail_seconds: int = Field(default=20, ge=1, le=180)
     # Linear gain of the Demucs accompaniment stem under dubbed speech (0–1).
     # 0.15 made travel-vlog BGM inaudible; 0.8 keeps music clearly under the dub.
     mix_no_vocals_in_mask: float = Field(default=0.8, ge=0.05, le=1.0)

@@ -208,6 +208,18 @@ class Engine(ABC):
         ass_path: str | None,
     ) -> None: ...
 
+    async def slice_wav(
+        self,
+        source: str,
+        wav_out: str,
+        start_seconds: float,
+        duration_seconds: float,
+        *,
+        accurate: bool = True,
+    ) -> None: ...
+
+    async def concat_wavs(self, parts: list[Path], dest: Path) -> None: ...
+
 
 def create_engine(settings: Settings, heartbeat: HeartbeatFn | None = None) -> Engine:
     if settings.pipeline_mode == "mock":
@@ -493,6 +505,30 @@ class RealEngine(Engine):
             duration = stems.wav_duration_seconds(wav_in)
             half = max(duration / 2.0, 5.0)
             return await self._demucs_chunked(wav_in, out_dir, duration, half)
+
+    async def slice_wav(
+        self,
+        source: str,
+        wav_out: str,
+        start_seconds: float,
+        duration_seconds: float,
+        *,
+        accurate: bool = True,
+    ) -> None:
+        await self._run(
+            stems.build_wav_slice_cmd(
+                self._settings,
+                source,
+                wav_out,
+                start_seconds,
+                duration_seconds,
+                accurate=accurate,
+            ),
+            errors.FFMPEG_FAILED,
+        )
+
+    async def concat_wavs(self, parts: list[Path], dest: Path) -> None:
+        await self._concat_wavs(parts, dest)
 
     async def _concat_wavs(self, parts: list[Path], dest: Path) -> None:
         list_path = dest.with_suffix(".concat.txt")
@@ -835,8 +871,10 @@ class MockEngine(Engine):
 
     async def split_stems(self, wav_in: str, out_dir: str) -> tuple[str, str]:
         duration = _wav_duration(wav_in)
-        vocals = str(Path(out_dir) / "vocals.wav")
-        no_vocals = str(Path(out_dir) / "no_vocals.wav")
+        dest = Path(out_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        vocals = str(dest / "vocals.wav")
+        no_vocals = str(dest / "no_vocals.wav")
         _write_wav(vocals, duration)
         _write_wav(no_vocals, duration)
         return vocals, no_vocals
@@ -961,3 +999,24 @@ class MockEngine(Engine):
         ass_path: str | None,
     ) -> None:
         shutil.copyfile(source_video, output_mp4)
+
+    async def slice_wav(
+        self,
+        source: str,
+        wav_out: str,
+        start_seconds: float,
+        duration_seconds: float,
+        *,
+        accurate: bool = True,
+    ) -> None:
+        del source, accurate
+        _write_wav(wav_out, max(0.05, float(duration_seconds)))
+
+    async def concat_wavs(self, parts: list[Path], dest: Path) -> None:
+        total = 0.0
+        for part in parts:
+            try:
+                total += _wav_duration(str(part))
+            except (wave.Error, EOFError, FileNotFoundError):
+                total += 0.0
+        _write_wav(str(dest), max(0.05, total))

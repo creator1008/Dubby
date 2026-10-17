@@ -129,6 +129,8 @@ def make_env(tmp_path: Path, **settings_kw: Any):
         "subtitle_mode": "target",
         "tone_style": "neutral",
         "diarization_enabled": False,
+        "voice_mode": "voice_box",
+        "dub_voice_ids": ["mock-voice-1"],
         "quality_warnings": [],
         "duration_seconds": None,
         "source_key": SOURCE_KEY,
@@ -226,6 +228,26 @@ def test_multispeaker_and_lipsync_mock_end_to_end(tmp_path: Path) -> None:
     key = "users/u1/projects/p1/outputs/lipsync_en.mp4"
     assert repo.project["lipsync_output_key"] == key
     assert storage._path(key).exists()
+    assert _scratch_is_clean(scratch)
+
+
+def test_long_dub_uses_utterance_windows(tmp_path: Path) -> None:
+    ctx, repo, storage, scratch = make_env(
+        tmp_path,
+        dub_chunk_min_duration_seconds=5,
+        dub_chunk_target_seconds=3,
+        dub_chunk_max_overrun_seconds=2,
+        dub_chunk_min_tail_seconds=1,
+    )
+    asyncio.run(run_transcribe(ctx))
+    asyncio.run(run_dub(ctx))
+
+    assert repo.project["status"] == "completed"
+    assert storage._path("users/u1/projects/p1/outputs/dub_en.mp4").exists()
+    messages = [m for _, m in repo.progress_log]
+    assert "stem_split" in messages
+    assert "mix_bgm" in messages
+    assert "merge_chunks" in messages
     assert _scratch_is_clean(scratch)
 
 

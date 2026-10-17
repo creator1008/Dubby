@@ -240,6 +240,10 @@ def test_wav_slice_and_concat_cmds() -> None:
     settings = _settings()
     slice_cmd = stems.build_wav_slice_cmd(settings, "in.wav", "c.wav", 15.0, 10.0)
     assert "-ss" in slice_cmd and slice_cmd[slice_cmd.index("-ss") + 1] == "15.000"
+    accurate = stems.build_wav_slice_cmd(
+        settings, "in.wav", "c.wav", 15.0, 10.0, accurate=True
+    )
+    assert accurate.index("-i") < accurate.index("-ss")
     concat_cmd = stems.build_wav_concat_cmd(settings, "list.txt", "out.wav")
     assert "-f" in concat_cmd and "concat" in concat_cmd
 

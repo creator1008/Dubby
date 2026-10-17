@@ -19,6 +19,7 @@ The actual tool/service calls live behind :class:`app.worker.engine.Engine`;
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import logging
 import re
@@ -55,6 +56,11 @@ from .dub_quality import (
     next_start_by_segment_idx,
     source_loudness_levels_async,
     voice_removal_ranges,
+)
+from .dub_chunks import (
+    plan_dub_chunks_from_settings,
+    shift_placed_clips,
+    shift_ranges,
 )
 from .dub_voice_assets import load_dub_voice_manifest, persist_dub_voice_assets
 from .errors import JobCancelled, PipelineError
@@ -1494,14 +1500,72 @@ async def run_dub(ctx: JobContext) -> None:
         # V2: only dub segments that match the declared source language.
         from .language_passthrough import should_passthrough
 
+        duration_ms = max(1, int(round(float(info.duration_seconds) * 1000)))
+        dub_windows = plan_dub_chunks_from_settings(
+            segments, duration_ms, ctx.settings
+        )
         # Demucs stems: IVC samples / loudness; mix bed rebuilt after TTS timing.
         # Do not union vocal-energy VAD into the mix mask — music bleed on the
         # vocals stem was treated as speech and muted the original BGM (jeju1).
         # Energy is only a pointer for a second STT pass on uncovered holes.
+        # Sources ≥ 5 min are Demucs'd in ~3 min utterance-safe windows.
         await ctx.report(0.15, "stem_split")
-        stems_dir = scratch / "stems"
-        stems_dir.mkdir()
-        vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
+        chunk_work: list[dict] = []
+        if len(dub_windows) == 1:
+            stems_dir = scratch / "stems"
+            stems_dir.mkdir()
+            vocals, no_vocals = await engine.split_stems(str(full_wav), str(stems_dir))
+            chunk_work.append(
+                {
+                    "start_ms": 0,
+                    "end_ms": duration_ms,
+                    "wav": str(full_wav),
+                    "no_vocals": no_vocals,
+                }
+            )
+        else:
+            logger.info(
+                "Dubbing %d utterance-safe windows (target %ss)",
+                len(dub_windows),
+                ctx.settings.dub_chunk_target_seconds,
+            )
+            vocal_parts: list[Path] = []
+            bed_parts: list[Path] = []
+            for index, (start_ms, end_ms) in enumerate(dub_windows):
+                await ctx.report(
+                    0.15 + 0.10 * index / max(1, len(dub_windows)),
+                    "stem_split",
+                )
+                length_s = max(0.05, (end_ms - start_ms) / 1000.0)
+                chunk_dir = scratch / f"dub_chunk_{index:04d}"
+                chunk_dir.mkdir(parents=True, exist_ok=True)
+                chunk_wav = chunk_dir / "audio.wav"
+                await engine.slice_wav(
+                    str(full_wav),
+                    str(chunk_wav),
+                    start_ms / 1000.0,
+                    length_s,
+                    accurate=True,
+                )
+                vocals_i, no_vocals_i = await engine.split_stems(
+                    str(chunk_wav), str(chunk_dir / "stems")
+                )
+                chunk_work.append(
+                    {
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                        "wav": str(chunk_wav),
+                        "no_vocals": no_vocals_i,
+                    }
+                )
+                vocal_parts.append(Path(vocals_i))
+                bed_parts.append(Path(no_vocals_i))
+                gc.collect()
+            vocals_out = scratch / "vocals.wav"
+            no_vocals_out = scratch / "no_vocals.wav"
+            await engine.concat_wavs(vocal_parts, vocals_out)
+            await engine.concat_wavs(bed_parts, no_vocals_out)
+            vocals, no_vocals = str(vocals_out), str(no_vocals_out)
 
         saved_ranges = await _load_speech_ranges(
             ctx, str(project["source_key"]), scratch
@@ -1533,6 +1597,37 @@ async def run_dub(ctx: JobContext) -> None:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("could not persist recovered speech ranges: %s", exc)
         segments = recovered_segments
+        # Recovered captions can move the safe cut; rebuild mix windows from the
+        # final timeline. Demucs already ran on the first plan; stems were
+        # concatenated so later windows slice the full no_vocals / wav.
+        mix_windows = plan_dub_chunks_from_settings(
+            segments, duration_ms, ctx.settings
+        )
+        if len(mix_windows) > 1:
+            rebuilt: list[dict] = []
+            for index, (start_ms, end_ms) in enumerate(mix_windows):
+                length_s = max(0.05, (end_ms - start_ms) / 1000.0)
+                mix_dir = scratch / f"dub_mix_{index:04d}"
+                mix_dir.mkdir(parents=True, exist_ok=True)
+                mix_wav = mix_dir / "audio.wav"
+                mix_nv = mix_dir / "no_vocals.wav"
+                await engine.slice_wav(
+                    str(full_wav), str(mix_wav), start_ms / 1000.0, length_s, accurate=True
+                )
+                await engine.slice_wav(
+                    no_vocals, str(mix_nv), start_ms / 1000.0, length_s, accurate=True
+                )
+                rebuilt.append(
+                    {
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                        "wav": str(mix_wav),
+                        "no_vocals": str(mix_nv),
+                    }
+                )
+            chunk_work = rebuilt
+        elif chunk_work:
+            chunk_work[0]["end_ms"] = duration_ms
         from .translation_align import idxs_needing_retranslate
 
         retry_items: list[tuple[int, str, float]] = []
@@ -2175,18 +2270,45 @@ async def run_dub(ctx: JobContext) -> None:
             mix_bounds,
             fill_interiors=True,
         )
-        selective_bed = scratch / "speech_removed_bed.wav"
-        await engine.remove_recognized_speech(
-            str(full_wav),
-            no_vocals,
-            removal_ranges,
-            str(selective_bed),
-            no_vocals_in_mask=ctx.settings.mix_no_vocals_in_mask,
-        )
-
-        await ctx.report(0.78, "mix_bgm")
         mixed_wav = scratch / "mixed.wav"
-        await engine.mix(str(selective_bed), placed_clips, str(mixed_wav))
+        if len(chunk_work) == 1:
+            selective_bed = scratch / "speech_removed_bed.wav"
+            await engine.remove_recognized_speech(
+                str(full_wav),
+                no_vocals,
+                removal_ranges,
+                str(selective_bed),
+                no_vocals_in_mask=ctx.settings.mix_no_vocals_in_mask,
+            )
+            await ctx.report(0.78, "mix_bgm")
+            await engine.mix(str(selective_bed), placed_clips, str(mixed_wav))
+        else:
+            mixed_parts: list[Path] = []
+            for index, asset in enumerate(chunk_work):
+                await ctx.report(
+                    0.76 + 0.10 * index / max(1, len(chunk_work)),
+                    "mix_bgm",
+                )
+                start_ms = int(asset["start_ms"])
+                end_ms = int(asset["end_ms"])
+                bed = scratch / f"dub_chunk_{index:04d}_bed.wav"
+                mixed_part = scratch / f"dub_chunk_{index:04d}_mixed.wav"
+                await engine.remove_recognized_speech(
+                    str(asset["wav"]),
+                    str(asset["no_vocals"]),
+                    shift_ranges(removal_ranges, start_ms, end_ms),
+                    str(bed),
+                    no_vocals_in_mask=ctx.settings.mix_no_vocals_in_mask,
+                )
+                await engine.mix(
+                    str(bed),
+                    shift_placed_clips(placed_clips, start_ms, end_ms),
+                    str(mixed_part),
+                )
+                mixed_parts.append(mixed_part)
+                gc.collect()
+            await ctx.report(0.86, "merge_chunks")
+            await engine.concat_wavs(mixed_parts, mixed_wav)
 
         ass_path: str | None = None
         subtitle_mode = str(project.get("subtitle_mode") or "none")
