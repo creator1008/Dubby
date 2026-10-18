@@ -853,6 +853,8 @@ def _open_ytdlp(yt_dlp_mod, opts: dict):
 def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
     message = _strip_ansi(str(exc).strip() or exc.__class__.__name__)
     lower = message.lower()
+    if "is not a valid host or port" in lower:
+        raise RemoteMediaError(_INVALID_YTDLP_PROXY_MSG) from exc
     if _COOKIE_DB_HINT_RE.search(message):
         raise RemoteMediaError(
             "브라우저 쿠키 DB를 읽지 못했습니다. Chrome/Edge를 모두 종료한 뒤 "
@@ -944,6 +946,42 @@ def _ffmpeg_location() -> str | None:
     return None
 
 
+_YTDLP_PROXY_PLACEHOLDER_RE = re.compile(
+    r"user:pass@host(?::port)?|(?:^|[/@])host:port\b",
+    re.IGNORECASE,
+)
+_YTDLP_PROXY_PLACEHOLDER_HOSTS = frozenset(
+    {"host", "hostname", "example.com", "proxy.example", "example-proxy.com"}
+)
+_YTDLP_PROXY_SCHEMES = frozenset({"http", "https", "socks4", "socks5", "socks5h"})
+_INVALID_YTDLP_PROXY_MSG = (
+    "YTDLP_PROXY 값이 예시이거나 주소가 잘못되었습니다. "
+    "문서의 http://user:pass@host:port 를 그대로 넣으면 안 됩니다. "
+    "구매한 주거용 프록시의 실제 호스트·포트·계정으로 바꾸거나, "
+    "이 줄을 지운 뒤 홈 페치(YTDLP_HOME_FETCH_URL) 또는 파일 업로드를 사용하세요."
+)
+
+
+def _assert_usable_ytdlp_proxy(raw: str) -> None:
+    value = (raw or "").strip()
+    if not value:
+        return
+    if _YTDLP_PROXY_PLACEHOLDER_RE.search(value):
+        raise RemoteMediaError(_INVALID_YTDLP_PROXY_MSG)
+    parsed_src = value if "://" in value else f"http://{value}"
+    try:
+        parsed = urlparse(parsed_src)
+        host = (parsed.hostname or "").strip().lower()
+        _ = parsed.port
+    except ValueError as exc:
+        raise RemoteMediaError(_INVALID_YTDLP_PROXY_MSG) from exc
+    scheme = (parsed.scheme or "http").strip().lower()
+    if scheme not in _YTDLP_PROXY_SCHEMES or not host:
+        raise RemoteMediaError(_INVALID_YTDLP_PROXY_MSG)
+    if host in _YTDLP_PROXY_PLACEHOLDER_HOSTS:
+        raise RemoteMediaError(_INVALID_YTDLP_PROXY_MSG)
+
+
 def _ytdlp_proxy() -> str:
     try:
         from .config import get_settings
@@ -951,7 +989,10 @@ def _ytdlp_proxy() -> str:
         configured = (get_settings().ytdlp_proxy or "").strip()
     except Exception:  # noqa: BLE001
         configured = ""
-    return configured or os.getenv("YTDLP_PROXY", "").strip()
+    raw = configured or os.getenv("YTDLP_PROXY", "").strip()
+    if raw:
+        _assert_usable_ytdlp_proxy(raw)
+    return raw
 
 
 def _home_fetch_config() -> tuple[str, str]:

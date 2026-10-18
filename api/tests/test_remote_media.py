@@ -30,6 +30,7 @@ from app.remote_media import (
     _ytdlp_impersonate_attempts,
     _ytdlp_impersonate_targets,
     _ytdlp_proxy,
+    _assert_usable_ytdlp_proxy,
 )
 
 
@@ -291,6 +292,32 @@ def test_ytdlp_proxy_reads_env_when_settings_empty(
     monkeypatch.setattr("app.config.get_settings", lambda: Empty())
     monkeypatch.setenv("YTDLP_PROXY", "http://user:pass@proxy:8080")
     assert _ytdlp_proxy() == "http://user:pass@proxy:8080"
+
+
+def test_placeholder_ytdlp_proxy_is_rejected() -> None:
+    with pytest.raises(RemoteMediaError, match="예시이거나"):
+        _assert_usable_ytdlp_proxy("http://user:pass@host:port")
+    with pytest.raises(RemoteMediaError, match="예시이거나"):
+        _assert_usable_ytdlp_proxy("host:port")
+
+
+def test_ytdlp_proxy_placeholder_from_env_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Empty:
+        ytdlp_proxy = ""
+
+    monkeypatch.setattr("app.config.get_settings", lambda: Empty())
+    monkeypatch.setenv("YTDLP_PROXY", "http://user:pass@host:port")
+    with pytest.raises(RemoteMediaError, match="예시이거나"):
+        _ytdlp_proxy()
+
+
+def test_ytdlp_parse_host_port_error_is_mapped() -> None:
+    with pytest.raises(RemoteMediaError, match="YTDLP_PROXY"):
+        _raise_ytdlp_error(
+            Exception("Failed to parse: 'host:port' is not a valid host or port")
+        )
 
 
 def test_download_via_home_fetch_streams_file(

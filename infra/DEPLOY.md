@@ -94,7 +94,8 @@ datacenter IP). Pick one:
    Use the same token on the home host. The home process must *not* set
    `YTDLP_HOME_FETCH_URL` (it downloads locally; `allow_home_fetch=False`
    already prevents a loop).
-2. Residential HTTP/SOCKS proxy: `YTDLP_PROXY=http://user:pass@host:port`
+2. Residential HTTP/SOCKS proxy from a real vendor (do not copy a
+   placeholder): `YTDLP_PROXY=http://USERNAME:PASSWORD@gate.YOUR-PROVIDER.com:7777`
    in `infra/.env`.
 3. Users download the video themselves and upload the file.
 
