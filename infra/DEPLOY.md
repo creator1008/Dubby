@@ -86,14 +86,14 @@ YouTube URL ingest on Lightsail: YouTube bot-gates AWS IPs. Cookies copied
 onto the instance are usually not enough (the request still leaves from the
 datacenter IP). Pick one:
 
-1. Home fetch (recommended): run this same API on a home/residential PC,
-   expose `POST /v1/internal/ytdlp-fetch` with a named tunnel, and set on
-   Lightsail (`infra/.env`, then `docker compose up -d`):
-   `YTDLP_HOME_FETCH_URL=https://<home-host>/v1/internal/ytdlp-fetch`
-   `YTDLP_HOME_FETCH_TOKEN=<long-random-secret>`
-   Use the same token on the home host. The home process must *not* set
-   `YTDLP_HOME_FETCH_URL` (it downloads locally; `allow_home_fetch=False`
-   already prevents a loop).
+1. Home fetch (recommended). On the home PC:
+   `bash scripts/setup-home-fetch.sh` (DNS `fetch.dubbyai.com` → tunnel)
+   then keep `start-home-fetch.bat` and `start-tunnel.bat` running.
+   On Lightsail `infra/.env` (then `docker compose up -d`):
+   `YTDLP_HOME_FETCH_URL=https://fetch.dubbyai.com/v1/internal/ytdlp-fetch`
+   `YTDLP_HOME_FETCH_TOKEN=<same token as api/.env on the home PC>`
+   Do **not** set `YTDLP_HOME_FETCH_URL` on the home host.
+   Add a Cloudflare WAF skip for `fetch.dubbyai.com` (same as `api`).
 2. Residential HTTP/SOCKS proxy from a real vendor (do not copy a
    placeholder): `YTDLP_PROXY=http://USERNAME:PASSWORD@gate.YOUR-PROVIDER.com:7777`
    in `infra/.env`.

@@ -15,6 +15,7 @@ import re
 import shutil
 import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -1011,13 +1012,45 @@ def _home_fetch_config() -> tuple[str, str]:
     )
 
 
+def _save_home_fetch_stream(response: httpx.Response, dest: Path, max_bytes: int) -> str:
+    content_type = (response.headers.get("content-type") or "").lower()
+    written = 0
+    with dest.open("wb") as handle:
+        for chunk in response.iter_bytes(64 * 1024):
+            written += len(chunk)
+            if written > max_bytes:
+                dest.unlink(missing_ok=True)
+                raise RemoteMediaError(
+                    f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
+                )
+            handle.write(chunk)
+    return content_type
+
+
+def _finish_home_fetch_file(dest: Path, content_type: str) -> Path:
+    if dest.stat().st_size < 64:
+        dest.unlink(missing_ok=True)
+        raise RemoteMediaError("홈 페치가 빈 파일을 반환했습니다.")
+    suffix = ".webm" if "webm" in content_type else ".mp4"
+    named = dest.with_suffix(suffix)
+    if named != dest:
+        dest.replace(named)
+        dest = named
+    return dest
+
+
 def download_via_home_fetch(
     url: str,
     dest_dir: Path,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Path:
-    """Download ``url`` through a residential host running this same API."""
+    """Download ``url`` through a residential host running this same API.
+
+    Newer home hosts return 202 + job_id so Cloudflare's ~100s proxy window
+    is not spent waiting for yt-dlp. Older hosts that still stream a file
+    on POST remain supported.
+    """
     fetch_url, token = _home_fetch_config()
     if not fetch_url or not token:
         raise RemoteMediaError("home fetch is not configured")
@@ -1029,7 +1062,6 @@ def download_via_home_fetch(
         "Accept": "*/*",
     }
     timeout = httpx.Timeout(DOWNLOAD_TIMEOUT_SECONDS, connect=30.0)
-    content_type = ""
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         with client.stream(
             "POST", fetch_url, json={"url": url}, headers=headers
@@ -1040,25 +1072,42 @@ def download_via_home_fetch(
                     f"홈 페치가 실패했습니다 ({response.status_code}). {detail}".strip()
                 )
             content_type = (response.headers.get("content-type") or "").lower()
-            written = 0
-            with dest.open("wb") as handle:
-                for chunk in response.iter_bytes(64 * 1024):
-                    written += len(chunk)
-                    if written > max_bytes:
-                        dest.unlink(missing_ok=True)
+            if response.status_code == 202 or "application/json" in content_type:
+                payload = json.loads((response.read() or b"").decode("utf-8", "replace") or "{}")
+                job_id = str(payload.get("job_id") or "").strip()
+                if not job_id:
+                    raise RemoteMediaError("홈 페치가 job_id를 반환하지 않았습니다.")
+                base = fetch_url.rstrip("/")
+                auth = {"Authorization": f"Bearer {token}"}
+                deadline = time.monotonic() + DOWNLOAD_TIMEOUT_SECONDS
+                while time.monotonic() < deadline:
+                    status_resp = client.get(f"{base}/{job_id}", headers=auth)
+                    if status_resp.status_code >= 400:
+                        detail = (status_resp.text or "")[:300]
                         raise RemoteMediaError(
-                            f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
+                            f"홈 페치 상태 확인이 실패했습니다 ({status_resp.status_code}). {detail}".strip()
                         )
-                    handle.write(chunk)
-    if dest.stat().st_size < 64:
-        dest.unlink(missing_ok=True)
-        raise RemoteMediaError("홈 페치가 빈 파일을 반환했습니다.")
-    suffix = ".webm" if "webm" in content_type else ".mp4"
-    named = dest.with_suffix(suffix)
-    if named != dest:
-        dest.replace(named)
-        dest = named
-    return dest
+                    body = status_resp.json()
+                    state = str(body.get("status") or "")
+                    if state == "done":
+                        break
+                    if state == "error":
+                        raise RemoteMediaError(
+                            str(body.get("error") or "홈 페치가 실패했습니다.")
+                        )
+                    time.sleep(2)
+                else:
+                    raise RemoteMediaError("홈 페치 시간이 초과되었습니다.")
+                with client.stream("GET", f"{base}/{job_id}/file", headers=auth) as file_resp:
+                    if file_resp.status_code >= 400:
+                        detail = (file_resp.read() or b"").decode("utf-8", "replace")[:300]
+                        raise RemoteMediaError(
+                            f"홈 페치 파일 받기가 실패했습니다 ({file_resp.status_code}). {detail}".strip()
+                        )
+                    content_type = _save_home_fetch_stream(file_resp, dest, max_bytes)
+                return _finish_home_fetch_file(dest, content_type)
+            content_type = _save_home_fetch_stream(response, dest, max_bytes)
+    return _finish_home_fetch_file(dest, content_type)
 
 
 def _base_ytdlp_opts(

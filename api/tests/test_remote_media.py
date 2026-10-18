@@ -369,6 +369,81 @@ def test_download_via_home_fetch_streams_file(
     assert dest.stat().st_size == 128
 
 
+def test_download_via_home_fetch_polls_job(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.remote_media._home_fetch_config",
+        lambda: ("https://home.example/v1/internal/ytdlp-fetch", "secret"),
+    )
+
+    class FakeResponse:
+        def __init__(
+            self,
+            status: int,
+            *,
+            payload: dict | None = None,
+            body: bytes = b"",
+            content_type: str = "application/json",
+        ) -> None:
+            self.status_code = status
+            self.headers = {"content-type": content_type}
+            self._payload = payload or {}
+            self._body = body
+
+        def json(self) -> dict:
+            return self._payload
+
+        def read(self) -> bytes:
+            if self._payload:
+                return json_dumps(self._payload)
+            return self._body
+
+        def iter_bytes(self, _n: int):
+            yield self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def json_dumps(payload: dict) -> bytes:
+        import json
+
+        return json.dumps(payload).encode("utf-8")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):  # noqa: ANN001, ARG002
+            self.gets = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def stream(self, method: str, url: str, **kwargs):  # noqa: ANN003
+            if method == "POST":
+                return FakeResponse(202, payload={"job_id": "job-1", "status": "running"})
+            assert method == "GET"
+            assert url.endswith("/job-1/file")
+            return FakeResponse(
+                200, body=b"y" * 128, content_type="video/mp4"
+            )
+
+        def get(self, url: str, **kwargs):  # noqa: ANN003
+            self.gets += 1
+            assert url.endswith("/job-1")
+            return FakeResponse(200, payload={"job_id": "job-1", "status": "done"})
+
+    monkeypatch.setattr("app.remote_media.httpx.Client", FakeClient)
+    dest = download_via_home_fetch(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path
+    )
+    assert dest.stat().st_size == 128
+
+
 def test_download_via_home_fetch_requires_config(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -9,4 +9,6 @@ credentials-file: REPLACE_CREDENTIALS_FILE
 ingress:
   - hostname: api.dubbyai.com
     service: http://127.0.0.1:8000
+  - hostname: fetch.dubbyai.com
+    service: http://127.0.0.1:8003
   - service: http_status:404

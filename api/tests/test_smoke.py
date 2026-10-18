@@ -87,6 +87,8 @@ def test_expected_routes_registered() -> None:
         "/v1/voices/box/clone",
         "/v1/voices/box/clone/uploads",
         "/v1/internal/ytdlp-fetch",
+        "/v1/internal/ytdlp-fetch/{job_id}",
+        "/v1/internal/ytdlp-fetch/{job_id}/file",
     }
     assert expected <= paths
 

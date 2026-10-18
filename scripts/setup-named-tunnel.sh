@@ -7,6 +7,7 @@ cd "$ROOT"
 
 TUNNEL_NAME="${DUBBY_TUNNEL_NAME:-dubby-api}"
 HOSTNAME="${DUBBY_API_HOSTNAME:-api.dubbyai.com}"
+FETCH_HOSTNAME="${DUBBY_FETCH_HOSTNAME:-fetch.dubbyai.com}"
 CF=""
 CONFIG_DIR="$ROOT/infra/cloudflared"
 CONFIG_FILE="$CONFIG_DIR/config.yml"
@@ -47,9 +48,11 @@ if [[ -z "$TUNNEL_ID" ]]; then
 fi
 echo "TUNNEL_ID=$TUNNEL_ID"
 
-echo "3) Route DNS $HOSTNAME → tunnel (idempotent)…"
+echo "3) Route DNS $HOSTNAME and $FETCH_HOSTNAME → tunnel (idempotent)…"
 "$CF" tunnel route dns -f "$TUNNEL_NAME" "$HOSTNAME" || \
   "$CF" tunnel route dns "$TUNNEL_NAME" "$HOSTNAME" || true
+"$CF" tunnel route dns -f "$TUNNEL_NAME" "$FETCH_HOSTNAME" || \
+  "$CF" tunnel route dns "$TUNNEL_NAME" "$FETCH_HOSTNAME" || true
 
 CRED=""
 if [[ -n "${USERPROFILE:-}" && -f "$USERPROFILE/.cloudflared/$TUNNEL_ID.json" ]]; then
@@ -73,6 +76,11 @@ protocol: http2
 ingress:
   - hostname: $HOSTNAME
     service: http://127.0.0.1:8000
+    originRequest:
+      connectTimeout: 30s
+      keepAliveTimeout: 90s
+  - hostname: $FETCH_HOSTNAME
+    service: http://127.0.0.1:8003
     originRequest:
       connectTimeout: 30s
       keepAliveTimeout: 90s
