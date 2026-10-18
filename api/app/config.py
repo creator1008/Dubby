@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     ytdlp_cookies_file: str = ""
     # When APP_ENV=local, retry with common browsers if a post needs login.
     ytdlp_cookies_auto_browser: bool = True
+    # HTTP(S)/SOCKS proxy so Lightsail can egress via a residential IP.
+    ytdlp_proxy: str = ""
+    # When YouTube bot-gates the cloud IP, POST the URL to this home fetch
+    # endpoint (same FastAPI on a residential host) and stream the file back.
+    ytdlp_home_fetch_url: str = ""
+    ytdlp_home_fetch_token: str = ""
 
     # --- Demucs stem split -----------------------------------------------------
     # htdemucs is faster than htdemucs_ft; set DEMUCS_DEVICE=cuda when available.

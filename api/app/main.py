@@ -18,7 +18,7 @@ from . import __version__
 from .auth import JwtVerifier
 from .config import get_settings
 from .db import create_repository
-from .routers import admin, billing, credits, health, jobs, projects, segments, uploads, voices
+from .routers import admin, billing, credits, health, jobs, projects, segments, uploads, voices, ytdlp_fetch
 from .storage import R2Storage
 
 logger = logging.getLogger(__name__)
@@ -151,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(billing.router)
     app.include_router(uploads.router)
     app.include_router(admin.router)
+    app.include_router(ytdlp_fetch.router)
     return app
 
 

@@ -8,9 +8,12 @@ import pytest
 
 from app.remote_media import (
     RemoteMediaError,
+    _YOUTUBE_PLAYER_CLIENT_SETS,
     assert_public_http_url,
     assert_safe_direct_media_url,
     classify_media_url,
+    download_via_home_fetch,
+    download_with_ytdlp,
     is_ytdlp_platform_host,
     normalize_remote_media_url,
     tiktok_video_id_from_url,
@@ -26,6 +29,7 @@ from app.remote_media import (
     _ytdlp_cookie_option_sets,
     _ytdlp_impersonate_attempts,
     _ytdlp_impersonate_targets,
+    _ytdlp_proxy,
 )
 
 
@@ -136,7 +140,11 @@ def test_youtube_bot_check_is_not_age_cookie_error() -> None:
     assert _is_cookie_auth_error(message) is False
     with pytest.raises(RemoteMediaError, match="자동화로 차단") as exc_info:
         _raise_ytdlp_error(Exception(message), url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-    assert "쿠키가 필요합니다" not in str(exc_info.value)
+    text = str(exc_info.value)
+    assert "쿠키가 필요합니다" not in text
+    assert "YTDLP_HOME_FETCH" in text
+    assert "YTDLP_PROXY" in text
+    assert "업로드" in text
 
 
 def test_base_ytdlp_opts_impersonate_only_when_requested(
@@ -247,3 +255,153 @@ def test_tiktok_play_urls_from_item_detail_payload() -> None:
     urls = _tiktok_play_urls_from_detail(payload)
     assert urls[0].endswith("/a.mp4")
     assert "https://v16-webapp-prime.tiktok.com/video/b.mp4" in urls
+
+
+def test_youtube_player_clients_prefer_tv_android() -> None:
+    assert _YOUTUBE_PLAYER_CLIENT_SETS[0] == ("tv", "tv_embedded")
+    assert ("android",) in _YOUTUBE_PLAYER_CLIENT_SETS
+    assert ("ios",) in _YOUTUBE_PLAYER_CLIENT_SETS
+    assert None in _YOUTUBE_PLAYER_CLIENT_SETS
+
+
+def test_youtube_impersonate_tries_native_before_chrome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("YTDLP_IMPERSONATE", raising=False)
+    attempts = _ytdlp_impersonate_attempts(youtube=True)
+    assert attempts[0] is None
+
+
+def test_base_ytdlp_opts_includes_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.remote_media.shutil.which", lambda _name: None)
+    monkeypatch.setattr("app.remote_media._ffmpeg_location", lambda: None)
+    monkeypatch.setattr(
+        "app.remote_media._ytdlp_proxy", lambda: "socks5://127.0.0.1:1080"
+    )
+    opts = _base_ytdlp_opts("/tmp/source.%(ext)s", 100)
+    assert opts["proxy"] == "socks5://127.0.0.1:1080"
+
+
+def test_ytdlp_proxy_reads_env_when_settings_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Empty:
+        ytdlp_proxy = ""
+
+    monkeypatch.setattr("app.config.get_settings", lambda: Empty())
+    monkeypatch.setenv("YTDLP_PROXY", "http://user:pass@proxy:8080")
+    assert _ytdlp_proxy() == "http://user:pass@proxy:8080"
+
+
+def test_download_via_home_fetch_streams_file(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.remote_media._home_fetch_config",
+        lambda: ("https://home.example/v1/internal/ytdlp-fetch", "secret"),
+    )
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "video/mp4"}
+
+        def iter_bytes(self, _n: int):
+            yield b"x" * 128
+
+        def read(self) -> bytes:
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):  # noqa: ANN001, ARG002
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def stream(self, method: str, url: str, **kwargs):  # noqa: ANN003
+            assert method == "POST"
+            assert url.endswith("/v1/internal/ytdlp-fetch")
+            assert kwargs["headers"]["Authorization"] == "Bearer secret"
+            assert kwargs["json"]["url"].startswith("https://www.youtube.com")
+            return FakeResponse()
+
+    monkeypatch.setattr("app.remote_media.httpx.Client", FakeClient)
+    dest = download_via_home_fetch(
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ", tmp_path
+    )
+    assert dest.suffix == ".mp4"
+    assert dest.stat().st_size == 128
+
+
+def test_download_via_home_fetch_requires_config(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.remote_media._home_fetch_config", lambda: ("", ""))
+    with pytest.raises(RemoteMediaError, match="home fetch"):
+        download_via_home_fetch("https://www.youtube.com/watch?v=abc", tmp_path)
+
+
+def test_download_with_ytdlp_falls_back_to_home_fetch(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BoomYDL:
+        def __enter__(self):
+            raise Exception(
+                "ERROR: [youtube] abc: Sign in to confirm you’re not a bot."
+            )
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr("app.remote_media._require_yt_dlp", lambda: object())
+    monkeypatch.setattr("app.remote_media._open_ytdlp", lambda *_a, **_k: BoomYDL())
+    monkeypatch.setattr("app.remote_media._ytdlp_impersonate_attempts", lambda **_k: [None])
+    monkeypatch.setattr("app.remote_media._ytdlp_attempt_cookie_opts", lambda _url: [{}])
+    monkeypatch.setattr(
+        "app.remote_media._home_fetch_config",
+        lambda: ("https://home.example/fetch", "tok"),
+    )
+    home = tmp_path / "home.mp4"
+    home.write_bytes(b"ok-from-home")
+    monkeypatch.setattr(
+        "app.remote_media.download_via_home_fetch",
+        lambda *_a, **_k: home,
+    )
+    result = download_with_ytdlp(
+        "https://www.youtube.com/watch?v=abc", tmp_path
+    )
+    assert result == home
+
+
+def test_download_with_ytdlp_bot_check_without_home_fetch(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class BoomYDL:
+        def __enter__(self):
+            raise Exception(
+                "ERROR: [youtube] abc: Sign in to confirm you’re not a bot."
+            )
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr("app.remote_media._require_yt_dlp", lambda: object())
+    monkeypatch.setattr("app.remote_media._open_ytdlp", lambda *_a, **_k: BoomYDL())
+    monkeypatch.setattr("app.remote_media._ytdlp_impersonate_attempts", lambda **_k: [None])
+    monkeypatch.setattr("app.remote_media._ytdlp_attempt_cookie_opts", lambda _url: [{}])
+    monkeypatch.setattr("app.remote_media._home_fetch_config", lambda: ("", ""))
+    with pytest.raises(RemoteMediaError, match="클라우드 IP"):
+        download_with_ytdlp(
+            "https://www.youtube.com/watch?v=abc",
+            tmp_path,
+            allow_home_fetch=False,
+        )

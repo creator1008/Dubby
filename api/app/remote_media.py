@@ -33,7 +33,8 @@ _COOKIE_AUTH_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 _YOUTUBE_BOT_HINT_RE = re.compile(
-    r"not a bot|confirm you.?re not a bot|confirm you are not a bot",
+    r"not a bot|confirm you.?re not a bot|confirm you are not a bot|"
+    r"solve a challenge|http error 429",
     re.IGNORECASE,
 )
 _COOKIE_DB_HINT_RE = re.compile(
@@ -95,14 +96,14 @@ _YTDLP_HOST_SUFFIXES = (
     "tiktok.com",
 )
 
-# YouTube InnerTube clients. Default (None) first — that is the path that
-# previously worked with Chrome TLS impersonate. Forced android/ios-first
-# often returns LOGIN_REQUIRED on datacenter IPs and skips working clients.
+# YouTube InnerTube clients. TV/Android/iOS before the default web client —
+# Lightsail/AWS IPs are bot-gated on web. None keeps yt-dlp's built-in order.
 _YOUTUBE_PLAYER_CLIENT_SETS: tuple[tuple[str, ...] | None, ...] = (
-    None,
+    ("tv", "tv_embedded"),
     ("android",),
-    ("web_embedded", "tv_embedded", "tv"),
-    ("ios", "mweb"),
+    ("ios",),
+    None,
+    ("web_safari", "mweb"),
 )
 
 _BLOCKED_HOSTNAMES = frozenset(
@@ -828,7 +829,13 @@ def _ytdlp_impersonate_attempts(
         return [None]
     targets: list[str | None] = list(_ytdlp_impersonate_targets(facebook=facebook))
     if youtube:
-        targets.append(None)
+        # Chrome TLS + web is what YouTube bot-gates on AWS/Lightsail.
+        # Try the native stack (android/tv) before impersonating.
+        native_first = [None]
+        for target in targets:
+            if target not in native_first:
+                native_first.append(target)
+        return native_first
     return targets
 
 
@@ -855,10 +862,13 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
         ) from exc
     if _is_youtube_bot_check(message):
         raise RemoteMediaError(
-            "유튜브가 이 서버를 자동화로 차단했습니다. "
-            "공개 영상도 클라우드 IP에서는 막힐 수 있습니다. "
-            "영상을 내려받아 파일로 업로드하거나, 같은 네트워크에서 "
-            "로그인한 브라우저의 cookies.txt를 YTDLP_COOKIES_FILE로 지정하세요."
+            "유튜브가 이 클라우드 IP를 자동화로 차단했습니다. "
+            "Lightsail 같은 데이터센터에서는 공개 영상도 막힙니다. "
+            "쿠키만 서버에 넣는 것으로는 부족한 경우가 많습니다. "
+            "집 PC(일반 회선)에서 받는 홈 페치를 쓰거나 "
+            "(YTDLP_HOME_FETCH_URL + YTDLP_HOME_FETCH_TOKEN), "
+            "주거용 프록시를 YTDLP_PROXY에 넣거나, "
+            "영상을 내려받아 파일로 업로드하세요."
         ) from exc
     if _is_cookie_auth_error(message):
         raise RemoteMediaError(
@@ -934,6 +944,82 @@ def _ffmpeg_location() -> str | None:
     return None
 
 
+def _ytdlp_proxy() -> str:
+    try:
+        from .config import get_settings
+
+        configured = (get_settings().ytdlp_proxy or "").strip()
+    except Exception:  # noqa: BLE001
+        configured = ""
+    return configured or os.getenv("YTDLP_PROXY", "").strip()
+
+
+def _home_fetch_config() -> tuple[str, str]:
+    try:
+        from .config import get_settings
+
+        settings = get_settings()
+        url = (settings.ytdlp_home_fetch_url or "").strip()
+        token = (settings.ytdlp_home_fetch_token or "").strip()
+    except Exception:  # noqa: BLE001
+        url = ""
+        token = ""
+    return (
+        url or os.getenv("YTDLP_HOME_FETCH_URL", "").strip(),
+        token or os.getenv("YTDLP_HOME_FETCH_TOKEN", "").strip(),
+    )
+
+
+def download_via_home_fetch(
+    url: str,
+    dest_dir: Path,
+    *,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> Path:
+    """Download ``url`` through a residential host running this same API."""
+    fetch_url, token = _home_fetch_config()
+    if not fetch_url or not token:
+        raise RemoteMediaError("home fetch is not configured")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "source.bin"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "*/*",
+    }
+    timeout = httpx.Timeout(DOWNLOAD_TIMEOUT_SECONDS, connect=30.0)
+    content_type = ""
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with client.stream(
+            "POST", fetch_url, json={"url": url}, headers=headers
+        ) as response:
+            if response.status_code >= 400:
+                detail = (response.read() or b"").decode("utf-8", "replace")[:300]
+                raise RemoteMediaError(
+                    f"홈 페치가 실패했습니다 ({response.status_code}). {detail}".strip()
+                )
+            content_type = (response.headers.get("content-type") or "").lower()
+            written = 0
+            with dest.open("wb") as handle:
+                for chunk in response.iter_bytes(64 * 1024):
+                    written += len(chunk)
+                    if written > max_bytes:
+                        dest.unlink(missing_ok=True)
+                        raise RemoteMediaError(
+                            f"파일이 너무 큽니다 (최대 {max_bytes // (1024 * 1024)}MB)."
+                        )
+                    handle.write(chunk)
+    if dest.stat().st_size < 64:
+        dest.unlink(missing_ok=True)
+        raise RemoteMediaError("홈 페치가 빈 파일을 반환했습니다.")
+    suffix = ".webm" if "webm" in content_type else ".mp4"
+    named = dest.with_suffix(suffix)
+    if named != dest:
+        dest.replace(named)
+        dest = named
+    return dest
+
+
 def _base_ytdlp_opts(
     outtmpl: str,
     max_bytes: int,
@@ -968,6 +1054,9 @@ def _base_ytdlp_opts(
         opts["extractor_args"] = {"youtube": {"player_client": list(youtube_clients)}}
     if impersonate:
         opts["impersonate"] = impersonate
+    proxy = _ytdlp_proxy()
+    if proxy:
+        opts["proxy"] = proxy
     return opts
 
 
@@ -976,6 +1065,7 @@ def download_with_ytdlp(
     dest_dir: Path,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
+    allow_home_fetch: bool = True,
 ) -> Path:
     """Download a YouTube / Facebook / TikTok page URL via yt-dlp into ``dest_dir``."""
     url = normalize_remote_media_url(url)
@@ -1065,6 +1155,14 @@ def download_with_ytdlp(
 
     if last_error is not None or info is None:
         if (
+            allow_home_fetch
+            and youtube_host
+            and last_error is not None
+            and _is_youtube_bot_check(_strip_ansi(str(last_error)))
+            and all(_home_fetch_config())
+        ):
+            return download_via_home_fetch(url, dest_dir, max_bytes=max_bytes)
+        if (
             last_error is not None
             and facebook_share
             and cookie_db_failures > 0
@@ -1139,12 +1237,17 @@ async def ingest_remote_media(
     dest_dir: Path,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
+    allow_home_fetch: bool = True,
 ) -> Path:
     """Classify ``url`` and download into ``dest_dir`` as ``source.*``."""
     kind = classify_media_url(url)
     if kind == "ytdlp":
         return await asyncio.to_thread(
-            download_with_ytdlp, url, dest_dir, max_bytes=max_bytes
+            download_with_ytdlp,
+            url,
+            dest_dir,
+            max_bytes=max_bytes,
+            allow_home_fetch=allow_home_fetch,
         )
     if kind == "direct":
         return await download_direct_media(url, dest_dir, max_bytes=max_bytes)

@@ -39,6 +39,7 @@ import httpx
 
 from .local_r2_store import LocalR2Store
 from .remote_media import RemoteMediaError, ingest_remote_media
+from .routers.ytdlp_fetch import router as ytdlp_fetch_router
 from .worker.dub_quality import (
     cover_recognized_phrase_boundaries as _cover_recognized_phrase_boundaries,
     matched_loudness_gain as _matched_loudness_gain,
@@ -2713,6 +2714,7 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
 
 
 app = FastAPI(title="Dubby local step 1-2 verifier")
+app.include_router(ytdlp_fetch_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(

@@ -82,6 +82,22 @@ docker compose up -d --build
 Subsequent deploys: `bash infra/scripts/deploy.sh` (pull, rebuild, roll,
 health-gate).
 
+YouTube URL ingest on Lightsail: YouTube bot-gates AWS IPs. Cookies copied
+onto the instance are usually not enough (the request still leaves from the
+datacenter IP). Pick one:
+
+1. Home fetch (recommended): run this same API on a home/residential PC,
+   expose `POST /v1/internal/ytdlp-fetch` with a named tunnel, and set on
+   Lightsail (`infra/.env`, then `docker compose up -d`):
+   `YTDLP_HOME_FETCH_URL=https://<home-host>/v1/internal/ytdlp-fetch`
+   `YTDLP_HOME_FETCH_TOKEN=<long-random-secret>`
+   Use the same token on the home host. The home process must *not* set
+   `YTDLP_HOME_FETCH_URL` (it downloads locally; `allow_home_fetch=False`
+   already prevents a loop).
+2. Residential HTTP/SOCKS proxy: `YTDLP_PROXY=http://user:pass@host:port`
+   in `infra/.env`.
+3. Users download the video themselves and upload the file.
+
 Notes:
 
 - `WORKER_CONCURRENCY=1` (default) is correct for a small instance — one
