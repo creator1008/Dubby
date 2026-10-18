@@ -1039,6 +1039,32 @@ def _finish_home_fetch_file(dest: Path, content_type: str) -> Path:
     return dest
 
 
+def _raise_home_fetch_http(status: int, detail: str) -> None:
+    lower = (detail or "").lower()
+    if (
+        status in {530, 1033}
+        or "error code: 1033" in lower
+        or "error code: 530" in lower
+    ):
+        raise RemoteMediaError(
+            "홈 페치 터널이 꺼져 있습니다 (Cloudflare 530/1033). "
+            "집 PC에서 start-home-fetch.bat 과 start-tunnel.bat 을 켠 뒤 "
+            "https://fetch.dubbyai.com/healthz 가 ok 인지 확인하세요."
+        )
+    if status == 524:
+        raise RemoteMediaError(
+            "홈 페치가 Cloudflare 시간 제한에 걸렸습니다. "
+            "집 PC의 start-home-fetch.bat 이 최신인지 확인하세요."
+        )
+    if status in {1010, 403} and ("cloudflare" in lower or "cf-ray" in lower):
+        raise RemoteMediaError(
+            "Cloudflare가 홈 페치 요청을 차단했습니다. "
+            "fetch.dubbyai.com 에 api.dubbyai.com 과 같은 WAF Skip을 넣으세요."
+        )
+    snippet = (detail or "").replace("\n", " ").strip()[:180]
+    raise RemoteMediaError(f"홈 페치가 실패했습니다 ({status}). {snippet}".strip())
+
+
 def download_via_home_fetch(
     url: str,
     dest_dir: Path,
@@ -1068,9 +1094,7 @@ def download_via_home_fetch(
         ) as response:
             if response.status_code >= 400:
                 detail = (response.read() or b"").decode("utf-8", "replace")[:300]
-                raise RemoteMediaError(
-                    f"홈 페치가 실패했습니다 ({response.status_code}). {detail}".strip()
-                )
+                _raise_home_fetch_http(response.status_code, detail)
             content_type = (response.headers.get("content-type") or "").lower()
             if response.status_code == 202 or "application/json" in content_type:
                 payload = json.loads((response.read() or b"").decode("utf-8", "replace") or "{}")
@@ -1083,9 +1107,8 @@ def download_via_home_fetch(
                 while time.monotonic() < deadline:
                     status_resp = client.get(f"{base}/{job_id}", headers=auth)
                     if status_resp.status_code >= 400:
-                        detail = (status_resp.text or "")[:300]
-                        raise RemoteMediaError(
-                            f"홈 페치 상태 확인이 실패했습니다 ({status_resp.status_code}). {detail}".strip()
+                        _raise_home_fetch_http(
+                            status_resp.status_code, status_resp.text or ""
                         )
                     body = status_resp.json()
                     state = str(body.get("status") or "")
@@ -1101,9 +1124,7 @@ def download_via_home_fetch(
                 with client.stream("GET", f"{base}/{job_id}/file", headers=auth) as file_resp:
                     if file_resp.status_code >= 400:
                         detail = (file_resp.read() or b"").decode("utf-8", "replace")[:300]
-                        raise RemoteMediaError(
-                            f"홈 페치 파일 받기가 실패했습니다 ({file_resp.status_code}). {detail}".strip()
-                        )
+                        _raise_home_fetch_http(file_resp.status_code, detail)
                     content_type = _save_home_fetch_stream(file_resp, dest, max_bytes)
                 return _finish_home_fetch_file(dest, content_type)
             content_type = _save_home_fetch_stream(response, dest, max_bytes)

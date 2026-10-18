@@ -22,8 +22,11 @@ else
   echo "cloudflared not found"; exit 1
 fi
 
+if ! curl -sS -m 3 "http://127.0.0.1:8003/healthz" >/dev/null 2>&1; then
+  echo "WARN: nothing healthy on :8003 — start start-home-fetch.bat for YouTube"
+fi
 if ! curl -sS -m 3 "http://127.0.0.1:8000/healthz" >/dev/null 2>&1; then
-  echo "WARN: nothing healthy on :8000 — start uvicorn first"
+  echo "WARN: nothing healthy on :8000 — start uvicorn if you need the local API"
 fi
 
 echo "Starting named tunnel with $CONFIG (http2, ipv4)"

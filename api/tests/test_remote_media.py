@@ -31,6 +31,7 @@ from app.remote_media import (
     _ytdlp_impersonate_targets,
     _ytdlp_proxy,
     _assert_usable_ytdlp_proxy,
+    _raise_home_fetch_http,
 )
 
 
@@ -292,6 +293,12 @@ def test_ytdlp_proxy_reads_env_when_settings_empty(
     monkeypatch.setattr("app.config.get_settings", lambda: Empty())
     monkeypatch.setenv("YTDLP_PROXY", "http://user:pass@proxy:8080")
     assert _ytdlp_proxy() == "http://user:pass@proxy:8080"
+
+
+def test_home_fetch_530_tells_user_to_start_tunnel() -> None:
+    html = "<!doctype html><!--[if lt IE 7]> <html class=\"no-js ie6 oldie\""
+    with pytest.raises(RemoteMediaError, match="터널이 꺼져"):
+        _raise_home_fetch_http(530, html)
 
 
 def test_placeholder_ytdlp_proxy_is_rejected() -> None:
