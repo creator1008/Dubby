@@ -38,8 +38,12 @@ from dotenv import load_dotenv
 import httpx
 
 from .local_r2_store import LocalR2Store
-from .remote_media import RemoteMediaError, ingest_remote_media
-from .routers.ytdlp_fetch import router as ytdlp_fetch_router
+from .remote_media import (
+    YOUTUBE_INGEST_MSG,
+    RemoteMediaError,
+    ingest_remote_media,
+    is_youtube_media_url,
+)
 from .worker.dub_quality import (
     cover_recognized_phrase_boundaries as _cover_recognized_phrase_boundaries,
     matched_loudness_gain as _matched_loudness_gain,
@@ -2714,7 +2718,6 @@ def _render_dubbed_video(request: RenderDubRequest) -> dict:
 
 
 app = FastAPI(title="Dubby local step 1-2 verifier")
-app.include_router(ytdlp_fetch_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=(
@@ -2812,7 +2815,9 @@ async def create_step12_from_url(
     target_lang: Annotated[str, Query(pattern=LANG_QUERY_PATTERN)] = "en",
     diarization_enabled: Annotated[bool, Query()] = False,
 ) -> dict:
-    """Ingest a YouTube/Facebook/TikTok page URL or direct MP4/WebM link."""
+    """Ingest a Facebook/TikTok page URL or direct MP4/WebM link."""
+    if is_youtube_media_url(body.url.strip()):
+        raise HTTPException(400, YOUTUBE_INGEST_MSG)
     if source_lang not in SUPPORTED_LANGUAGES:
         raise HTTPException(400, "지원하지 않는 원어입니다.")
     run_id = uuid4().hex

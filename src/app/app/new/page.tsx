@@ -41,6 +41,7 @@ import type {
   UserVoice,
 } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
+import { isYouTubeMediaUrl, localYoutubeSaveHref } from "@/lib/youtube-url";
 import {
   applySpeakRateChange,
   ensureSourceEndMs,
@@ -281,6 +282,10 @@ export default function NewDubPage() {
       setError(text.enterVideoUrl);
       return null;
     }
+    if (inputMode === "url" && isYouTubeMediaUrl(trimmedUrl) && !file) {
+      setError(text.youtubeSaveThenUpload);
+      return null;
+    }
     if (!voiceConsent.accepted) {
       setError(text.acceptConsent);
       return null;
@@ -340,7 +345,9 @@ export default function NewDubPage() {
       dub_voice_ids: voiceMode === "voice_box" ? selectedDubVoiceIds : [],
     });
     try {
-      if (inputMode === "file" && file) {
+      const youtubeAsFile =
+        inputMode === "url" && Boolean(file) && isYouTubeMediaUrl(trimmedUrl);
+      if ((inputMode === "file" || youtubeAsFile) && file) {
         setLocalStage(text.uploading);
         await uploadSourceFile(created.id, file, (pct) => {
           setUploadPct(pct);
@@ -386,7 +393,7 @@ export default function NewDubPage() {
     if (isDemoMode) {
       setLocalStage(text.localExtractStage);
       const result =
-        inputMode === "url"
+        inputMode === "url" && !file
           ? await extractLocalStep12FromUrl(
               trimmedUrl,
               sourceLang,
@@ -1337,18 +1344,42 @@ export default function NewDubPage() {
           {inputMode === "file" ? (
             <FileUploader file={file} onFile={setFile} disabled={uploading} />
           ) : (
-            <label>
-              {text.videoLink}
-              <input
-                type="url"
-                value={mediaUrl}
-                onChange={(e) => setMediaUrl(e.target.value)}
-                placeholder={text.videoLinkPlaceholder}
-                disabled={uploading}
-                autoComplete="off"
-              />
-              <span className="field-hint">{text.videoLinkHint}</span>
-            </label>
+            <>
+              <label>
+                {text.videoLink}
+                <input
+                  type="url"
+                  value={mediaUrl}
+                  onChange={(e) => setMediaUrl(e.target.value)}
+                  placeholder={text.videoLinkPlaceholder}
+                  disabled={uploading}
+                  autoComplete="off"
+                />
+                <span className="field-hint">
+                  {isYouTubeMediaUrl(mediaUrl) ? text.youtubeSaveHint : text.videoLinkHint}
+                </span>
+              </label>
+              {isYouTubeMediaUrl(mediaUrl) && (
+                <div className="youtube-save-block">
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => {
+                      window.open(
+                        localYoutubeSaveHref(mediaUrl),
+                        "dubby-youtube-save",
+                        "width=560,height=460",
+                      );
+                    }}
+                  >
+                    {text.youtubeSaveToPc}
+                  </button>
+                  <p className="field-hint">{text.youtubeSaveHelperHint}</p>
+                  <FileUploader file={file} onFile={setFile} disabled={uploading} />
+                </div>
+              )}
+            </>
           )}
 
           <label className="consent-row">
@@ -1382,12 +1413,16 @@ export default function NewDubPage() {
               disabled={
                 uploading ||
                 !voiceConsent.accepted ||
-                (inputMode === "file" ? !file : !mediaUrl.trim())
+                (inputMode === "file"
+                  ? !file
+                  : isYouTubeMediaUrl(mediaUrl)
+                    ? !file
+                    : !mediaUrl.trim())
               }
             >
               {uploading
                 ? text.uploading
-                : inputMode === "url"
+                : inputMode === "url" && !isYouTubeMediaUrl(mediaUrl)
                   ? text.linkAndExtract
                   : text.uploadAndExtract}
             </button>
@@ -1398,7 +1433,11 @@ export default function NewDubPage() {
               disabled={
                 uploading ||
                 !voiceConsent.accepted ||
-                (inputMode === "file" ? !file : !mediaUrl.trim())
+                (inputMode === "file"
+                  ? !file
+                  : isYouTubeMediaUrl(mediaUrl)
+                    ? !file
+                    : !mediaUrl.trim())
               }
               onClick={() => void onBatchCreate()}
             >

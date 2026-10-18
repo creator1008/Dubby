@@ -8,12 +8,15 @@ import pytest
 
 from app.remote_media import (
     RemoteMediaError,
+    YOUTUBE_INGEST_MSG,
     _YOUTUBE_PLAYER_CLIENT_SETS,
     assert_public_http_url,
     assert_safe_direct_media_url,
     classify_media_url,
     download_via_home_fetch,
     download_with_ytdlp,
+    ingest_remote_media,
+    is_youtube_media_url,
     is_ytdlp_platform_host,
     normalize_remote_media_url,
     tiktok_video_id_from_url,
@@ -140,13 +143,20 @@ def test_youtube_bot_check_is_not_age_cookie_error() -> None:
     )
     assert _is_youtube_bot_check(message) is True
     assert _is_cookie_auth_error(message) is False
-    with pytest.raises(RemoteMediaError, match="자동화로 차단") as exc_info:
+    with pytest.raises(RemoteMediaError, match="서버에서 받을 수 없습니다") as exc_info:
         _raise_ytdlp_error(Exception(message), url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     text = str(exc_info.value)
     assert "쿠키가 필요합니다" not in text
-    assert "YTDLP_HOME_FETCH" in text
-    assert "YTDLP_PROXY" in text
     assert "업로드" in text
+
+
+def test_ingest_rejects_youtube(tmp_path) -> None:
+    import asyncio
+
+    assert is_youtube_media_url("https://youtu.be/9zOq6_MK40A")
+    with pytest.raises(RemoteMediaError, match="서버에서 받을 수 없습니다"):
+        asyncio.run(ingest_remote_media("https://youtu.be/9zOq6_MK40A", tmp_path))
+    assert YOUTUBE_INGEST_MSG
 
 
 def test_base_ytdlp_opts_impersonate_only_when_requested(
@@ -459,7 +469,7 @@ def test_download_via_home_fetch_requires_config(
         download_via_home_fetch("https://www.youtube.com/watch?v=abc", tmp_path)
 
 
-def test_download_with_ytdlp_falls_back_to_home_fetch(
+def test_download_with_ytdlp_bot_check_asks_for_file_upload(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class BoomYDL:
@@ -475,42 +485,5 @@ def test_download_with_ytdlp_falls_back_to_home_fetch(
     monkeypatch.setattr("app.remote_media._open_ytdlp", lambda *_a, **_k: BoomYDL())
     monkeypatch.setattr("app.remote_media._ytdlp_impersonate_attempts", lambda **_k: [None])
     monkeypatch.setattr("app.remote_media._ytdlp_attempt_cookie_opts", lambda _url: [{}])
-    monkeypatch.setattr(
-        "app.remote_media._home_fetch_config",
-        lambda: ("https://home.example/fetch", "tok"),
-    )
-    home = tmp_path / "home.mp4"
-    home.write_bytes(b"ok-from-home")
-    monkeypatch.setattr(
-        "app.remote_media.download_via_home_fetch",
-        lambda *_a, **_k: home,
-    )
-    result = download_with_ytdlp(
-        "https://www.youtube.com/watch?v=abc", tmp_path
-    )
-    assert result == home
-
-
-def test_download_with_ytdlp_bot_check_without_home_fetch(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class BoomYDL:
-        def __enter__(self):
-            raise Exception(
-                "ERROR: [youtube] abc: Sign in to confirm you’re not a bot."
-            )
-
-        def __exit__(self, *_exc):
-            return False
-
-    monkeypatch.setattr("app.remote_media._require_yt_dlp", lambda: object())
-    monkeypatch.setattr("app.remote_media._open_ytdlp", lambda *_a, **_k: BoomYDL())
-    monkeypatch.setattr("app.remote_media._ytdlp_impersonate_attempts", lambda **_k: [None])
-    monkeypatch.setattr("app.remote_media._ytdlp_attempt_cookie_opts", lambda _url: [{}])
-    monkeypatch.setattr("app.remote_media._home_fetch_config", lambda: ("", ""))
-    with pytest.raises(RemoteMediaError, match="클라우드 IP"):
-        download_with_ytdlp(
-            "https://www.youtube.com/watch?v=abc",
-            tmp_path,
-            allow_home_fetch=False,
-        )
+    with pytest.raises(RemoteMediaError, match="서버에서 받을 수 없습니다"):
+        download_with_ytdlp("https://www.youtube.com/watch?v=abc", tmp_path)

@@ -23,9 +23,6 @@ def test_settings_defaults() -> None:
 
     settings = Settings(_env_file=None)
     assert settings.app_env == "local"
-    assert settings.ytdlp_proxy == ""
-    assert settings.ytdlp_home_fetch_url == ""
-    assert settings.ytdlp_home_fetch_token == ""
     assert settings.worker_concurrency == 1
     assert "http://localhost:3000" in settings.cors_origin_list
     assert "https://dubbyai.com" in settings.cors_origin_list
@@ -86,9 +83,6 @@ def test_expected_routes_registered() -> None:
         "/v1/uploads/multipart/{upload_id}/abort",
         "/v1/voices/box/clone",
         "/v1/voices/box/clone/uploads",
-        "/v1/internal/ytdlp-fetch",
-        "/v1/internal/ytdlp-fetch/{job_id}",
-        "/v1/internal/ytdlp-fetch/{job_id}/file",
     }
     assert expected <= paths
 

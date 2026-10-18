@@ -17,7 +17,12 @@ from ..auth import CurrentUser
 from ..config import get_settings
 from ..deps import Repo, Storage
 from ..errors import BadRequestError, NotFoundError
-from ..remote_media import RemoteMediaError, ingest_remote_media
+from ..remote_media import (
+    YOUTUBE_INGEST_MSG,
+    RemoteMediaError,
+    ingest_remote_media,
+    is_youtube_media_url,
+)
 from ..schemas import (
     DownloadUrlResponse,
     ProjectCreate,
@@ -364,6 +369,8 @@ async def source_from_url(
     media_url = body.url.strip()
     if not media_url:
         raise BadRequestError("url is required")
+    if is_youtube_media_url(media_url):
+        raise BadRequestError(YOUTUBE_INGEST_MSG)
 
     row = await repo.update_project(
         user.id,

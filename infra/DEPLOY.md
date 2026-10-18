@@ -82,22 +82,10 @@ docker compose up -d --build
 Subsequent deploys: `bash infra/scripts/deploy.sh` (pull, rebuild, roll,
 health-gate).
 
-YouTube URL ingest on Lightsail: YouTube bot-gates AWS IPs. Cookies copied
-onto the instance are usually not enough (the request still leaves from the
-datacenter IP). Pick one:
-
-1. Home fetch (recommended). On the home PC:
-   `bash scripts/setup-home-fetch.sh` (DNS `fetch.dubbyai.com` → tunnel)
-   then keep `start-home-fetch.bat` and `start-tunnel.bat` running.
-   On Lightsail `infra/.env` (then `docker compose up -d`):
-   `YTDLP_HOME_FETCH_URL=https://fetch.dubbyai.com/v1/internal/ytdlp-fetch`
-   `YTDLP_HOME_FETCH_TOKEN=<same token as api/.env on the home PC>`
-   Do **not** set `YTDLP_HOME_FETCH_URL` on the home host.
-   Add a Cloudflare WAF skip for `fetch.dubbyai.com` (same as `api`).
-2. Residential HTTP/SOCKS proxy from a real vendor (do not copy a
-   placeholder): `YTDLP_PROXY=http://USERNAME:PASSWORD@gate.YOUR-PROVIDER.com:7777`
-   in `infra/.env`.
-3. Users download the video themselves and upload the file.
+YouTube URLs are not ingested on Lightsail. In the app, a YouTube link
+enables **PC에 저장** only (`start-youtube-save.bat` on 127.0.0.1:8003).
+Users then upload the saved file. Do not set `YTDLP_HOME_FETCH_*` on the
+instance. Facebook / TikTok / direct MP4 links still use server ingest.
 
 Notes:
 

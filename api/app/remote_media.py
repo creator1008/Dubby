@@ -135,6 +135,17 @@ def _is_youtube_host(host: str) -> bool:
     return any(_host_matches_suffix(host, suffix) for suffix in ("youtube.com", "youtu.be"))
 
 
+YOUTUBE_INGEST_MSG = (
+    "유튜브 링크는 서버에서 받을 수 없습니다. "
+    "PC에 저장한 뒤 파일로 업로드하세요."
+)
+
+
+def is_youtube_media_url(url: str) -> bool:
+    host = _hostname(normalize_remote_media_url(url))
+    return bool(host) and _is_youtube_host(host)
+
+
 def is_ytdlp_platform_host(host: str) -> bool:
     host = host.strip().lower().rstrip(".")
     if not host:
@@ -864,15 +875,7 @@ def _raise_ytdlp_error(exc: BaseException, *, url: str = "") -> None:
             "설정해 주세요."
         ) from exc
     if _is_youtube_bot_check(message):
-        raise RemoteMediaError(
-            "유튜브가 이 클라우드 IP를 자동화로 차단했습니다. "
-            "Lightsail 같은 데이터센터에서는 공개 영상도 막힙니다. "
-            "쿠키만 서버에 넣는 것으로는 부족한 경우가 많습니다. "
-            "집 PC(일반 회선)에서 받는 홈 페치를 쓰거나 "
-            "(YTDLP_HOME_FETCH_URL + YTDLP_HOME_FETCH_TOKEN), "
-            "주거용 프록시를 YTDLP_PROXY에 넣거나, "
-            "영상을 내려받아 파일로 업로드하세요."
-        ) from exc
+        raise RemoteMediaError(YOUTUBE_INGEST_MSG) from exc
     if _is_cookie_auth_error(message):
         raise RemoteMediaError(
             "이 영상은 로그인·연령/민감 콘텐츠 제한으로 쿠키가 필요합니다. "
@@ -1176,7 +1179,6 @@ def download_with_ytdlp(
     dest_dir: Path,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
-    allow_home_fetch: bool = True,
 ) -> Path:
     """Download a YouTube / Facebook / TikTok page URL via yt-dlp into ``dest_dir``."""
     url = normalize_remote_media_url(url)
@@ -1266,14 +1268,6 @@ def download_with_ytdlp(
 
     if last_error is not None or info is None:
         if (
-            allow_home_fetch
-            and youtube_host
-            and last_error is not None
-            and _is_youtube_bot_check(_strip_ansi(str(last_error)))
-            and all(_home_fetch_config())
-        ):
-            return download_via_home_fetch(url, dest_dir, max_bytes=max_bytes)
-        if (
             last_error is not None
             and facebook_share
             and cookie_db_failures > 0
@@ -1348,9 +1342,10 @@ async def ingest_remote_media(
     dest_dir: Path,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
-    allow_home_fetch: bool = True,
 ) -> Path:
     """Classify ``url`` and download into ``dest_dir`` as ``source.*``."""
+    if is_youtube_media_url(url):
+        raise RemoteMediaError(YOUTUBE_INGEST_MSG)
     kind = classify_media_url(url)
     if kind == "ytdlp":
         return await asyncio.to_thread(
@@ -1358,11 +1353,10 @@ async def ingest_remote_media(
             url,
             dest_dir,
             max_bytes=max_bytes,
-            allow_home_fetch=allow_home_fetch,
         )
     if kind == "direct":
         return await download_direct_media(url, dest_dir, max_bytes=max_bytes)
     raise RemoteMediaError(
-        "지원하지 않는 링크입니다. YouTube / Facebook / TikTok 페이지 URL 또는 "
-        "직접 MP4·WebM 미디어 URL을 입력해 주세요."
+        "지원하지 않는 링크입니다. Facebook / TikTok 페이지 URL 또는 "
+        "직접 MP4·WebM 미디어 URL을 입력해 주세요. 유튜브는 PC에 저장한 뒤 업로드하세요."
     )

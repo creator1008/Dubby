@@ -79,7 +79,7 @@ async def _run_job(job_id: str, url: str) -> None:
     dest = Path(tempfile.mkdtemp(prefix="dubby-ytdlp-fetch-"))
     job.dest = dest
     try:
-        path = await ingest_remote_media(url, dest, allow_home_fetch=False)
+        path = await ingest_remote_media(url, dest)
         job.path = path
         job.status = "done"
     except RemoteMediaError as exc:
