@@ -41,7 +41,7 @@ import type {
   UserVoice,
 } from "@/lib/ui-types";
 import { mergeSegmentVoiceFields } from "@/lib/ui-types";
-import { isYouTubeMediaUrl, localYoutubeSaveHref } from "@/lib/youtube-url";
+import { downloadYoutubeSaveCmd, isYouTubeMediaUrl } from "@/lib/youtube-url";
 import {
   applySpeakRateChange,
   ensureSourceEndMs,
@@ -1366,11 +1366,7 @@ export default function NewDubPage() {
                     type="button"
                     disabled={uploading}
                     onClick={() => {
-                      window.open(
-                        localYoutubeSaveHref(mediaUrl),
-                        "dubby-youtube-save",
-                        "width=560,height=460",
-                      );
+                      downloadYoutubeSaveCmd(mediaUrl);
                     }}
                   >
                     {text.youtubeSaveToPc}

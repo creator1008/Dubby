@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isYouTubeMediaUrl, localYoutubeSaveHref } from "@/lib/youtube-url";
+import { isYouTubeMediaUrl, localYoutubeSaveHref, youtubeSaveCmd } from "@/lib/youtube-url";
 
 describe("isYouTubeMediaUrl", () => {
   it("accepts common YouTube hosts", () => {
@@ -20,5 +20,14 @@ describe("localYoutubeSaveHref", () => {
     expect(localYoutubeSaveHref("https://youtu.be/9zOq6_MK40A")).toContain(
       "127.0.0.1:8003/save?url=",
     );
+  });
+});
+
+describe("youtubeSaveCmd", () => {
+  it("embeds the watch URL and yt-dlp output path", () => {
+    const cmd = youtubeSaveCmd("https://youtu.be/9zOq6_MK40A");
+    expect(cmd).toContain("https://youtu.be/9zOq6_MK40A");
+    expect(cmd).toContain("-m yt_dlp");
+    expect(cmd).toContain("%%(id)s");
   });
 });

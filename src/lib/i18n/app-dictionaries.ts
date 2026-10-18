@@ -244,10 +244,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
       "Facebook · TikTok 페이지 URL, 또는 직접 MP4/WebM 링크 (최대 60분 · 500MB). 유튜브는 PC에 저장한 뒤 파일로 올리세요.",
     youtubeSaveToPc: "PC에 저장",
     youtubeSaveHint:
-      "유튜브는 서버에서 받지 않습니다. PC에 저장한 다음 그 파일을 올리세요.",
+      "유튜브는 서버에서 받지 않습니다. PC에 저장을 누르면 저장용 파일이 받아집니다.",
     youtubeSaveThenUpload: "유튜브 영상을 PC에 저장한 다음 파일을 선택해 주세요.",
     youtubeSaveHelperHint:
-      "저장 창이 열리지 않으면 이 PC에서 start-youtube-save.bat 을 실행하세요.",
+      "받은 dubby-유튜브-저장.cmd 을 실행하세요. 영상이 다운로드 폴더에 생기면 아래에서 고르세요. 브라우저가 차단하면 '유지'를 누르세요.",
     fetchingLink: "링크에서 영상 가져오는 중",
     fetchingLinkFailed: "링크에서 영상을 가져오지 못했습니다.",
     fetchingLinkTimeout: "영상 가져오기 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
@@ -628,10 +628,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
       "Facebook · TikTok page URLs, or direct MP4/WebM links (max 60 min · 500MB). For YouTube, save to this PC then upload the file.",
     youtubeSaveToPc: "Save to PC",
     youtubeSaveHint:
-      "YouTube is not fetched on the server. Save it to this PC, then upload the file.",
+      "YouTube is not fetched on the server. Save to PC downloads a helper script.",
     youtubeSaveThenUpload: "Save the YouTube video to this PC, then choose that file.",
     youtubeSaveHelperHint:
-      "If the save window does not open, run start-youtube-save.bat on this PC.",
+      "Run the downloaded dubby-유튜브-저장.cmd. When the file appears in Downloads, choose it below. If the browser blocks it, click Keep.",
     fetchingLink: "Fetching video from link",
     fetchingLinkFailed: "Could not fetch the video from this link.",
     fetchingLinkTimeout: "Fetching the video timed out. Please try again.",
@@ -1012,10 +1012,10 @@ export const appDictionaries: Record<Locale, Record<string, string>> = {
       "URL trang Facebook · TikTok, hoặc liên kết MP4/WebM trực tiếp (tối đa 60 phút · 500MB). YouTube: lưu vào PC rồi tải tệp lên.",
     youtubeSaveToPc: "Lưu vào PC",
     youtubeSaveHint:
-      "YouTube không được tải trên máy chủ. Hãy lưu vào PC rồi tải tệp lên.",
+      "YouTube không được tải trên máy chủ. Nút Lưu vào PC sẽ tải script xuống.",
     youtubeSaveThenUpload: "Hãy lưu video YouTube vào PC, rồi chọn tệp đó.",
     youtubeSaveHelperHint:
-      "Nếu cửa sổ lưu không mở, hãy chạy start-youtube-save.bat trên PC này.",
+      "Chạy file dubby-유튜브-저장.cmd vừa tải. Khi video nằm trong Downloads, hãy chọn bên dưới. Nếu trình duyệt chặn, hãy chọn Keep.",
     fetchingLink: "Đang lấy video từ liên kết",
     fetchingLinkFailed: "Không lấy được video từ liên kết này.",
     fetchingLinkTimeout: "Hết thời gian lấy video. Vui lòng thử lại.",
